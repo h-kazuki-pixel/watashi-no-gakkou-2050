@@ -227,8 +227,8 @@
       return out;
     }
     var nowLine = c.sample || st.calib
-      ? "いま、子どもは <b class=\"n\">" + num(c.now) + "</b>人。"
-      : "いま、この 学区に 住む 小学生は やく <b class=\"n\">" + num(c.now) + "</b>人。";
+      ? "いま、子どもは <span class=\"nw\"><b class=\"n\">" + num(c.now) + "</b>人。</span>"
+      : "いま、この 学区に 住む 小学生は <span class=\"nw\">やく <b class=\"n\">" + num(c.now) + "</b>人。</span>";
     var ageLine = c.age ? "きみが " + c.age + "さいに なる ころ" : "いまから 24年後";
 
     root.innerHTML = UG.ruby(
@@ -294,7 +294,7 @@
     function readout(vals, ok) {
       var el = UG.$("#readout", root);
       el.innerHTML = UG.ruby(ok
-        ? "きみの よそう：2050年に <b>" + num(vals[2050]) + "</b>人"
+        ? "きみの よそう：2050年に <span class=\"nw\"><b>" + num(vals[2050]) + "</b>人</span>"
         : "2050年まで 線を のばそう");
     }
     var chart = UG.lineChart(UG.$("#chart", root), {

@@ -76,12 +76,16 @@
         s.push('<circle class="' + cls + '" cx="' + sx(p.y) + '" cy="' + sy(p.v) + '" r="' + (p.src === "now" ? 7 : 4.5) + '"/>');
       }
     });
+    var nowBelow = false;
     if (cfg.now) {
-      // 「いま」のラベルは、これまでの線と重ならない側（線が上から来るなら下、下から来るなら上）に置く
+      // 「いま」のラベルは、これまでの線と重ならない側（線が上から来るなら下、下から来るなら上）に置く。
+      // なぞる画面（drawable）では、案内の文「ここから 右へ なぞってね →」を点の上に出すので、「いま」は下に置く
       var prev = past.length > 1 ? past[past.length - 2] : null;
-      var ny = sy(cfg.now.v), below = prev ? prev.v > cfg.now.v : false;
+      var ny = sy(cfg.now.v), below = cfg.drawable ? true : prev ? prev.v > cfg.now.v : false;
       if (below && ny + 26 > H - B - 4) below = false;
       if (!below && ny - 14 < T + 12) below = true;
+      nowBelow = below;
+      var nowLabY = { below: ny + 26, above: ny - 14, canBelow: ny + 26 <= H - B - 4, canAbove: ny - 14 >= T + 12 };
       var roomLeft = sx(cfg.now.y) - L;
       s.push('<text class="lab-now" x="' + (roomLeft > 96 ? sx(cfg.now.y) - 10 : L + 4) + '" y="' + (below ? ny + 26 : ny - 14) +
         '" text-anchor="' + (roomLeft > 96 ? "end" : "start") + '">いま ' + UG.num(cfg.now.v) + "人</text>");
@@ -118,6 +122,14 @@
     function renderMine(focusYear) {
       var out = [], pts = minePoints();
       var hasAny = pts.length > 1;
+      // なぞる画面で線をかいたら、「いま ○人」を線と反対の側に移す（線が下へ向かうなら上、上へ向かうなら下）
+      var lab = cfg.drawable && cfg.now ? svg.querySelector(".lab-now") : null;
+      if (lab) {
+        var wantBelow = hasAny ? pts[1].v > cfg.now.v : nowBelow;
+        if (wantBelow && !nowLabY.canBelow) wantBelow = false;
+        if (!wantBelow && !nowLabY.canAbove) wantBelow = true;
+        lab.setAttribute("y", wantBelow ? nowLabY.below : nowLabY.above);
+      }
       if (hasAny) out.push('<path class="l-mine" d="' + path(pts, sx, sy) + '"/>');
       if (cfg.drawable) {
         drawYears.forEach(function (y) {
@@ -128,7 +140,10 @@
             '" aria-valuenow="' + (has ? Math.round(mine[y]) : "") + '"/>');
         });
         if (!hasAny) {
-          var hy = sy(cfg.now.v) - 26 < T + 14 ? sy(cfg.now.v) + 36 : sy(cfg.now.v) - 26;
+          // 案内の文は「いま ○人」と反対の側に置く。同じ側になるとき（点がグラフの上か下の端）は、1段離す
+          var py0 = sy(cfg.now.v), hy;
+          if (nowBelow) hy = py0 - 22 >= T + 4 ? py0 - 22 : py0 + 50;
+          else hy = py0 - 38 >= T + 4 ? py0 - 38 : py0 + 30;
           out.push('<text class="hint" x="' + (sx(cfg.now.y) + 16) + '" y="' + hy + '">ここから 右へ なぞってね →</text>');
         }
       } else {

@@ -234,6 +234,8 @@ svg.map { display: block; width: 100%; height: auto; }
 .big { font-size: 1.25em; }
 .big .n, .tile b { font-weight: 700; font-size: 2em; line-height: 1; font-variant-numeric: tabular-nums; }
 .big .n { background: linear-gradient(transparent 62%, var(--marker) 62%); padding: 0 6px; }
+/* 「やく 321人。」は数字といっしょに1行に（「やく」だけが前の行に残らないように） */
+.nw { white-space: nowrap; }
 .dots { display: flex; flex-wrap: wrap; gap: 4px; max-width: 760px; }
 .dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--ink); }
 .calib { border-top: 2px dashed var(--grid-strong); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }

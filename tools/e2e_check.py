@@ -177,6 +177,27 @@ def main() -> int:
         page.wait_for_selector("svg.chart .pad")
         assert page.is_disabled("#next-btn")
         shot("2-yosou-before", full=False)
+
+        # 「いま ○人」と「ここから 右へ なぞってね →」の文字の枠が重ならない（広い画面とスマホ幅、いまの人数が少ない・多い）
+        NO_OVERLAP = """() => { const a = document.querySelector('svg.chart .lab-now').getBoundingClientRect();
+          const h = document.querySelector('svg.chart .hint').getBoundingClientRect();
+          return [a.right <= h.left || h.right <= a.left || a.bottom <= h.top || h.bottom <= a.top,
+                  document.querySelector('svg.chart .lab-now').textContent]; }"""
+        def labels_apart(where):
+            ok, lab = page.evaluate(NO_OVERLAP)
+            assert ok, f"[step2 {where}] 「{lab}」と案内の文が重なる"
+        labels_apart("1180px")
+        est0 = page.evaluate("UG.ctx().school.est[0]")
+        for w, v in ((390, None), (320, 1589), (320, 3)):
+            page.set_viewport_size({"width": w, "height": 820})
+            if v is not None:  # いまの人数を一時的に変える（4桁・1桁）。表示だけで、保存はしない
+                page.evaluate(f"UG.ctx().school.est[0] = {v}; UG.render()")
+            page.wait_for_function("!!document.querySelector('svg.chart .hint')")
+            page.wait_for_timeout(300)  # main.js の resize の描き直し（200ms）を待つ
+            labels_apart(f"{w}px いま{v or ''}")
+        page.evaluate(f"UG.ctx().school.est[0] = {est0}; UG.render()")
+        page.set_viewport_size({"width": 1180, "height": 820})
+        page.wait_for_timeout(300)
         draw_line(0.62, 0.74, 140, 30)
         assert not page.is_disabled("#next-btn"), "線を描いても次へ進めない"
         drawn = page.evaluate("UG.state.draw")
