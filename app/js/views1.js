@@ -9,6 +9,14 @@
   // 学区データの利用条件が「条件公開」か特記条件つきの市区町村（pref_XX.js の city.note）
   UG.TERMS_NOTE = "この まちの 学区は めやすです。くわしくは 教育委員会に たしかめてね。";
   UG.APPROX_NOTE = "この まちは 学区の 地図データが ないため、学校から いちばん 近い 場所で 分けた「おおよその 区域」で 計算しています。本当の 学区とは ちがう ところが あります。";
+  // 学区データのある まちで、学区データに 入って いない 学校（学校だけが approx）
+  UG.APPROX_SCHOOL_NOTE = "この 学校は 学区の 地図データに 入って いないため、学区に 入らなかった 場所の うち、この 学校が いちばん 近い 場所で「おおよその 区域」を 作って 計算しています。本当の 学区とは ちがう ところが あります。";
+  /** 「おおよその 区域」の 注意（まち全体か、学校だけか）。どちらでもなければ "" */
+  UG.approxNote = function (city, school) {
+    if (city && city.approx) return UG.APPROX_NOTE;
+    if (school && school.approx) return UG.APPROX_SCHOOL_NOTE;
+    return "";
+  };
 
   UG.STEPS = [
     { id: "step1", no: 1, name: "ぎもん", desc: "「何人に なる？」と 問いを 立てる" },
@@ -91,7 +99,7 @@
         "</div>";
     }
     function listHtml() {
-      var items = city.schools.filter(function (s) { return !filter || s.name.indexOf(filter) >= 0; });
+      var items = city.schools.filter(function (s) { return M.matchSchool(s.name, filter); });
       if (!items.length) return '<p class="empty">その 名前の 学校は 見つからなかったよ。</p>';
       return items.map(function (s) {
         return '<button type="button" class="school-btn' + (s.id === st.schoolId ? " on" : "") + '" data-school="' + esc(s.id) + '" aria-pressed="' + (s.id === st.schoolId) + '">' +
@@ -118,6 +126,7 @@
           pickerHtml() +
           (pref.sample ? '<p class="note">れんしゅう用の「みらい市」です。本当には ない まちで、数字は つくりものです。</p>' : "") +
           (city.approx ? '<p class="note">' + UG.APPROX_NOTE + "</p>" : "") +
+          '<div id="school-note">' + schoolNoteHtml() + "</div>" +
           (city.note ? '<p class="note">' + UG.TERMS_NOTE + "</p>" : "") +
           '<div class="pick-body"><div class="school-list" id="school-list">' + listHtml() + '</div><div class="mapbox" id="home-map"></div></div>' +
         "</div>" +
@@ -150,6 +159,14 @@
         onSelect: function (id) { select(id); }
       });
     }
+    /** 学区データのある まちで、えらんだ 学校が「おおよその 区域」の とき だけ 出す */
+    function schoolNoteHtml() {
+      if (city.approx) return "";
+      var sc = null;
+      city.schools.forEach(function (s) { if (s.id === st.schoolId) sc = s; });
+      var t = UG.approxNote(city, sc);
+      return t ? '<p class="note">' + t + "</p>" : "";
+    }
     function select(id) {
       if (st.schoolId !== id) {
         // 学校を変えたら、その学校についての作業はやり直し
@@ -161,6 +178,7 @@
       }
       UG.save();
       UG.$("#school-list", root).innerHTML = UG.ruby(listHtml());
+      UG.$("#school-note", root).innerHTML = UG.ruby(schoolNoteHtml());
       UG.$("#start", root).disabled = false;
       drawMap();
       UG.renderChrome();
@@ -217,7 +235,7 @@
         '<p class="big">' + nowLine + "</p>" +
         '<div class="dots" aria-hidden="true">' + dots(c.now) + "</div>" +
         '<p class="fine">● 1つ ＝ ' + unit + "人" + (c.sample ? "" : "（国の 2025年の 推計から 計算）") + "</p>" +
-        (c.city.approx ? '<p class="note">' + UG.APPROX_NOTE + "</p>" : "") +
+        (UG.approxNote(c.city, c.school) ? '<p class="note">' + UG.approxNote(c.city, c.school) + "</p>" : "") +
         (c.city.note ? '<p class="note">' + UG.TERMS_NOTE + "</p>" : "") +
         (c.sample ? "" :
           '<div class="calib"><label for="calib">学校の 本当の 人数（全校の 児童数）を 知っていたら 入れてね。計算を それに 合わせるよ。</label>' +
@@ -336,7 +354,8 @@
           "<li><b>数える</b><br>国が 5年に 1回、日本に 住む 人を みんな 数える（国勢調査）。</li>" +
           "<li><b>計算する</b><br>国が、500メートルの ますめ ごとに、これからの 人口を 計算する（将来推計人口）。</li>" +
           "<li><b>たし算する</b><br>この アプリが、学区の 中の ますめを たして、小学生の 年れい（6〜11さい）の 人数を 出す。" +
-            (c.city.approx ? "この まちは 学区の 地図が ないので、学校から いちばん 近い ますめを たしている。" : "") + "</li>" +
+            (c.city.approx ? "この まちは 学区の 地図が ないので、学校から いちばん 近い ますめを たしている。" :
+              c.school.approx ? "この 学校は 学区の 地図に 入って いないので、学区に 入らなかった ますめの うち、この 学校が いちばん 近い ますめを たしている。" : "") + "</li>" +
         "</ol>" +
         '<p class="caution"><b>だいじな こと</b>　これは「いまの ながれが つづいたら」の 計算。きまった みらい では ないよ。</p>' +
       "</section>" +

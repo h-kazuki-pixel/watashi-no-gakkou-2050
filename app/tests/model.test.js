@@ -109,3 +109,18 @@ test("学年別漢字配当表：学年ごとの字数と、語の学年", () =>
   assert.equal(K.gradeOf("鬱"), 7);         // 配当表に無い漢字
   assert.equal(K.gradeOf("ふりがな"), 0);   // 漢字なし
 });
+
+test("学校をさがす：先頭の設置者を外して比べる", () => {
+  assert.equal(M.schoolQuery("福岡市立西新小学校"), "西新小学校");
+  assert.equal(M.schoolQuery("福岡市立"), "");
+  assert.equal(M.schoolQuery(" 岡垣町立 吉木 "), "吉木");
+  assert.equal(M.schoolQuery("東村立"), "");
+  assert.equal(M.schoolQuery("千代田区立麹町小"), "麹町小");
+  assert.equal(M.schoolQuery("〇〇学校組合立△△小学校"), "△△小学校");
+  assert.equal(M.schoolQuery("西新"), "西新");           // 設置者が無ければそのまま
+  assert.equal(M.schoolQuery("立花小学校"), "立花小学校"); // 「立」だけでは外さない
+  assert.equal(M.matchSchool("西新小学校", "福岡市立西新小学校"), true);
+  assert.equal(M.matchSchool("西新小学校", "福岡市立"), true); // 空になったら全部
+  assert.equal(M.matchSchool("西新小学校", ""), true);
+  assert.equal(M.matchSchool("西新小学校", "福岡市立百道小学校"), false);
+});

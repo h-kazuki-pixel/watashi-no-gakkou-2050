@@ -583,7 +583,9 @@ def test_validate_approx_cli_writes_city_summaries(tmp_path, capsys):
     v = report["validate_approx"]
     assert v["year"] == 2025 and set(v["cities"]) == {"99101", "99102"}
     assert v["pref"]["schools"] == sum(c["schools"] for c in v["cities"].values()) == 4
-    assert report["schools"] == 4                                # build の結果は残っている
+    # build の結果は残っている。学区の穴（きた小の中の1セル）の子どもは、学区データに無い公立小（うみ・やま）のうち
+    # 近い方に補われるので 5 校。validate-approx は学区のある学校（4校）だけを比べる
+    assert report["schools"] == 5 and report["filled_missing_schools"] == {"99102": 1}
     text = json.dumps(v, ensure_ascii=False)
     assert "小学校" not in text                                   # 学校名は出さない
     capsys.readouterr()
@@ -686,3 +688,62 @@ def test_city_from_address():
     assert city_from_address("福岡県久留米市城南町15-3") == "久留米市"
     assert city_from_address("東京都千代田区") == "千代田区"
     assert city_from_address("東京都八王子市元本郷町3-24-1") == "八王子市"
+
+
+# ---------------------------------------------------------------- 学区データに入っていない学校を補う
+
+def _missing_school_downloads(folder):
+    """みほん市西区（99102）の学区データに「きた小」が無い県（みなみ小だけがある）。
+    みほん市東区（99101）は学区データで全部覆われている。学校の位置データには、きた小・みなみ小がある。"""
+    import zipfile
+    folder.mkdir(parents=True, exist_ok=True)
+    feats = [{"type": "Feature", "properties": p, "geometry": {"type": "MultiPolygon", "coordinates": g}}
+             for p, g in district_features() if p["A27_004"] != "きた小学校"]
+    with zipfile.ZipFile(folder / "A27-23_99_GML.zip", "w") as z:
+        z.writestr("A27-23_99.geojson", json.dumps({"type": "FeatureCollection", "features": feats}, ensure_ascii=False))
+
+    def school(code, name, c, r):
+        return {"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + c * DLNG, LAT0 + r * DLAT]},
+                "properties": {"P29_001": "99102", "P29_002": code, "P29_003": "16001", "P29_004": name,
+                               "P29_005": "テスト県みほん市西区2丁目3番4号"}}
+    pts = [school("B199210000042", "みほん市立みなみ小学校", 6.0, 1.5),   # 学区データにある（学校コードが違うので名前で突き合わせる）
+           school("B199210000051", "みほん市立きた小学校", 6.0, 6.0),     # 学区データに無い → 補う
+           school("B199310000014", "ひかり学園小学校", 6.0, 5.0)]         # 私立（使わない）
+    with zipfile.ZipFile(folder / "P29-23_99.zip", "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps({"type": "FeatureCollection", "features": pts}, ensure_ascii=False))
+    make_mesh_csv(folder / "m.csv")
+    with zipfile.ZipFile(folder / "500m_mesh_2024_99.zip", "w") as z:
+        z.write(folder / "m.csv", "500m_mesh_2024_99.csv")
+    (folder / "m.csv").unlink()
+
+
+def test_missing_school_filled_without_changing_district_schools(tmp_path, capsys):
+    # 西区の学区はみなみ小（下 3.5 行）だけ。上 4.5 行（18セル＝180人）はどの学区にも入らない。
+    # その点を、西区の公立小（みなみ小・きた小）のうち近い方に当て、きた小が近い点だけをきた小に足す。
+    # みなみ小（y=1.5）ときた小（y=6）の真ん中は y=3.75。行 3 の上半分の点のうち y=3.625 の列（4セル×4点＝10人）は
+    # みなみ小のほうが近いので、未配分のまま残る（みなみ小の値は変えない）。きた小は 180 − 10 = 170人。
+    _missing_school_downloads(tmp_path / "dl")
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["filled_missing_schools"] == {"99102": 1} and report["approx_cities"] == {}
+    assert report["allocated_2025"] == pytest.approx(630.0) and report["unassigned_2025"] == pytest.approx(10.0)
+    assert report["conservation_error"] < 1e-6                     # 配分＋補った分＋未配分＝メッシュの合計（全年）
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    west = next(c for c in pref["cities"] if c["code"] == "99102")
+    assert "approx" not in west                                    # 市区町村ではなく、補った学校だけが approx
+    by = {s["name"]: s for c in pref["cities"] for s in c["schools"]}
+    assert by["きた小学校"]["approx"] is True and by["きた小学校"]["est"][0] == pytest.approx(170.0, abs=0.05)
+    assert "ひかり学園小学校" not in by
+    for n in ("にし小学校", "かさなり小学校", "みなみ小学校"):
+        assert "approx" not in by[n] and by[n]["est"][0] == pytest.approx(EXPECT_2025[n])
+
+    # 補わない場合と比べて、学区のある学校の値は1つも変わらない
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d0"), "--no-fill"])
+    assert rc == 0
+    pref0 = load_registered(tmp_path / "d0" / "pref_99.js", "registerPref")
+    by0 = {s["name"]: s for c in pref0["cities"] for s in c["schools"]}
+    assert set(by0) == {"にし小学校", "かさなり小学校", "みなみ小学校"}
+    for n, s0 in by0.items():
+        assert by[n]["est"] == s0["est"] and by[n]["ages"] == s0["ages"]
+    capsys.readouterr()

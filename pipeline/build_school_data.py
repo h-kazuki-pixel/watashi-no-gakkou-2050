@@ -162,6 +162,48 @@ def _gap_schools(path, gap_cities: set, dfields) -> list:
     return out
 
 
+def _fill_missing(args, mt, values, alloc, feats, fields, sums, gaps, taken=None):
+    """学区データのある市区町村で、国土数値情報「学校」に公立小学校としてあるのに学区データに無い学校を補う。
+
+    突き合わせ：学校コード、無ければ（市区町村, 設置者を外した学校名）。
+    割り当て：どの学区にも入らなかった点（学区データなしの市区町村の補いで使った点も除く）を、同じ市区町村の
+    公立小学校すべて（学区のある学校も含む）のうち、いちばん近い学校に当てる。いちばん近いのが補う学校だった点だけを
+    その学校に足し、ほかの点は未配分のまま。学区のある学校の値は変えない。
+    返り値: (sums, feats, {市区町村: 補った学校の数}, 補った合計)"""
+    zero = np.zeros(values.shape[1])
+    dcities = {f.props["_city"] for f in feats if not f.props.get("_approx")} - set(gaps)
+    if not dcities:
+        return sums, feats, {}, zero
+    sch = _gap_schools(args.fill_schools, dcities, fields)
+    have_code = {f.props.get(fields.school_code) for f in feats if fields.school_code and f.props.get(fields.school_code)}
+    have_name = {(f.props["_city"], export.strip_owner(f.props.get(fields.name, ""))) for f in feats}
+    miss = [i for i, (c, _x, _y, pr) in enumerate(sch)
+            if not (fields.school_code and pr.get(fields.school_code) in have_code)
+            and (c, pr.get(fields.name, "")) not in have_name]
+    if not miss:
+        return sums, feats, {}, zero
+    count = alloc.count.copy()
+    if taken is not None and taken.taken is not None:
+        count[taken.taken] += 1  # 学区データなしの市区町村の補いで使った点は、もう使わない
+    near = estimate.allocate_nearest(mt.codes, mt.city, values, [(c, x, y) for c, x, y, _p in sch], dcities, k=args.k,
+                                     count=count, only=set(miss))
+    extra, rows, info = [], [], {}
+    for i in miss:
+        if near.hulls[i] is None:
+            continue
+        city, x, y, props = sch[i]
+        pr = dict(props)
+        pr.update({"_city": city, "_approx": "1", "_fill": "1", "_lng": x, "_lat": y})
+        extra.append(readers.Feature(pr, [near.hulls[i]]))
+        rows.append(near.sums[i])
+        info[city] = info.get(city, 0) + 1
+    if not extra:
+        return sums, feats, {}, zero
+    add = np.vstack(rows)
+    log(f"学区データに無い学校を補いました: " + ", ".join(f"{c}（{n}校）" for c, n in sorted(info.items())))
+    return np.vstack([sums, add]), feats + extra, info, add.sum(axis=0)
+
+
 def cmd_build(args) -> int:
     t0 = time.time()
     _resolve(args)
@@ -214,12 +256,14 @@ def cmd_build(args) -> int:
         # 判定は1つの市区町村だけのメッシュで行う。"40133_40134" のような境界のメッシュは市区町村ではないので含めない
         gaps = {k: v[0] for k, v in by_city.items() if "_" not in k and v[0] >= 1 and v[1] / v[0] < 0.05}
     sums = alloc.sums
+    gap_near = None
     if gaps and args.fill_schools:
         sch = _gap_schools(args.fill_schools, set(gaps), fields)
         args._gap_names = getattr(_gap_schools, "names", {})
         if sch:
             near = estimate.allocate_nearest(mt.codes, mt.city, values, [(c, x, y) for c, x, y, _p in sch], set(gaps), k=args.k,
                                            count=alloc.count)
+            gap_near = near
             extra = []
             for (city, x, y, props), hull in zip(sch, near.hulls):
                 if hull is None:
@@ -237,6 +281,17 @@ def cmd_build(args) -> int:
     elif gaps:
         log(f"学区データの無い市区町村があります（{len(gaps)}）: {', '.join(sorted(gaps))}。"
             "国土数値情報「学校」の zip を --fill-schools に渡すと、おおよその区域で補えます")
+
+    # ---- 学区データのある市区町村で、学区データに入っていない公立小学校を補う
+    filled_info: dict = {}
+    if args.fill_schools and mt.city:
+        n_dist = alloc.sums.shape[0]
+        sums, feats, filled_info, filled_sum = _fill_missing(args, mt, values, alloc, feats, fields, sums, gaps,
+                                                             taken=gap_near)
+        alloc.unassigned = alloc.unassigned - filled_sum
+        # 学区のある学校の値は、補う前と同じでなければならない
+        if not np.array_equal(sums[:n_dist], alloc.sums):
+            raise SystemExit("学区データに無い学校を補ったら、学区のある学校の値が変わりました")
 
     points = _school_points(args.schools, pref) if args.schools else None
     overrides = None
@@ -259,6 +314,13 @@ def cmd_build(args) -> int:
         if c["code"] in noted:
             c["note"] = True
 
+    filled_out: dict = {}
+    for c in obj["cities"]:
+        if not c.get("approx"):
+            n = sum(1 for s2 in c["schools"] if s2.get("approx"))
+            if n:
+                filled_out[c["code"]] = n
+
     # ---- 検査（数字が保存されているか、どこが漏れたか）
     total = mt.kids.sum(axis=0)
     got = sums[:, :ny].sum(axis=0)
@@ -273,6 +335,9 @@ def cmd_build(args) -> int:
         "overlap_point_share": round(alloc.overlap_points / max(1, alloc.total_points), 4),
         "dropped_small": obj["_dropped"],
         "approx_cities": approx_info,
+        # 学区データに無いので補った学校（出力した学校だけ）。2025年の推計が min_children 未満で出力しなかった学校は別に数える
+        "filled_missing_schools": filled_out,
+        "filled_missing_dropped_small": {c: n - filled_out.get(c, 0) for c, n in filled_info.items() if n > filled_out.get(c, 0)},
         "excluded_by_terms": excluded_by_terms,
         "note_cities": sorted(c["code"] for c in obj["cities"] if c.get("note")),
         "missing_cities": obj["missing"],
@@ -297,6 +362,8 @@ def cmd_build(args) -> int:
         rp = pathlib.Path(args.opendata) / f"report_{pref}.json"
         rp.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
         log(f"書き出し: {od}, {rp}")
+    if report["conservation_error"] > 1e-6 * max(1.0, float(total.max())):
+        raise SystemExit(f"配分した合計＋未配分がメッシュの合計と合いません（誤差 {report['conservation_error']}）")
     print(json.dumps({k: v for k, v in report.items() if k != "city_coverage_2025"}, ensure_ascii=False, indent=1))
     return 0
 

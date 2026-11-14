@@ -90,10 +90,11 @@ class NearestAllocation:
     sums: np.ndarray          # (学校の数, 特徴量の数)
     hulls: list               # 学校ごとの、割り当てた点の凸包（表示用のおおよその区域）
     mesh_mask: np.ndarray     # この方法で配分したメッシュ
+    taken: np.ndarray = None  # 割り当てた点の、allocate() と同じ並びでの番号（only で絞った後）
 
 
 def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: list, cities: set, k: int = 4,
-                     count: np.ndarray | None = None) -> NearestAllocation:
+                     count: np.ndarray | None = None, only=None) -> NearestAllocation:
     """学区データの無い市区町村で、各点を「そのメッシュの市区町村の中でいちばん近い学校」に割り当てる。
 
     schools: (行政区域コード, 経度, 緯度) の列。cities: この方法を使う市区町村のコード。
@@ -101,7 +102,10 @@ def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: 
     境界をまたぐメッシュ（"40133_40134"）は、そのうち cities に入る市区町村すべての学校を候補にする。
     count: allocate() の点ごとの学区の数（同じ k で作ったもの）。渡すと count == 0 の点だけを使い、
     学区に配分済みの点を二重に数えない。
+    only: 学校の番号の集まり。渡すと、いちばん近い学校がこの中の学校だった点だけを割り当て、ほかの点は割り当てない
+    （学区データに無い学校を補うとき、学区のある学校も「近さ」の比べ相手に入れるため）。
     ボロノイ分割と同じ考え方で、境界は「2つの学校からの距離が等しい線」になる。
+    距離は、点ごとにその点の緯度の cos を経度の差に掛けた平面近似（near_d2）。
     """
     values = np.asarray(values, dtype=float)
     f = values.shape[1]
@@ -111,16 +115,16 @@ def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: 
     cand = [tuple(sorted(set(split_cities(c)) & set(cities))) for c in mesh_city]
     mask = np.array([bool(c) for c in cand], dtype=bool)
     if not mask.any() or not schools:
-        return NearestAllocation(sums, hulls, mask)
+        return NearestAllocation(sums, hulls, mask, np.zeros(0, dtype=np.int64))
     idx = np.nonzero(mask)[0]
     lat0, lng0, dlat, dlng = meshcode.decode_many([codes[i] for i in idx])
     off = (np.arange(k) + 0.5) / k
     py = (lat0[:, None, None] + off[None, :, None] * dlat[:, None, None] + np.zeros((1, 1, k))).reshape(-1)
     px = (lng0[:, None, None] + off[None, None, :] * dlng[:, None, None] + np.zeros((1, k, 1))).reshape(-1)
     pm = np.repeat(idx, k * k)
+    # allocate() と同じ並び（メッシュ順 → 行 → 列）なので、全体での点の番号はこうなる
+    gidx = pm * (k * k) + np.tile(np.arange(k * k), idx.size)
     if count is not None:
-        # allocate() と同じ並び（メッシュ順 → 行 → 列）なので、全体での点の番号はこうなる
-        gidx = pm * (k * k) + np.tile(np.arange(k * k), idx.size)
         free = np.asarray(count)[gidx] == 0
     else:
         free = np.ones(px.shape[0], dtype=bool)
@@ -129,7 +133,6 @@ def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: 
     sch_city = np.array([s[0] for s in schools])
     sx = np.array([s[1] for s in schools], dtype=float)
     sy = np.array([s[2] for s in schools], dtype=float)
-    kx = np.cos(np.radians(float(np.mean(py))))
     owner = np.full(px.shape[0], -1)
     for group, gi in groups.items():
         sel_p = np.nonzero((pg == gi) & free)[0]
@@ -138,8 +141,11 @@ def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: 
             continue
         for a in range(0, sel_p.size, 20000):
             chunk = sel_p[a:a + 20000]
-            d2 = ((px[chunk, None] - sx[None, sel_s]) * kx) ** 2 + (py[chunk, None] - sy[None, sel_s]) ** 2
+            d2 = near_d2(px[chunk], py[chunk], sx[sel_s], sy[sel_s])
             owner[chunk] = sel_s[np.argmin(d2, axis=1)]
+    if only is not None:
+        keep = np.isin(owner, np.fromiter(only, dtype=int, count=len(only)) if len(only) else np.zeros(0, dtype=int))
+        owner[~keep] = -1
     w = 1.0 / (k * k)
     ok = owner >= 0
     np.add.at(sums, owner[ok], values[pm[ok]] * w)
@@ -149,7 +155,14 @@ def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: 
     # 学校の無い市区町村のメッシュは配分していないので、mask から外す
     covered = np.zeros(len(codes), dtype=bool)
     covered[np.unique(pm[ok])] = True
-    return NearestAllocation(sums, hulls, mask & covered)
+    return NearestAllocation(sums, hulls, mask & covered, gidx[ok])
+
+
+def near_d2(px: np.ndarray, py: np.ndarray, sx: np.ndarray, sy: np.ndarray) -> np.ndarray:
+    """点 (px, py) と学校 (sx, sy) の距離の2乗（度の単位の平面近似）。返り値 (点の数, 学校の数)。
+    経度の差には、その点の緯度の cos を掛ける（県全体で1つの値にすると、南北に長い県で東西の距離がずれるため）。"""
+    kx = np.cos(np.radians(py))[:, None]
+    return ((px[:, None] - sx[None, :]) * kx) ** 2 + (py[:, None] - sy[None, :]) ** 2
 
 
 def convex_hull(pts: np.ndarray) -> np.ndarray:
@@ -195,11 +208,10 @@ def compare_nearest(codes: list, values: np.ndarray, districts: list, school_xy:
     city_arr = np.array(school_city)
     sx = np.array([float(x) for x, _ in school_xy])
     sy = np.array([float(y) for _, y in school_xy])
-    kx = np.cos(np.radians(float(np.mean(a.py))))
     w0 = 1.0 / (k * k)
     for d, sel in a.hits:
         cand = np.nonzero(city_arr == city_arr[d])[0]  # 同じ市区町村の学校
-        d2 = ((a.px[sel, None] - sx[None, cand]) * kx) ** 2 + (a.py[sel, None] - sy[None, cand]) ** 2
+        d2 = near_d2(a.px[sel], a.py[sel], sx[cand], sy[cand])
         owner = cand[np.argmin(d2, axis=1)]
         w = w0 / a.count[sel]
         np.add.at(near, owner, values[a.pm[sel]] * w[:, None])

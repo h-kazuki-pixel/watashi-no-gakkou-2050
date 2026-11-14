@@ -144,7 +144,8 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
         if approx:
             school["approx"] = True
         cobj = cities.setdefault(city, {"code": city, "name": names.get(city, city), "schools": []})
-        if approx:
+        if approx and not f.props.get("_fill"):
+            # 学区データのある市区町村で補った学校（_fill）は、市区町村ではなく学校だけを approx にする
             cobj["approx"] = True
         cobj["schools"].append(school)
         row = {"pref_code": pref_code, "city_code": city, "city_name": names.get(city, city), "school_id": sid,

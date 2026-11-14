@@ -223,12 +223,27 @@
     return { diff: mine - data, ratio: r, level: level };
   }
 
+  /**
+   * 学校をさがす欄の入力から、比べる文字を作る。先頭の設置者（「福岡市立」「〜町立」「〜村立」「〜区立」「〜組合立」）を外す。
+   * 学校名のデータは設置者を外してあるので、「福岡市立西新小学校」と入れても「西新小学校」と比べられる。
+   */
+  var OWNER_HEAD = /^[^\s]{0,15}?(?:組合立|市立|町立|村立|区立)/;
+  function schoolQuery(q) {
+    return String(q == null ? "" : q).replace(/[\s\u3000]+/g, "").replace(OWNER_HEAD, "");
+  }
+  /** 学校名が入力に合うか。設置者を外した結果が空なら、どの学校も合う */
+  function matchSchool(name, q) {
+    var k = schoolQuery(q);
+    return !k || String(name).indexOf(k) >= 0;
+  }
+
   return {
     EST_YEARS: EST_YEARS, BASE_YEAR: BASE_YEAR, TARGET_YEAR: TARGET_YEAR, DRAW_YEARS: DRAW_YEARS,
     CLASS_MAX: CLASS_MAX, MULTI_MAX: MULTI_MAX, MULTI_MAX_WITH_G1: MULTI_MAX_WITH_G1,
     clamp: clamp, interp: interp, estPoints: estPoints, calibFactor: calibFactor, histPoints: histPoints,
     pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan,
     simValue: simValue, simPoints: simPoints, agesFor: agesFor, ageStep: ageStep,
-    elementaryAfter: elementaryAfter, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess
+    elementaryAfter: elementaryAfter, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
+    schoolQuery: schoolQuery, matchSchool: matchSchool
   };
 });
