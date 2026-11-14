@@ -65,6 +65,8 @@
     var bar = UG.$("#sample-bar");
     bar.hidden = !(c && c.sample && st.step !== "home" && st.step !== "teachers");
     document.body.classList.toggle("no-ruby", !st.furigana);
+    // 学年に合わせてふりがなを減らす（CSS が ruby[data-g] と比べる）。学年を選ぶ前は全部つける
+    if (st.grade) document.body.setAttribute("data-grade", st.grade); else document.body.removeAttribute("data-grade");
     UG.$("#furi").checked = !!st.furigana;
   };
 

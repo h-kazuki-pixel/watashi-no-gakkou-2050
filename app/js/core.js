@@ -33,14 +33,20 @@
       ? new RegExp(keys.map(function (k) { return k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).join("|"), "g")
       : null;
   }
+  /** <ruby data-g="N">：N はその語の漢字のうち最も上の学年（kanji-grade.js。配当表に無い漢字は 7）。
+   *  CSS が body[data-grade] と比べて、習った学年の漢字のふりがなを消す。 */
+  function rubyTag(base, reading) {
+    var g = UG.kanjiGrade ? UG.kanjiGrade.gradeOf(base) : 7;
+    return '<ruby data-g="' + g + '">' + base + "<rt>" + reading + "</rt></ruby>";
+  }
   function explicit(s) {
-    return s.replace(/\{([^|{}]+)\|([^|{}]+)\}/g, "<ruby>$1<rt>$2</rt></ruby>");
+    return s.replace(/\{([^|{}]+)\|([^|{}]+)\}/g, function (_, base, reading) { return rubyTag(base, reading); });
   }
   function dictRuby(text) {
     if (!dictRe) return text;
     return text.replace(dictRe, function (w) {
       var r = UG.RUBY[w];
-      return r.indexOf("{") >= 0 ? explicit(r) : "<ruby>" + w + "<rt>" + r + "</rt></ruby>";
+      return r.indexOf("{") >= 0 ? explicit(r) : rubyTag(w, r);
     });
   }
   UG.ruby = function (html) {

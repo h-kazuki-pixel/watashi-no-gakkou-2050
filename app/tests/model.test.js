@@ -95,3 +95,17 @@ test("2050年の年齢・予想の判定・目もり", () => {
   assert.equal(M.niceMax(1054), 1200);
   assert.deepEqual(M.niceTicks(1500, 4), [0, 500, 1000, 1500]);
 });
+
+test("学年別漢字配当表：学年ごとの字数と、語の学年", () => {
+  const K = require("../js/kanji-grade.js");
+  const counts = [1, 2, 3, 4, 5, 6].map((g) => [...K.TABLE[g]].length);
+  assert.deepEqual(counts, [80, 160, 200, 202, 193, 191]);
+  const all = [1, 2, 3, 4, 5, 6].map((g) => K.TABLE[g]).join("");
+  assert.equal(new Set(all).size, 1026); // 重複なし
+  assert.equal(K.gradeOf("学校"), 1);
+  assert.equal(K.gradeOf("教育委員会"), 3); // 教2・育3・委3・員3・会2
+  assert.equal(K.gradeOf("岡"), 4);         // 2020年度から4年（都道府県名の漢字）
+  assert.equal(K.gradeOf("修了"), 7);       // 修は5年、了は配当表に無い（中学）→ 7
+  assert.equal(K.gradeOf("鬱"), 7);         // 配当表に無い漢字
+  assert.equal(K.gradeOf("ふりがな"), 0);   // 漢字なし
+});

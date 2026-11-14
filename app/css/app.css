@@ -18,8 +18,8 @@
   --marker: #ffe066;
   --marker-soft: #fff8d6;
   --lv0: #a5d8ff; --lv1: #ffe8cc; --lv2: #ffc078; --lv3: #ff922b; --lv4: #e8590c;
-  --font-display: "Yusei Magic", "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
-  --font-body: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif;
+  --font-display: "Yusei Magic", "BIZ UDPGothic", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-body: "BIZ UDPGothic", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif;
   --shadow: 5px 5px 0 var(--ink);
   --radius: 14px;
   color-scheme: light;
@@ -34,7 +34,7 @@ body {
   background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
   background-size: 24px 24px;
   font-family: var(--font-body);
-  font-weight: 500;
+  font-weight: 400;
   font-size: 17px;
   line-height: 2.05;
   font-feature-settings: "palt" 0;
@@ -52,7 +52,7 @@ button:disabled { cursor: not-allowed; }
 h1:focus { outline: none; }
 mark { background: linear-gradient(transparent 55%, var(--marker) 55%); color: inherit; padding: 0 2px; font-weight: 700; }
 ruby { ruby-align: center; }
-rt { font-size: 0.5em; font-weight: 500; letter-spacing: 0; user-select: none; }
+rt { font-size: 0.5em; font-weight: 400; letter-spacing: 0; user-select: none; }
 .no-ruby rt { display: none; }
 .no-ruby body, body.no-ruby { line-height: 1.85; }
 [hidden] { display: none !important; }
@@ -68,7 +68,7 @@ rt { font-size: 0.5em; font-weight: 500; letter-spacing: 0; user-select: none; }
   display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap;
 }
 .brand {
-  font-family: var(--font-display); font-size: 21px; line-height: 1.3; color: var(--ink);
+  font-weight: 700; font-size: 21px; line-height: 1.3; color: var(--ink);
   background: none; border: 0; padding: 4px 2px;
 }
 .brand span { background: linear-gradient(transparent 60%, var(--marker) 60%); }
@@ -111,7 +111,7 @@ rt { font-size: 0.5em; font-weight: 500; letter-spacing: 0; user-select: none; }
 .card > h2 { font-size: 21px; }
 .no {
   display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; margin-right: 10px; vertical-align: 2px;
-  background: var(--ink); color: #fff; font-family: var(--font-display); font-size: 17px; line-height: 1;
+  background: var(--ink); color: #fff; font-family: var(--font-display); font-weight: 400; font-size: 17px; line-height: 1;
 }
 .page-head { display: flex; align-items: flex-start; gap: 16px; }
 .page-head h1 { font-family: var(--font-display); font-size: clamp(27px, 4.4vw, 36px); line-height: 1.6; font-weight: 400; }
@@ -191,14 +191,14 @@ input[type="range"] { width: 100%; accent-color: var(--ink); height: 32px; }
 .empty { color: var(--ink-soft); font-size: 15px; }
 .mapbox { border: 2px solid var(--ink); border-radius: 12px; background: #f1f7fa; padding: 6px; }
 .age-out { font-size: 1.05em; }
-.age-out b { font-family: var(--font-display); font-weight: 400; font-size: 1.5em; background: linear-gradient(transparent 60%, var(--marker) 60%); padding: 0 4px; }
-.flow h2 { font-family: var(--font-display); font-weight: 400; font-size: 22px; margin-bottom: 10px; }
+.age-out b { font-weight: 700; font-size: 1.5em; background: linear-gradient(transparent 60%, var(--marker) 60%); padding: 0 4px; }
+.flow h2 { font-weight: 700; font-size: 22px; margin-bottom: 10px; }
 .flow ol { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .flow li {
   position: relative; background: var(--card); border: 2px solid var(--ink); border-radius: 12px; padding: 12px 12px 12px;
   display: flex; flex-direction: column; gap: 2px; line-height: 1.7;
 }
-.flow li b { font-family: var(--font-display); font-weight: 400; font-size: 20px; }
+.flow li b { font-weight: 700; font-size: 20px; }
 .flow li span:last-child { font-size: 13.5px; color: var(--ink-soft); }
 .flow li .no { margin: 0; }
 @media (max-width: 860px) { .flow ol { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -229,19 +229,19 @@ svg.map { display: block; width: 100%; height: auto; }
 .map-legend .lv4, .cmp-list .lv4 { background: var(--lv4); }
 
 /* ---------- 1 ぎもん ---------- */
-.school-name { font-family: var(--font-display); font-size: 26px; line-height: 1.5; }
+.school-name { font-weight: 700; font-size: 26px; line-height: 1.5; }
 .school-name .city { font-family: var(--font-body); font-size: 15px; font-weight: 700; color: var(--ink-soft); margin-left: 12px; }
 .big { font-size: 1.25em; }
-.big .n, .tile b { font-family: var(--font-display); font-weight: 400; font-size: 2em; line-height: 1; font-variant-numeric: tabular-nums; }
+.big .n, .tile b { font-weight: 700; font-size: 2em; line-height: 1; font-variant-numeric: tabular-nums; }
 .big .n { background: linear-gradient(transparent 62%, var(--marker) 62%); padding: 0 6px; }
 .dots { display: flex; flex-wrap: wrap; gap: 4px; max-width: 760px; }
 .dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--ink); }
 .calib { border-top: 2px dashed var(--grid-strong); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.calib label { font-weight: 500; }
-.question h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(22px, 3.6vw, 28px); line-height: 1.8; display: block; }
+.calib label { font-weight: 400; }
+.question h2 { font-weight: 700; font-size: clamp(22px, 3.6vw, 28px); line-height: 1.8; display: block; }
 .choices { display: flex; flex-wrap: wrap; gap: 10px; }
 .choice { border-radius: 12px; padding: 8px 20px; font-size: 1.05em; }
-.reason { font-weight: 500; margin-top: 4px; }
+.reason { font-weight: 400; margin-top: 4px; }
 
 /* ---------- グラフ ---------- */
 svg.chart { display: block; width: 100%; height: auto; font-family: var(--font-body); touch-action: pan-y; }
@@ -286,7 +286,7 @@ svg.chart { display: block; width: 100%; height: auto; font-family: var(--font-b
 .legend .k.est::before { border-top-color: var(--red); }
 .legend .k.alt::before { border-top: 4px dashed var(--green); }
 .readout { font-size: 1.05em; min-height: 2.05em; }
-.readout b, .tile b.txt { font-family: var(--font-display); font-weight: 400; font-size: 1.35em; }
+.readout b, .tile b.txt { font-weight: 700; font-size: 1.35em; }
 .tip { background: var(--marker-soft); border-left: 6px solid var(--marker); border-radius: 4px; padding: 10px 16px; transform: rotate(-0.4deg); max-width: 46em; }
 
 @keyframes draw-in { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
@@ -322,7 +322,7 @@ svg.chart { display: block; width: 100%; height: auto; font-family: var(--font-b
 .data-table thead th { background: #f1f7fa; }
 .data-table .t50 { background: var(--marker-soft); font-weight: 700; }
 .year-slider { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; }
-.year-slider output { font-family: var(--font-display); font-size: 30px; line-height: 1; min-width: 4.2em; text-align: right; }
+.year-slider output { font-weight: 700; font-size: 30px; line-height: 1; min-width: 4.2em; text-align: right; }
 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.7fr); gap: 10px; }
 @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .tile { border: 2px solid var(--ink); border-radius: 12px; padding: 6px 12px 8px; line-height: 1.5; background: var(--paper); }
@@ -366,8 +366,8 @@ svg.chart { display: block; width: 100%; height: auto; font-family: var(--font-b
 @media (prefers-reduced-motion: reduce) { .bars .col i { transition: none; } }
 .sliders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 28px; }
 @media (max-width: 700px) { .sliders { grid-template-columns: minmax(0, 1fr); } }
-.slider label { font-weight: 500; display: block; }
-.slider label b { font-family: var(--font-display); font-weight: 400; font-size: 1.35em; }
+.slider label { font-weight: 400; display: block; }
+.slider label b { font-weight: 700; font-size: 1.35em; }
 .compare { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); gap: 20px; align-items: start; }
 @media (max-width: 700px) { .compare { grid-template-columns: minmax(0, 1fr); } }
 .cmp-list { display: flex; flex-direction: column; gap: 4px; max-height: 460px; overflow-y: auto; padding-right: 4px; }
@@ -377,13 +377,13 @@ svg.chart { display: block; width: 100%; height: auto; font-family: var(--font-b
 .cmp-list .bar, .reuse .bar { height: 14px; background: #eef4f7; border-radius: 4px; overflow: hidden; }
 .cmp-list .bar i { display: block; height: 100%; border-radius: 0 4px 4px 0; border: 1.5px solid var(--ink); }
 .cmp-list .pv { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
-.cmp-list .tg { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-soft); line-height: 1.7; font-weight: 500; }
+.cmp-list .tg { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-soft); line-height: 1.7; font-weight: 400; }
 .think { border-top: 2px dashed var(--grid-strong); padding-top: 10px; }
 .quiz-q { border-top: 2px dashed var(--grid-strong); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
 .quiz-q:first-child { border-top: 0; padding-top: 0; }
 .quiz-q + .quiz-q { margin-top: 14px; }
 .quiz-q .q { font-weight: 700; }
-.qn { font-family: var(--font-display); font-weight: 400; background: var(--marker); border-radius: 6px; padding: 0 8px; margin-right: 10px; }
+.qn { font-weight: 700; background: var(--marker); border-radius: 6px; padding: 0 8px; margin-right: 10px; }
 .quiz-opts { display: flex; flex-direction: column; gap: 6px; }
 .opt { text-align: left; background: var(--card); border: 2px solid var(--ink); border-radius: 12px; padding: 4px 14px; line-height: 1.9; }
 .opt:disabled { opacity: 1; cursor: default; color: var(--ink-soft); border-color: var(--grid-strong); }
@@ -419,10 +419,10 @@ svg.mini { display: block; width: 100%; height: auto; }
 .card-frame svg { display: block; width: 100%; height: auto; }
 .done-card { flex-direction: row; align-items: center; gap: 24px; background: var(--marker-soft); }
 .done-card > div { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.done-card h2 { font-family: var(--font-display); font-weight: 400; font-size: 23px; }
+.done-card h2 { font-weight: 700; font-size: 23px; }
 .skills { counter-reset: k; }
 .skills li { counter-increment: k; padding-left: 1.9em; position: relative; }
-.skills li::before { content: counter(k); position: absolute; left: 0; font-family: var(--font-display); }
+.skills li::before { content: counter(k); position: absolute; left: 0; font-weight: 700; }
 @media (max-width: 640px) { .done-card { flex-direction: column; align-items: flex-start; } }
 
 /* ---------- 先生・大人の方へ（ふつうの文章の組み） ---------- */
@@ -490,4 +490,69 @@ svg.mini { display: block; width: 100%; height: auto; }
   .step-nav .btn { flex: 1 1 auto; text-align: center; }
   .cmp-list li { grid-template-columns: minmax(0, 7em) minmax(0, 1fr) 3.2em; font-size: 14.5px; }
   .tri button { padding: 0 10px; font-size: 14px; }
+}
+
+/* ---------- ふりがなを学年に合わせる ----------
+ * ruby[data-g] はその語の漢字のうち最も上の学年（kanji-grade.js。配当表外は 7、漢字なしは 0）。
+ * 小4→3年まで、小5→4年まで、小6→5年まで、中学生・おとな→6年までの漢字のふりがなを消す。
+ * 学年を選ぶ前（body に data-grade が無い）は全部つける。「ふりがな」を外すと .no-ruby で全部消す。 */
+rt { line-height: 1; }
+body[data-grade="e4"] ruby[data-g="0"] rt,
+body[data-grade="e4"] ruby[data-g="1"] rt,
+body[data-grade="e4"] ruby[data-g="2"] rt,
+body[data-grade="e4"] ruby[data-g="3"] rt { display: none; }
+body[data-grade="e5"] ruby[data-g="0"] rt,
+body[data-grade="e5"] ruby[data-g="1"] rt,
+body[data-grade="e5"] ruby[data-g="2"] rt,
+body[data-grade="e5"] ruby[data-g="3"] rt,
+body[data-grade="e5"] ruby[data-g="4"] rt { display: none; }
+body[data-grade="e6"] ruby[data-g="0"] rt,
+body[data-grade="e6"] ruby[data-g="1"] rt,
+body[data-grade="e6"] ruby[data-g="2"] rt,
+body[data-grade="e6"] ruby[data-g="3"] rt,
+body[data-grade="e6"] ruby[data-g="4"] rt,
+body[data-grade="e6"] ruby[data-g="5"] rt { display: none; }
+body[data-grade="j1"] ruby[data-g="0"] rt,
+body[data-grade="j1"] ruby[data-g="1"] rt,
+body[data-grade="j1"] ruby[data-g="2"] rt,
+body[data-grade="j1"] ruby[data-g="3"] rt,
+body[data-grade="j1"] ruby[data-g="4"] rt,
+body[data-grade="j1"] ruby[data-g="5"] rt,
+body[data-grade="j1"] ruby[data-g="6"] rt,
+body[data-grade="j2"] ruby[data-g="0"] rt,
+body[data-grade="j2"] ruby[data-g="1"] rt,
+body[data-grade="j2"] ruby[data-g="2"] rt,
+body[data-grade="j2"] ruby[data-g="3"] rt,
+body[data-grade="j2"] ruby[data-g="4"] rt,
+body[data-grade="j2"] ruby[data-g="5"] rt,
+body[data-grade="j2"] ruby[data-g="6"] rt,
+body[data-grade="j3"] ruby[data-g="0"] rt,
+body[data-grade="j3"] ruby[data-g="1"] rt,
+body[data-grade="j3"] ruby[data-g="2"] rt,
+body[data-grade="j3"] ruby[data-g="3"] rt,
+body[data-grade="j3"] ruby[data-g="4"] rt,
+body[data-grade="j3"] ruby[data-g="5"] rt,
+body[data-grade="j3"] ruby[data-g="6"] rt,
+body[data-grade="adult"] ruby[data-g="0"] rt,
+body[data-grade="adult"] ruby[data-g="1"] rt,
+body[data-grade="adult"] ruby[data-g="2"] rt,
+body[data-grade="adult"] ruby[data-g="3"] rt,
+body[data-grade="adult"] ruby[data-g="4"] rt,
+body[data-grade="adult"] ruby[data-g="5"] rt,
+body[data-grade="adult"] ruby[data-g="6"] rt { display: none; }
+
+/* ---------- スタンプ（幅600px以下）：右上に小さく置き、見出しは上から始める ---------- */
+@media (max-width: 600px) {
+  .verdict, .done-card { position: relative; display: block; }
+  .verdict .stamp, .done-card .stamp {
+    position: absolute; top: 12px; right: 4px; width: 64px; height: 64px;
+    font-size: 13px; line-height: 1.2; padding: 4px; border-width: 3px;
+  }
+  .verdict > .stamp + div > p:first-child, .done-card > .stamp + div > h2 { padding-right: 72px; min-height: 64px; }
+}
+
+/* 数字と「%」を別の行に分けない（BIZ UDPGothic は数字の幅が広く、狭い列で「%」だけが次の行に出た） */
+.cmp-list .pv, .reuse b { white-space: nowrap; }
+@media (max-width: 600px) {
+  .cmp-list li { grid-template-columns: minmax(0, 7em) minmax(0, 1fr) auto; }
 }
