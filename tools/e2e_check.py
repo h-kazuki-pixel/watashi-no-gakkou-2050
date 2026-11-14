@@ -105,10 +105,33 @@ def main() -> int:
             page.evaluate("Object.values(UG.prefs).forEach(p => p.cities.forEach(c => delete c.note)); UG.render()")
             assert "教育委員会" not in page.inner_text("#view"), f"[{step}] note が無いのに注意が出る"
         with_note("home")
+
+        # 学区データのある市区町村で、学区データに入っていないので補った学校（学校だけが approx）の注意（ホーム・ステップ1）と、
+        # ステップ3の「この 数字は どこから 来たの？」の文。
+        # サンプルにはないので、選んだ学校に一時的に付ける。まち全体の注意（APPROX_NOTE）は出ないこと
+        SCHOOL_APPROX = ("Object.values(UG.prefs).forEach(p => p.cities.forEach(c => c.schools.forEach(s => {"
+                         " if (s.id === UG.state.schoolId) { if (%s) s.approx = true; else delete s.approx; } }))); UG.render()")
+        def with_school_approx(step):
+            page.evaluate(SCHOOL_APPROX % "true")
+            plain = page.evaluate("""() => { const v = document.getElementById('view').cloneNode(true);
+                v.querySelectorAll('rt').forEach(r => r.remove()); return v.textContent; }""")
+            if step != "step3":  # 注意はホームとステップ1に出す
+                assert "地図データに 入って いません" in plain, f"[{step}] 補った学校の注意が出ない"
+            assert "この まちは 学区の 地図データが ない" not in plain, f"[{step}] まち全体の注意が出ている"
+            if step == "step3":  # 「この 数字は どこから 来たの？」の箱はステップ3にある
+                assert "この 学校に 近い ますめを たしている" in plain, f"[{step}] 「どこから 来たの？」の文が出ない"
+            bare(step + "-school-approx")
+            page.evaluate(SCHOOL_APPROX % "false")
+            plain = page.evaluate("""() => { const v = document.getElementById('view').cloneNode(true);
+                v.querySelectorAll('rt').forEach(r => r.remove()); return v.textContent; }""")
+            assert "地図データに 入って いません" not in plain and "この 学校に 近い ますめ" not in plain, \
+                f"[{step}] approx が無いのに注意が出る"
+        with_school_approx("home")
         page.click("#start")
 
         page.wait_for_selector(".now-card")
         with_note("step1")
+        with_school_approx("step1")
         assert page.is_disabled("#next-btn")
         page.click('[data-guess="down"]')
         page.fill("#reason", "空き家がふえているから")
@@ -128,6 +151,7 @@ def main() -> int:
         page.wait_for_selector(".verdict")
         page.wait_for_timeout(2600)
         shot("3-shiraberu"); bare("step3")
+        with_school_approx("step3")
         page.fill("#hist-y", "1990"); page.fill("#hist-v", "960"); page.click("#hist-form button")
         page.locator("#year-range").fill("9")
         page.locator("#year-range").dispatch_event("input")
