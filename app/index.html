@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>わたしの学校2050</title>
+<meta name="description" content="2050年、わたしの学校は何人？ 国の将来推計人口を小学校区ごとに集計し、子どもが予想し、データで確かめ、まちに提案する学習アプリ。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Yusei+Magic&amp;family=Zen+Maru+Gothic:wght@500;700&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <button type="button" class="brand" data-go="home" aria-label="さいしょの 画面へ"><span>わたしの学校2050</span></button>
+    <nav class="tabs" id="tabs" aria-label="ステップ">
+      <button type="button" data-go="step1"><i>1</i>ぎもん</button>
+      <button type="button" data-go="step2"><i>2</i>よそう</button>
+      <button type="button" data-go="step3"><i>3</i>しらべる</button>
+      <button type="button" data-go="step4"><i>4</i>なぜ？</button>
+      <button type="button" data-go="step5"><i>5</i>ていあん</button>
+    </nav>
+    <div class="top-tools">
+      <label class="switch" for="furi"><input type="checkbox" id="furi" checked>ふりがな</label>
+      <button type="button" class="link" data-go="teachers">先生・大人の方へ</button>
+    </div>
+  </div>
+  <div class="sample-bar" id="sample-bar" data-ruby hidden>れんしゅう用の「みらい市」の データです。本当には ない まちで、数字は つくりものです。</div>
+</header>
+
+<main class="view" id="view"></main>
+
+<footer class="foot">
+  <span>入力した内容は、この端末の中だけに保存されます。外部には送信しません。</span>
+  <button type="button" class="link" data-reset>さいしょから やりなおす</button>
+</footer>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<template id="tpl-teachers">
+<article class="teachers">
+  <header class="page-head">
+    <span class="step-no" aria-hidden="true">先</span>
+    <div>
+      <h1>先生・保護者・自治体の方へ</h1>
+      <p class="lead">「わたしの学校2050」は、子どもが自分の学校の将来の児童数を題材に、データを読み、予想し、理由を考え、意見を伝えるまでを一巡する学習アプリです。</p>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>ねらい</h2>
+    <ul>
+      <li><b>データ活用の探究を、自分ごとの題材で一巡する。</b>問いを立てる、予想する、データで確かめる、理由を探る、伝える。統計的な問題解決の過程（PPDAC）に沿っています。</li>
+      <li><b>推計は「前提つきの計算」だと理解する。</b>当たる・外れるではなく、前提が変われば結果も変わることを、手を動かして確かめます。</li>
+      <li><b>データを根拠に意見を表明する。</b>こども基本法は、国と自治体に、こども施策へこどもの意見を反映させる措置を求めています。学校の将来は、子ども自身が当事者となる代表的なテーマです。</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>対象と準備</h2>
+    <ul>
+      <li>対象は小学5年生から中学3年生。ふりがなを付けているので4年生でも使えます。</li>
+      <li>1人1台端末（Chromebook、iPad、Windows）のブラウザで動きます。ログインもインストールも不要です。</li>
+      <li>フォルダごと配れば、インターネットにつながらない教室でも index.html を開くだけで動きます。</li>
+      <li>氏名は入力させません。入力内容は端末のブラウザ内にだけ保存され、外部へ送信されません。アクセス解析も入れていません。</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>授業の流れ（45分×2コマ）</h2>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>コマ</th><th>時間</th><th>活動</th><th>アプリ</th></tr></thead>
+      <tbody>
+        <tr><th rowspan="5">1</th><td>5分</td><td>導入「2050年、自分は何歳？ そのとき学校は？」</td><td>はじめの画面</td></tr>
+        <tr><td>10分</td><td>直感で予想を選び、理由を一言書く。グラフに予想の線を描く。</td><td>1 ぎもん、2 よそう</td></tr>
+        <tr><td>15分</td><td>データの推計と比べる。差の大小ではなく「なぜ違ったか」を話し合う。</td><td>3 しらべる</td></tr>
+        <tr><td>10分</td><td>年を動かし、学級数やクラス替えの変化を読み取る。</td><td>3 しらべる（教室）</td></tr>
+        <tr><td>5分</td><td>宿題：学校の昔の児童数を、記念誌や家族への聞き取りで調べる。</td><td>—</td></tr>
+        <tr><th rowspan="4">2</th><td>5分</td><td>調べてきた昔の人数をグラフに足す。</td><td>3 しらべる（下部）</td></tr>
+        <tr><td>20分</td><td>年齢の階段、もしもシミュレーター、同じまちの学校との比較。</td><td>4 なぜ？</td></tr>
+        <tr><td>5分</td><td>クイズで、推計の意味・割合・グラフの読み方を確認する。</td><td>4 なぜ？（クイズ）</td></tr>
+        <tr><td>15分</td><td>感じ方を整理し、アイデアを選び、提案カードを作って発表する。</td><td>5 ていあん</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>1コマで行う場合は、1〜3と5のカード作成に絞ってください。</p>
+  </section>
+
+  <section class="card">
+    <h2>学習指導要領との対応</h2>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>教科</th><th>学年</th><th>内容</th></tr></thead>
+      <tbody>
+        <tr><th>算数</th><td>小4</td><td>折れ線グラフの読み取りと表し方（データの活用）</td></tr>
+        <tr><th>算数</th><td>小5</td><td>割合と百分率（変化と関係）</td></tr>
+        <tr><th>算数</th><td>小6</td><td>統計的な問題解決の方法、目的に応じたデータの収集と分析（データの活用）</td></tr>
+        <tr><th>社会</th><td>小6</td><td>国や地方公共団体の政治の働き</td></tr>
+        <tr><th>社会・数学</th><td>中学</td><td>地方自治、少子高齢社会（公民）／データの活用</td></tr>
+        <tr><th>総合</th><td>小・中</td><td>地域や学校の特色に応じた課題の探究</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>データと計算の方法</h2>
+    <ol>
+      <li><b>将来推計人口</b>：国土数値情報「500mメッシュ別将来推計人口（令和6年国政局推計）」。令和2年国勢調査を基準に、2025年から2070年まで5年ごと、5歳階級別。</li>
+      <li><b>学区</b>：国土数値情報「小学校区データ」。公立小学校の通学区域のポリゴン。このデータが無い市区町村（福岡市・北九州市など、自治体によって提供状況が異なる）では、国土数値情報「学校」の位置を使います。学区のポリゴンに入らなかった地点だけを、その地点のメッシュの市区町村コードに並ぶ市区町村（境界をまたぐメッシュでは複数）のうち、学区データの無い市区町村の公立小学校の中でいちばん近い学校に割り当てた「おおよその区域」で計算し、画面にその旨を表示します。</li>
+      <li><b>集計</b>：メッシュ内の人口が一様に分布すると仮定し、学区と重なる面積の割合で各メッシュの人口を学区に配分。</li>
+      <li><b>小学生の年齢</b>：6〜11歳人口 ＝（5〜9歳）× 4/5 ＋（10〜14歳）× 2/5。</li>
+      <li><b>学級数</b>：国の標準（同学年35人、複式は2学年で16人以下、1年生を含む場合8人以下）で計算。自治体独自の少人数学級は反映していません。</li>
+    </ol>
+    <p>はじめの画面の「みらい市」は練習用の架空のまちで、数字は作りものです。</p>
+  </section>
+
+  <section class="card">
+    <h2>読み取るときの注意</h2>
+    <ul>
+      <li>示しているのは「学区に住む6〜11歳の推計人口」です。私立・国立学校への通学、学校選択制、小規模特認校、区域外就学があるため、実際の在籍児童数とは一致しません。特に小規模特認校や学校選択制の学校は、学区の外からも児童が通うため、大きく違うことがあります。実際の人数が分かる場合は「1 ぎもん」で入力すると、その比で全体を補正します。</li>
+      <li>小さな区域の推計は誤差が大きくなります。数人単位の違いに意味を持たせないでください。</li>
+      <li>学区は整備年度の区域です。その後の区域変更や統合は反映されていません。</li>
+      <li>推計は、住宅開発や子育て施策などで変わります。「決まった未来」として扱わないことが、この教材の中心です。</li>
+      <li>このアプリは学校の統廃合を予測・推奨するものではありません。小規模校の良さと課題の両方を、子どもが自分の言葉で考えるための材料です。</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>出典</h2>
+    <ul>
+      <li>国土交通省「国土数値情報（500mメッシュ別将来推計人口データ、小学校区データ）」を加工して作成。小学校区データは自治体ごとに利用条件が異なります。</li>
+      <li>文部科学省「令和6年度 廃校施設等活用状況実態調査」（5 ていあん のヒント）。</li>
+    </ul>
+  </section>
+
+  <nav class="step-nav"><button type="button" class="btn ghost" data-go="home">← アプリにもどる</button></nav>
+</article>
+</template>
+
+<script src="js/model.js"></script>
+<script src="js/core.js"></script>
+<script src="js/ruby-dict.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/card.js"></script>
+<script src="js/views1.js"></script>
+<script src="js/views2.js"></script>
+<script src="data/sample.js"></script>
+<script src="data/index.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
