@@ -90,11 +90,11 @@ class NearestAllocation:
     sums: np.ndarray          # (学校の数, 特徴量の数)
     hulls: list               # 学校ごとの、割り当てた点の凸包（表示用のおおよその区域）
     mesh_mask: np.ndarray     # この方法で配分したメッシュ
-    taken: np.ndarray = None  # 割り当てた点の、allocate() と同じ並びでの番号（only で絞った後）
+    taken: np.ndarray = None  # 割り当てた点の、allocate() と同じ並びでの番号
 
 
 def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: list, cities: set, k: int = 4,
-                     count: np.ndarray | None = None, only=None) -> NearestAllocation:
+                     count: np.ndarray | None = None) -> NearestAllocation:
     """学区データの無い市区町村で、各点を「そのメッシュの市区町村の中でいちばん近い学校」に割り当てる。
 
     schools: (行政区域コード, 経度, 緯度) の列。cities: この方法を使う市区町村のコード。
@@ -102,8 +102,6 @@ def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: 
     境界をまたぐメッシュ（"40133_40134"）は、そのうち cities に入る市区町村すべての学校を候補にする。
     count: allocate() の点ごとの学区の数（同じ k で作ったもの）。渡すと count == 0 の点だけを使い、
     学区に配分済みの点を二重に数えない。
-    only: 学校の番号の集まり。渡すと、いちばん近い学校がこの中の学校だった点だけを割り当て、ほかの点は割り当てない
-    （学区データに無い学校を補うとき、学区のある学校も「近さ」の比べ相手に入れるため）。
     ボロノイ分割と同じ考え方で、境界は「2つの学校からの距離が等しい線」になる。
     距離は、点ごとにその点の緯度の cos を経度の差に掛けた平面近似（near_d2）。
     """
@@ -143,9 +141,6 @@ def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: 
             chunk = sel_p[a:a + 20000]
             d2 = near_d2(px[chunk], py[chunk], sx[sel_s], sy[sel_s])
             owner[chunk] = sel_s[np.argmin(d2, axis=1)]
-    if only is not None:
-        keep = np.isin(owner, np.fromiter(only, dtype=int, count=len(only)) if len(only) else np.zeros(0, dtype=int))
-        owner[~keep] = -1
     w = 1.0 / (k * k)
     ok = owner >= 0
     np.add.at(sums, owner[ok], values[pm[ok]] * w)

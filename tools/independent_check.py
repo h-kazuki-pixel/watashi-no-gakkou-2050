@@ -10,8 +10,9 @@
 
 zip はあらかじめ展開しておく。必要なのは numpy だけ。
 比べるもの：学校の集合、市区町村、おおよその区域かどうか、2025〜2070年の推計（10個）、0〜11歳の各歳（12個）。
-おおよその区域は2種類：学区データの無い市区町村の学校と、学区データのある市区町村で学区データに入っていない公立小学校
-（どの学区にも入らなかった点のうち、同じ市区町村の公立小学校すべての中でいちばん近いのがその学校だった点を足す）。
+おおよその区域は2種類：学区データの無い市区町村の学校と、学区データのある市区町村で学区データに入っていない公立小学校。
+後者は、配分率が 0.9 未満の市区町村だけで、名前が「分校」で終わる学校は除く。どの学区にも入らなかった点を、
+「補う学校の中で」いちばん近い学校に当てる（学区のある学校は候補にしない。学区のある学校の線引きは正しいとみなす）。
 距離は、経度の差に点ごとの緯度の cos を掛ける（--lat-scale point。mean は以前のパイプラインの、県全体で1つの値）。
 学区データのある学校が 0.06人を超えて違えば終了コード 1。おおよその区域の学校は、2つの学校からほぼ同じ距離にある点の
 割り当てが入れ替わることがあるので、違いの数と大きさを報告する（--strict を付けると、これも 1 件で終了コード 1）。
@@ -192,31 +193,31 @@ def main():
     for i, s in enumerate(S):
         est[s[0]] = dict(name=s[1], city=s[2], approx=True, e=near[i], a=neara[i])
 
-    # 学区データのある市区町村で、学区データに入っていない公立小学校（学校コード、無ければ（市区町村, 設置者を外した名前））
-    dcity = {f["properties"]["A27_001"] for f in feats} - gap
+    # 学区データのある市区町村（配分率 0.9 未満）で、学区データに入っていない公立小学校
+    # （学校コード、無ければ（市区町村, 設置者を外した名前）で突き合わせる。「分校」で終わる学校は除く）
+    dcity = ({f["properties"]["A27_001"] for f in feats} - gap) & set(low)
     have_code = {f["properties"]["A27_003"] for f in feats}
     have_name = {(f["properties"]["A27_001"], strip_owner(f["properties"]["A27_004"])) for f in feats}
-    T = [s for s in public if s[2] in dcity]
-    miss = {i for i, s in enumerate(T) if s[0] not in have_code and (s[2], s[1]) not in have_name}
+    T = [s for s in public if s[2] in dcity and s[0] not in have_code and (s[2], s[1]) not in have_name
+         and not s[1].endswith("分校")]
     if args.no_fill_missing:
-        miss = set()
+        T = []
+    miss = set(range(len(T)))
     tcity = np.array([s[2] for s in T])
     tx, ty = np.array([s[3] for s in T], float), np.array([s[4] for s in T], float)
     fill, filla = np.zeros((len(T), len(YEARS))), np.zeros((len(T), 3))
     unassigned = 0.0
     for js in left:
         combo = mcity[pm[js[0]]]
-        cand = np.nonzero(np.isin(tcity, [c for c in combo.split("_") if c in dcity]))[0] if miss else np.zeros(0, int)
+        cand = np.nonzero(np.isin(tcity, [c for c in combo.split("_") if c in dcity]))[0] if T else np.zeros(0, int)
         if cand.size == 0:
             unassigned += (kids[pm[js], 0] * w0).sum()
             continue
         k = np.cos(np.radians(py[js, None])) if args.lat_scale == "point" else kx
         d2 = ((px[js, None] - tx[None, cand]) * k) ** 2 + (py[js, None] - ty[None, cand]) ** 2
-        o = cand[np.argmin(d2, axis=1)]
-        hit = np.isin(o, list(miss))  # いちばん近いのが補う学校だった点だけを足す。ほかは未配分のまま
-        np.add.at(fill, o[hit], kids[pm[js[hit]]] * w0)
-        np.add.at(filla, o[hit], V[pm[js[hit]], :, 0] * w0)
-        unassigned += (kids[pm[js[~hit]], 0] * w0).sum()
+        o = cand[np.argmin(d2, axis=1)]  # 補う学校の中でいちばん近い学校
+        np.add.at(fill, o, kids[pm[js]] * w0)
+        np.add.at(filla, o, V[pm[js], :, 0] * w0)
     for i in sorted(miss):
         s = T[i]
         est[s[0]] = dict(name=s[1], city=s[2], approx=True, e=fill[i], a=filla[i])

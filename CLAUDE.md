@@ -43,4 +43,4 @@ python3 tools/e2e_realdata.py           # パイプライン出力 → アプリ
 
 ## 実データ
 
-ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。福岡県は実データで動作（72市区町村・704校、うち344校は学校の位置から補ったおおよその区域）。全国は未生成。新しい県を最初に生成するときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。
+ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。福岡県は実データで動作（72市区町村・708校、うち348校は学校の位置から補ったおおよその区域。学区データの無い21市区町村の344校と、学区データに入っていなかった4校）。全国は未生成。新しい県を最初に生成するときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。

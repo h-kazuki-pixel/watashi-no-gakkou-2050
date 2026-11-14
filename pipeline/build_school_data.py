@@ -162,45 +162,57 @@ def _gap_schools(path, gap_cities: set, dfields) -> list:
     return out
 
 
+COVERAGE_FILL = 0.9  # 学区データのある市区町村で、配分率がこれ未満のときだけ、学区データに無い学校を補う
+
+
 def _fill_missing(args, mt, values, alloc, feats, fields, sums, gaps, taken=None):
     """学区データのある市区町村で、国土数値情報「学校」に公立小学校としてあるのに学区データに無い学校を補う。
 
-    突き合わせ：学校コード、無ければ（市区町村, 設置者を外した学校名）。
-    割り当て：どの学区にも入らなかった点（学区データなしの市区町村の補いで使った点も除く）を、同じ市区町村の
-    公立小学校すべて（学区のある学校も含む）のうち、いちばん近い学校に当てる。いちばん近いのが補う学校だった点だけを
-    その学校に足し、ほかの点は未配分のまま。学区のある学校の値は変えない。
+    対象：配分率（学区に配分できた子どもの割合）が 0.9 未満で、学区データに無い公立小学校がある市区町村。
+    突き合わせ：学校コード、無ければ（市区町村, 設置者を外した学校名）。名前が「分校」で終わる学校は補わない。
+    割り当て：どの学区にも入らなかった点（学区データなしの市区町村の補いで使った点も除く）を、
+    「補う学校の中で」いちばん近い学校に当てる。学区のある学校は候補にしない。
+    前提：学区のある学校の線引きは正しい。その外の子どもは、学区データに無い学校のどれかに通うとみなす。
+    学区のある学校の値は変えない。
     返り値: (sums, feats, {市区町村: 補った学校の数}, 補った合計)"""
     zero = np.zeros(values.shape[1])
+    by_city: dict = {}
+    for code, v, a in zip(mt.city, mt.kids[:, 0], alloc.mesh_assigned):
+        c = by_city.setdefault(code, [0.0, 0.0])
+        c[0] += v
+        c[1] += v * a
     dcities = {f.props["_city"] for f in feats if not f.props.get("_approx")} - set(gaps)
-    if not dcities:
+    low = {c for c in dcities if c in by_city and by_city[c][0] > 0 and by_city[c][1] / by_city[c][0] < COVERAGE_FILL}
+    if not low:
         return sums, feats, {}, zero
-    sch = _gap_schools(args.fill_schools, dcities, fields)
+    sch = _gap_schools(args.fill_schools, low, fields)
     have_code = {f.props.get(fields.school_code) for f in feats if fields.school_code and f.props.get(fields.school_code)}
     have_name = {(f.props["_city"], export.strip_owner(f.props.get(fields.name, ""))) for f in feats}
-    miss = [i for i, (c, _x, _y, pr) in enumerate(sch)
-            if not (fields.school_code and pr.get(fields.school_code) in have_code)
-            and (c, pr.get(fields.name, "")) not in have_name]
+    miss = [s2 for s2 in sch
+            if not (fields.school_code and s2[3].get(fields.school_code) in have_code)
+            and (s2[0], s2[3].get(fields.name, "")) not in have_name
+            and not s2[3].get(fields.name, "").endswith("分校")]
     if not miss:
         return sums, feats, {}, zero
+    targets = {c for c, *_r in miss}
     count = alloc.count.copy()
     if taken is not None and taken.taken is not None:
         count[taken.taken] += 1  # 学区データなしの市区町村の補いで使った点は、もう使わない
-    near = estimate.allocate_nearest(mt.codes, mt.city, values, [(c, x, y) for c, x, y, _p in sch], dcities, k=args.k,
-                                     count=count, only=set(miss))
+    near = estimate.allocate_nearest(mt.codes, mt.city, values, [(c, x, y) for c, x, y, _p in miss], targets, k=args.k,
+                                     count=count)
     extra, rows, info = [], [], {}
-    for i in miss:
-        if near.hulls[i] is None:
+    for (city, x, y, props), hull, row in zip(miss, near.hulls, near.sums):
+        if hull is None:
             continue
-        city, x, y, props = sch[i]
         pr = dict(props)
         pr.update({"_city": city, "_approx": "1", "_fill": "1", "_lng": x, "_lat": y})
-        extra.append(readers.Feature(pr, [near.hulls[i]]))
-        rows.append(near.sums[i])
+        extra.append(readers.Feature(pr, [hull]))
+        rows.append(row)
         info[city] = info.get(city, 0) + 1
     if not extra:
         return sums, feats, {}, zero
     add = np.vstack(rows)
-    log(f"学区データに無い学校を補いました: " + ", ".join(f"{c}（{n}校）" for c, n in sorted(info.items())))
+    log("学区データに無い学校を補いました: " + ", ".join(f"{c}（{n}校）" for c, n in sorted(info.items())))
     return np.vstack([sums, add]), feats + extra, info, add.sum(axis=0)
 
 
