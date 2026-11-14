@@ -42,23 +42,45 @@
   function explicit(s) {
     return s.replace(/\{([^|{}]+)\|([^|{}]+)\}/g, function (_, base, reading) { return rubyTag(base, reading); });
   }
-  function dictRuby(text) {
-    if (!dictRe) return text;
-    return text.replace(dictRe, function (w) {
-      var r = UG.RUBY[w];
-      return r.indexOf("{") >= 0 ? explicit(r) : rubyTag(w, r);
-    });
-  }
+  /* ことばの途中で改行しないように、ルビを含む語を <span class="w">（CSS で white-space: nowrap）で包む。
+   * 語＝空白・「・」「〜」で区切った1かたまり。前の開きかっこと、後ろの句読点・閉じかっこも語に含める。
+   * 閉じかっこの後に続く文字（「力」を」の「を」）も同じ語。句読点（。、！？：）の後と開きかっこの前は <wbr> で改行してよい。
+   * Chromium は word-break: keep-all でも <ruby> の前後で改行し（「計算|を」「合|わせる」）、WebKit は <ruby> と閉じかっこの間で
+   * 改行する（「力|」」）ため。 */
+  var OPEN = "「『（(", CLOSE_BR = "」』）)", PUNCT = "。、．，！？!?：:…", CLOSE = CLOSE_BR + PUNCT;
+  var SEP = "\\s\u3000・〜";
+  var CORE = "(?:[^" + SEP + OPEN + CLOSE + "\u0003\u0004]|\u0003r\\d+\u0004)+";
+  var WORD_RE = new RegExp("[" + OPEN + "]*" + CORE + "(?:[" + CLOSE_BR + "]+" + CORE + ")*[" + CLOSE + "]*", "g");
+  var LONE_RUBY = /^<ruby[^>]*>[^<]*<rt>[^<]*<\/rt><\/ruby>$/;
   UG.ruby = function (html) {
     if (dictRe === null) buildDictRe();
     var keep = [];
-    function stash(s) { keep.push(s); return "\u0003" + (keep.length - 1) + "\u0004"; }
+    function stash(s, isRuby) { keep.push(s); return "\u0003" + (isRuby ? "r" : "") + (keep.length - 1) + "\u0004"; }
     var s = String(html)
       .replace(/\u0001([\s\S]*?)\u0002/g, function (_, t) { return stash("<span data-nr>" + t + "</span>"); })
-      .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, function (m) { return stash(explicit(m)); })
+      .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, function (m) { return stash(explicit(m), true); })
       .replace(/<[^>]+>/g, function (t) { return stash(t); });
-    s = dictRuby(s);
-    return s.replace(/\u0003(\d+)\u0004/g, function (_, i) { return keep[+i]; });
+    if (dictRe) {
+      s = s.replace(dictRe, function (w) {
+        var r = UG.RUBY[w];
+        // 「 人」のように前に空白のある見出し語は、空白を語の外に出す（空白は改行してよい位置）
+        var lead = /^\s*/.exec(w)[0];
+        var html = r.indexOf("{") >= 0 ? explicit(r) : rubyTag(w.slice(lead.length), r);
+        return lead + stash(html.replace(/^\s+/, ""), true);
+      });
+    }
+    // ルビを含み、ほかの文字かルビとつながっている語だけを包む（ルビ1つだけなら改行は起きない）。長すぎる語は包まない
+    s = s.replace(WORD_RE, function (w) {
+      if (w.indexOf("\u0003r") < 0) return w;
+      var one = /^\u0003r(\d+)\u0004$/.exec(w);
+      if (one && LONE_RUBY.test(keep[+one[1]])) return w; // ルビ1つだけの語は、途中で改行しようがない
+      var len = w.replace(/\u0003r\d+\u0004/g, "xx").length;
+      if (len > 16) return w;
+      // 開きかっこの前と、句読点・閉じかっこの後は、空白が無くても改行してよい（<wbr>）
+      return (OPEN.indexOf(w.charAt(0)) >= 0 ? "<wbr>" : "") + '<span class="w">' + w + "</span>" +
+        (PUNCT.indexOf(w.charAt(w.length - 1)) >= 0 ? "<wbr>" : "");
+    });
+    return s.replace(/\u0003r?(\d+)\u0004/g, function (_, i) { return keep[+i]; });
   };
   /** ルビなしのプレーンテキスト（カード画像・コピー用） */
   UG.plain = function (html) {

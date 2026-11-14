@@ -242,7 +242,7 @@
         (c.city.note ? '<p class="note">' + UG.TERMS_NOTE + "</p>" : "") +
         (c.sample ? "" :
           '<div class="calib"><label for="calib">' + (UG.approxNote(c.city, c.school) ? UG.CALIB_APPROX : UG.CALIB_DISTRICT) + "</label>" +
-          '<div class="row"><input id="calib" type="number" inputmode="numeric" min="1" max="3000" value="' + (st.calib || "") + '" placeholder="人数"><span>人</span>' +
+          '<div class="row"><input id="calib" type="number" inputmode="numeric" min="1" max="3000" value="' + (st.calib || "") + '"><span>人</span>' +
           '<button type="button" class="btn small" id="calib-btn">合わせる</button></div></div>') +
       "</section>" +
       '<section class="card question">' +

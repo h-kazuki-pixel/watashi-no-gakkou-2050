@@ -90,6 +90,15 @@ def main() -> int:
 
         page.goto(URL)
         page.wait_for_selector(".school-btn")
+
+        # ことばの途中で改行しない：ルビを含む語は <span class="w">（nowrap）で包む。空白は語の外、句読点は語の中
+        wrap = page.evaluate("""() => [
+          UG.ruby('計算を それに 合わせるよ。'), UG.ruby('おうちの 人に 聞く'), UG.ruby('学校'), UG.ruby('「データの 力」を')]""")
+        assert '<span class="w">' in wrap[0] and wrap[0].count('<span class="w">') == 2, wrap[0]
+        assert wrap[0].endswith("</span><wbr>"), wrap[0]                       # 「合わせるよ。」の後は改行してよい
+        assert 'の <span class="w">' in wrap[1] or "の <ruby" in wrap[1], wrap[1]  # 「 人」の空白は語の外
+        assert '<span class="w">' not in wrap[2], wrap[2]                        # ルビ1つだけの語は包まない
+        assert '<span class="w"><ruby data-g="1">力<rt>ちから</rt></ruby>」を</span>' in wrap[3], wrap[3]  # 閉じかっこの後の「を」も同じ語
         shot("0-home-empty")
         bare("home")
         page.click('[data-school="S2"]')
@@ -134,20 +143,20 @@ def main() -> int:
         with_school_approx("step1")
 
         # 実際の人数を入れる欄：おおよその区域の学校（まちが approx、または学校が approx）では、しらべて入れることをすすめる文。
-        # 学区データのある学校では「知っていたら 入れてね」。薄い字はどの学校でも「人数」
+        # 学区データのある学校では「知っていたら 入れてね」。入力欄の薄い字（placeholder）は出さない
         LABEL = "() => { const l = document.querySelector('label[for=calib]').cloneNode(true); l.querySelectorAll('rt').forEach(r => r.remove()); return l.textContent; }"
         def calib_label(step, expr_on, expr_off):
             page.evaluate(expr_on + "; UG.render()")
             t = page.evaluate(LABEL)
             assert "先生に 聞いたり しらべたり して、入れて みよう" in t and "知っていたら" not in t, f"[{step}] おおよその区域の文にならない: {t}"
-            assert page.get_attribute("#calib", "placeholder") == "人数"
+            assert not page.get_attribute("#calib", "placeholder")  # 薄い字は出さない
             plain = page.evaluate("() => { const v = document.getElementById('view').cloneNode(true); v.querySelectorAll('rt').forEach(r => r.remove()); return v.textContent; }")
             assert "人数が かなり ちがう ことも あります。" in plain, f"[{step}] 注意の最後の1文が無い"
             bare(step)
             page.evaluate(expr_off + "; UG.render()")
             t = page.evaluate(LABEL)
             assert "知っていたら 入れてね" in t and "先生に" not in t, f"[{step}] 学区データのある学校の文にならない: {t}"
-            assert page.get_attribute("#calib", "placeholder") == "人数"
+            assert not page.get_attribute("#calib", "placeholder")  # 薄い字は出さない
         # 練習用の「みらい市」では入力欄を出さないので、この確認の間だけ実データの扱いにする
         page.evaluate("UG.prefs['00'].sample = false; UG.render()")
         assert "知っていたら 入れてね" in page.evaluate(LABEL)

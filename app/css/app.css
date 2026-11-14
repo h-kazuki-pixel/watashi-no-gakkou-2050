@@ -456,6 +456,8 @@ svg.mini { display: block; width: 100%; height: auto; }
  * 子ども向けの文章は分かち書きなので、改行は空白の位置だけにする。
  * 空白のない長い語（学校名など）は、はみ出すときだけ途中で折る。 */
 .view, .sample-bar, .toast { word-break: keep-all; overflow-wrap: break-word; line-break: strict; }
+/* ルビを含む語（core.js の UG.ruby が包む）。Chromium は keep-all でも <ruby> の前後で改行するので、語ごと折らない */
+.w { white-space: nowrap; }
 .view-teachers { word-break: normal; }
 .page-head .lead { color: var(--ink); }
 .hist-list li.empty { display: block; }
