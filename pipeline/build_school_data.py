@@ -385,8 +385,15 @@ def _validate_pref(pref, got, args) -> dict:
         xy.append(loc)
     city = [f.props["_city"] for f in feats]
     year_i = 0  # 2025年
-    d, n = estimate.compare_nearest(mt.codes, mt.city, mt.kids[:, year_i:year_i + 1], feats, xy, city, k=args.k)
+    d, n = estimate.compare_nearest(mt.codes, mt.kids[:, year_i:year_i + 1], feats, xy, city, k=args.k)
     d, n = d[:, 0], n[:, 0]
+    # 同じ子ども（学区に入った点）を割り当て直しているので、県全体と市区町村ごとの合計は一致するはず。合わなければ止める
+    if not np.isclose(d.sum(), n.sum(), rtol=0, atol=1e-6 * max(1.0, d.sum())):
+        raise SystemExit(f"validate-approx: 県全体の合計が2通りで一致しません（学区 {d.sum():.3f}／近い学校 {n.sum():.3f}）")
+    for c in sorted(set(city)):
+        m = np.array([x == c for x in city])
+        if not np.isclose(d[m].sum(), n[m].sum(), rtol=0, atol=1e-6 * max(1.0, d[m].sum())):
+            raise SystemExit(f"validate-approx: {c} の合計が2通りで一致しません（学区 {d[m].sum():.3f}／近い学校 {n[m].sum():.3f}）")
 
     per_city: dict = {}
     for i, c in enumerate(city):
@@ -397,11 +404,12 @@ def _validate_pref(pref, got, args) -> dict:
     all_rel = [v for c in cities for v in per_city[c]]
     return {
         "year": mt.years[year_i],
-        "method": "学区データのある市区町村で、学区を使わずに、メッシュの点を同じ市区町村（境界のメッシュは並んだ市区町村）の"
-                  "いちばん近い学校に割り当て直した推計と、学区を使った推計を学校ごとに比べた。"
+        "method": "学区データのある市区町村で、学区に入った点（学区での推計に数えた子ども）だけを、同じ市区町村の"
+                  "いちばん近い学校に割り当て直した推計と、学区を使った推計を学校ごとに比べた。市区町村ごとの合計は2通りで一致する。"
                   "ずれ＝(近い学校での推計 − 学区での推計) ÷ 学区での推計。学校が1校だけの市区町村は除く。",
         "excluded_by_terms": excluded,
         "location_fallback_schools": fallback,
+        "total_by_district": round(float(d.sum()), 1), "total_by_nearest": round(float(n.sum()), 1),
         "pref": estimate.summarize_rel(all_rel),
         "cities": cities,
     }

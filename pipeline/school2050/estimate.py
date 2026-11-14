@@ -25,6 +25,10 @@ class Allocation:
     overlap_points: int     # 複数の学区に入った点の数
     total_points: int
     count: np.ndarray       # (メッシュの数 × k × k,) 点ごとの、入っている学区の数。0 は未配分の点
+    hits: list = None       # [(学区の番号, その学区に入った点の番号の配列)]
+    px: np.ndarray = None   # 点の経度・緯度・メッシュの番号（hits の点の番号で引く）
+    py: np.ndarray = None
+    pm: np.ndarray = None
 
 
 def allocate(codes: list, values: np.ndarray, districts: list, k: int = 4, log=None) -> Allocation:
@@ -73,7 +77,7 @@ def allocate(codes: list, values: np.ndarray, districts: list, k: int = 4, log=N
 
     assigned = np.bincount(pm[count > 0], minlength=n) * w0
     unassigned = (values * (1.0 - assigned)[:, None]).sum(axis=0)
-    return Allocation(sums, unassigned, assigned, int((count > 1).sum()), int(px.shape[0]), count)
+    return Allocation(sums, unassigned, assigned, int((count > 1).sum()), int(px.shape[0]), count, hits, px, py, pm)
 
 
 def split_cities(code: str) -> list:
@@ -172,19 +176,34 @@ def convex_hull(pts: np.ndarray) -> np.ndarray:
 
 # ---------------------------------------------------------------- おおよその区域の当たり具合
 
-def compare_nearest(codes: list, mesh_city: list, values: np.ndarray, districts: list, school_xy: list,
+def compare_nearest(codes: list, values: np.ndarray, districts: list, school_xy: list,
                     school_city: list, k: int = 4) -> tuple[np.ndarray, np.ndarray]:
-    """学区データのある市区町村で、学区を使った配分と「おおよその区域」の配分を同じ学校について比べる。
+    """学区データのある市区町村で、学区を使った配分と「おおよその区域」の配分を、同じ子どもについて比べる。
 
     districts: 学区（.rings）。school_xy: 各学区の学校の位置 (経度, 緯度)。school_city: 各学区の市区町村コード。
-    おおよその区域は、学区データの無い市区町村と同じ方法（allocate_nearest。メッシュの市区町村の中で
-    いちばん近い学校）で、学区を使わずに全部の点を割り当て直したもの。
+    比べるのは、学区に入った点（＝学区での推計に数えた子ども）だけ。その点を、入っていた学区と同じ
+    市区町村の学校のうち、いちばん近い学校に割り当て直す（おおよその区域と同じ考え方）。
+    重なった学区に入る点は、学区での配分と同じく学区の数で等分した重みのまま動かす。
+    したがって、市区町村ごとの合計は2通りで必ず一致する。
     返り値: (学区での推計, 近い学校での推計)。どちらも (学校の数, 特徴量の数)。
     """
-    by_district = allocate(codes, values, districts, k=k).sums
-    schools = [(c, float(x), float(y)) for c, (x, y) in zip(school_city, school_xy)]
-    near = allocate_nearest(codes, mesh_city, values, schools, set(school_city), k=k)
-    return by_district, near.sums
+    values = np.asarray(values, dtype=float)
+    a = allocate(codes, values, districts, k=k)
+    near = np.zeros_like(a.sums)
+    if not a.hits:
+        return a.sums, near
+    city_arr = np.array(school_city)
+    sx = np.array([float(x) for x, _ in school_xy])
+    sy = np.array([float(y) for _, y in school_xy])
+    kx = np.cos(np.radians(float(np.mean(a.py))))
+    w0 = 1.0 / (k * k)
+    for d, sel in a.hits:
+        cand = np.nonzero(city_arr == city_arr[d])[0]  # 同じ市区町村の学校
+        d2 = ((a.px[sel, None] - sx[None, cand]) * kx) ** 2 + (a.py[sel, None] - sy[None, cand]) ** 2
+        owner = cand[np.argmin(d2, axis=1)]
+        w = w0 / a.count[sel]
+        np.add.at(near, owner, values[a.pm[sel]] * w[:, None])
+    return a.sums, near
 
 
 def summarize_rel(rel) -> dict:

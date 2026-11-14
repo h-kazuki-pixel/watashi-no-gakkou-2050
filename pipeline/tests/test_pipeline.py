@@ -526,7 +526,7 @@ def test_compare_nearest_is_zero_when_districts_match_nearest_school():
     west = readers.Feature({}, [np.array(rect(0, 0, 4, 8))])
     east = readers.Feature({}, [np.array(rect(4, 0, 8, 8))])
     xy = [(LNG0 + 2 * DLNG, LAT0 + 4 * DLAT), (LNG0 + 6 * DLNG, LAT0 + 4 * DLAT)]
-    d, n = estimate.compare_nearest(codes, city, values, [west, east], xy, ["99101", "99101"], k=4)
+    d, n = estimate.compare_nearest(codes, values, [west, east], xy, ["99101", "99101"], k=4)
     assert d[:, 0] == pytest.approx([320.0, 320.0])
     assert n[:, 0] == pytest.approx(d[:, 0])
     s = estimate.summarize_rel((n[:, 0] - d[:, 0]) / d[:, 0])
@@ -539,11 +539,33 @@ def test_compare_nearest_detects_shifted_boundary():
     west = readers.Feature({}, [np.array(rect(0, 0, 4, 8))])
     east = readers.Feature({}, [np.array(rect(4, 0, 8, 8))])
     xy = [(LNG0 + 1 * DLNG, LAT0 + 4 * DLAT), (LNG0 + 6 * DLNG, LAT0 + 4 * DLAT)]
-    d, n = estimate.compare_nearest(codes, city, values, [west, east], xy, ["99101", "99101"], k=4)
+    d, n = estimate.compare_nearest(codes, values, [west, east], xy, ["99101", "99101"], k=4)
     rel = (n[:, 0] - d[:, 0]) / d[:, 0]
     assert rel == pytest.approx([-0.125, 0.125])
     s = estimate.summarize_rel(rel)
     assert s["abs_median"] == pytest.approx(0.125) and s["within_10"] == 0.0 and s["over_30"] == 0.0
+
+
+def test_compare_nearest_counts_the_same_children_when_districts_cover_part_of_city():
+    # 学区が市区町村の一部しか覆わない（下半分の 4 行だけ）。上半分の子どもは学区での推計に入らないので、
+    # 近い学校への割り当て直しにも入れない。2通りの合計は、市区町村ごとにも全体でも一致する。
+    # 別の市区町村（99102、右半分）と、学区の重なり（列 1〜2）も含める。
+    codes, _city, values = _grid_8x8()
+    feats = [
+        readers.Feature({}, [np.array(rect(0, 0, 2, 4))]),    # 99101 西
+        readers.Feature({}, [np.array(rect(1, 0, 4, 4))]),    # 99101 東（列 1〜2 で西と重なる）
+        readers.Feature({}, [np.array(rect(4, 0, 6, 4))]),    # 99102 西
+        readers.Feature({}, [np.array(rect(6, 0, 8, 3))]),    # 99102 東（さらに一部だけ）
+    ]
+    xy = [(LNG0 + 0.5 * DLNG, LAT0 + 6 * DLAT), (LNG0 + 3.5 * DLNG, LAT0 + 1 * DLAT),
+          (LNG0 + 4.5 * DLNG, LAT0 + 7 * DLAT), (LNG0 + 7.5 * DLNG, LAT0 + 0.5 * DLAT)]
+    city = ["99101", "99101", "99102", "99102"]
+    d, n = estimate.compare_nearest(codes, values, feats, xy, city, k=4)
+    covered = 16 * 10 + (8 + 6) * 10                       # 99101: 4列×4行、99102: 2列×4行＋2列×3行（1マス 10人）
+    assert d[:, 0].sum() == pytest.approx(covered) and n[:, 0].sum() == pytest.approx(covered)
+    assert d[:2, 0].sum() == pytest.approx(n[:2, 0].sum()) == pytest.approx(160.0)   # 99101
+    assert d[2:, 0].sum() == pytest.approx(n[2:, 0].sum()) == pytest.approx(140.0)   # 99102
+    assert not np.allclose(d[:, 0], n[:, 0])               # 学校ごとには変わる
 
 
 def test_validate_approx_cli_writes_city_summaries(tmp_path, capsys):
