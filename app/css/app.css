@@ -556,3 +556,7 @@ body[data-grade="adult"] ruby[data-g="6"] rt { display: none; }
 @media (max-width: 600px) {
   .cmp-list li { grid-template-columns: minmax(0, 7em) minmax(0, 1fr) auto; }
 }
+
+/* はじめの画面の下：出典と、先生向けページへの入口 */
+.credit { text-align: center; }
+.credit .link { font-size: inherit; }

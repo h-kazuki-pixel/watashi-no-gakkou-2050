@@ -138,7 +138,10 @@
         UG.STEPS.map(function (s) {
           return '<li><span class="no">' + s.no + "</span><b>" + s.name + "</b><span>" + s.desc + "</span></li>";
         }).join("") +
-        "</ol></section>"
+        "</ol></section>" +
+      // 出典と、先生向けページへの入口
+      '<p class="credit fine">国土数値情報（国土交通省）を加工して作成　' +
+        '<button type="button" class="link" data-go="teachers">先生・大人の方へ →</button></p>'
     );
 
     function drawMap() {
