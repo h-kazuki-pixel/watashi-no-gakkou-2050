@@ -5,13 +5,17 @@
 入力（手で保存。リポジトリには入れない。data_raw/ は .gitignore 済み）
   data_raw/actual/fukuoka_R7.pdf            福岡市「児童生徒数等一覧表」令和7年5月1日現在・速報値
   data_raw/actual/kitakyushu_No73_2025.pdf  北九州市「教育調査統計資料 No.73 2025」
+  data_raw/actual/kurume_R7_opendata.csv    久留米市「市立学校児童生徒数一覧（久留米市）」令和7年度（BODIK、CC BY、特別支援学級を含む）
   data_raw/actual/kurume_R7.pdf             久留米市「市立小学校の児童数・学級数の将来推計及び学校施設の状況について（令和7年度）」
+                                            （通常学級のみ。照合には使わず、CSV の検算にだけ使う）
 
 出力
   opendata/accuracy_actual_40.json   市ごとの集計値と学校数だけ（学校名・学校別の値は入れない）
   data_raw/actual/matched_40.csv     学校ごとの対応表（確認用。data_raw/ の外には出さない）
 
-公表値（市・区の合計、久留米市の学校数と2校の値）と一致しなければ、何も書き出さずに止める。
+公表値（市・区の合計、久留米市の学校数と合計）と一致しなければ、何も書き出さずに止める。
+久留米市は CSV の「小学校」で終わる行の1〜6学年の合計を使う（市立特別支援学校の「特別小」などと中学校は使わない）。
+CSV の各校の人数が、PDF の通常学級の人数以上であることも確かめる。
 ずれ ＝（推計 − 実際）÷ 実際。絶対ずれはその絶対値。
 """
 from __future__ import annotations
@@ -31,7 +35,7 @@ FUKUOKA_TOTAL, FUKUOKA_SCHOOLS = 82207, 147
 FUKUOKA_WARDS = {"40131": 18336, "40132": 8814, "40133": 7889, "40134": 15289, "40135": 11876, "40136": 6691, "40137": 13312}
 KITA_TOTAL = 42377
 KITA_WARDS = {"40101": 3781, "40106": 6985, "40107": 10316, "40103": 4253, "40108": 2845, "40109": 11883, "40105": 2314}
-KURUME_SCHOOLS = 43
+KURUME_SCHOOLS, KURUME_TOTAL = 43, 16317
 # 学校別の検算値（学校名と実数の組）は、リポジトリに入れないため data_raw/actual/checks.json に置く：
 #   {"fukuoka_small": {学校名: 人数, …}, "kurume": {学校名: 人数, …}}
 
@@ -169,6 +173,31 @@ def read_kurume(pdfplumber) -> dict:
     return out
 
 
+def read_kurume_csv() -> dict:
+    """BODIK の CSV（UTF-8、BOM つき）。「小学校」で終わる行の1〜6学年の合計。"""
+    raw = (ACT / "kurume_R7_opendata.csv").read_bytes()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp932")
+    rows = list(csv.reader(text.splitlines()))
+    head = rows[0]
+    try:
+        ci = head.index("学校名")
+        gi = [head.index(f"{g}学年児童・生徒数（人）") for g in range(1, 7)]
+    except ValueError:
+        stop(f"久留米市の CSV の列が想定と違います: {head}")
+    out = {}
+    for r in rows[1:]:
+        if len(r) <= max(gi) or not r[ci].strip().endswith("小学校"):
+            continue
+        k = key(r[ci])
+        if k in out:
+            stop(f"久留米市の CSV に {r[ci]} が2行あります")
+        out[k] = sum(int(r[i]) for i in gi)
+    return out
+
+
 # ---------------------------------------------------------------- 照合
 def load_pref() -> dict:
     s = (ROOT / "app" / "data" / "pref_40.js").read_text(encoding="utf-8")
@@ -202,7 +231,8 @@ def main() -> int:
     pref = load_pref()
     kita_known = {key(s["name"]) for c in pref["cities"] if c["code"] in CITIES["kitakyushu"][1] for s in c["schools"]}
     actual = {"fukuoka": read_fukuoka(pdfplumber), "kitakyushu": read_kitakyushu(pdfplumber, kita_known),
-              "kurume": read_kurume(pdfplumber)}
+              "kurume": read_kurume_csv()}
+    kurume_pdf = read_kurume(pdfplumber)
 
     # ---- 公表値との検算
     fk = actual["fukuoka"]
@@ -218,12 +248,22 @@ def main() -> int:
     kk = actual["kitakyushu"]
     if sum(kk.values()) != KITA_TOTAL:
         stop(f"北九州市の合計が合いません: {len(kk)}校 {sum(kk.values())}人（公表 {KITA_TOTAL}人）")
-    ku = actual["kurume"]
-    if len(ku) != KURUME_SCHOOLS:
-        stop(f"久留米市の学校数が {len(ku)}（{KURUME_SCHOOLS}校のはず）")
+    # 久留米市：PDF（通常学級のみ）は読み取りを確かめたうえで、CSV の検算にだけ使う
+    if len(kurume_pdf) != KURUME_SCHOOLS:
+        stop(f"久留米市の PDF の学校数が {len(kurume_pdf)}（{KURUME_SCHOOLS}校のはず）")
     for n, v in checks["kurume"].items():
-        if ku.get(n) != v:
-            stop(f"久留米市 {n} の児童数が {ku.get(n)}（{v} のはず）")
+        if kurume_pdf.get(n) != v:
+            stop(f"久留米市の PDF の {n} の児童数が {kurume_pdf.get(n)}（{v} のはず）")
+    ku = actual["kurume"]
+    if len(ku) != KURUME_SCHOOLS or sum(ku.values()) != KURUME_TOTAL:
+        stop(f"久留米市の CSV の学校数・合計が合いません: {len(ku)}校 {sum(ku.values())}人（{KURUME_SCHOOLS}校 {KURUME_TOTAL}人のはず）")
+    if "青峰" in ku or "大橋" not in ku:
+        stop("久留米市の CSV：青峰小の行が無く、大橋小の行があるはず")
+    if set(ku) != set(kurume_pdf):
+        stop(f"久留米市の CSV と PDF の学校が違います: CSVだけ {sorted(set(ku) - set(kurume_pdf))} / PDFだけ {sorted(set(kurume_pdf) - set(ku))}")
+    less = sorted(n for n in ku if ku[n] < kurume_pdf[n])
+    if less:
+        stop(f"久留米市の CSV の人数が PDF の通常学級の人数より少ない学校があります: {', '.join(less)}")
 
     # ---- 学校名の対応づけ
     out, rows = {"source_date": "2025-05-01", "estimate": "pref_40.js est[0]（2025年）", "cities": {}}, []
