@@ -8,9 +8,12 @@
   var V = (UG.views = {});
   // 学区データの利用条件が「条件公開」か特記条件つきの市区町村（pref_XX.js の city.note）
   UG.TERMS_NOTE = "この まちの 学区は めやすです。くわしくは 教育委員会に たしかめてね。";
-  UG.APPROX_NOTE = "この まちは 学区の 地図データが ないため、学校から いちばん 近い 場所で 分けた「おおよその 区域」で 計算しています。本当の 学区とは ちがう ところが あります。";
+  UG.APPROX_NOTE = "この まちは 学区の 地図データが ないため、学校から いちばん 近い 場所で 分けた「おおよその 区域」で 計算しています。本当の 学区とは ちがう ところが あります。人数が かなり ちがう ことも あります。";
   // 学区データのある まちで、学区データに 入って いない 学校（学校だけが approx）
-  UG.APPROX_SCHOOL_NOTE = "この 学校は 学区の 地図データに 入って いません。まわりの 学区に 入らなかった 場所から「おおよその 区域」を 作って 計算しています。本当の 学区とは ちがう ところが あります。";
+  UG.APPROX_SCHOOL_NOTE = "この 学校は 学区の 地図データに 入って いません。まわりの 学区に 入らなかった 場所から「おおよその 区域」を 作って 計算しています。本当の 学区とは ちがう ところが あります。人数が かなり ちがう ことも あります。";
+  // ステップ1の 実際の 人数を 入れる 欄の 文。おおよその 区域の 学校では、しらべて 入れる ことを すすめる
+  UG.CALIB_DISTRICT = "学校の 本当の 人数（全校の 児童数）を 知っていたら 入れてね。計算を それに 合わせるよ。";
+  UG.CALIB_APPROX = "学校の 本当の 人数（全校の 児童数）を 先生に 聞いたり しらべたり して、入れて みよう。計算を それに 合わせるよ。";
   /** 「おおよその 区域」の 注意（まち全体か、学校だけか）。どちらでもなければ "" */
   UG.approxNote = function (city, school) {
     if (city && city.approx) return UG.APPROX_NOTE;
@@ -238,8 +241,8 @@
         (UG.approxNote(c.city, c.school) ? '<p class="note">' + UG.approxNote(c.city, c.school) + "</p>" : "") +
         (c.city.note ? '<p class="note">' + UG.TERMS_NOTE + "</p>" : "") +
         (c.sample ? "" :
-          '<div class="calib"><label for="calib">学校の 本当の 人数（全校の 児童数）を 知っていたら 入れてね。計算を それに 合わせるよ。</label>' +
-          '<div class="row"><input id="calib" type="number" inputmode="numeric" min="1" max="3000" value="' + (st.calib || "") + '" placeholder="' + num(c.school.est[0]) + '"><span>人</span>' +
+          '<div class="calib"><label for="calib">' + (UG.approxNote(c.city, c.school) ? UG.CALIB_APPROX : UG.CALIB_DISTRICT) + "</label>" +
+          '<div class="row"><input id="calib" type="number" inputmode="numeric" min="1" max="3000" value="' + (st.calib || "") + '" placeholder="人数"><span>人</span>' +
           '<button type="button" class="btn small" id="calib-btn">合わせる</button></div></div>') +
       "</section>" +
       '<section class="card question">' +

@@ -132,6 +132,33 @@ def main() -> int:
         page.wait_for_selector(".now-card")
         with_note("step1")
         with_school_approx("step1")
+
+        # 実際の人数を入れる欄：おおよその区域の学校（まちが approx、または学校が approx）では、しらべて入れることをすすめる文。
+        # 学区データのある学校では「知っていたら 入れてね」。薄い字はどの学校でも「人数」
+        LABEL = "() => { const l = document.querySelector('label[for=calib]').cloneNode(true); l.querySelectorAll('rt').forEach(r => r.remove()); return l.textContent; }"
+        def calib_label(step, expr_on, expr_off):
+            page.evaluate(expr_on + "; UG.render()")
+            t = page.evaluate(LABEL)
+            assert "先生に 聞いたり しらべたり して、入れて みよう" in t and "知っていたら" not in t, f"[{step}] おおよその区域の文にならない: {t}"
+            assert page.get_attribute("#calib", "placeholder") == "人数"
+            plain = page.evaluate("() => { const v = document.getElementById('view').cloneNode(true); v.querySelectorAll('rt').forEach(r => r.remove()); return v.textContent; }")
+            assert "人数が かなり ちがう ことも あります。" in plain, f"[{step}] 注意の最後の1文が無い"
+            bare(step)
+            page.evaluate(expr_off + "; UG.render()")
+            t = page.evaluate(LABEL)
+            assert "知っていたら 入れてね" in t and "先生に" not in t, f"[{step}] 学区データのある学校の文にならない: {t}"
+            assert page.get_attribute("#calib", "placeholder") == "人数"
+        # 練習用の「みらい市」では入力欄を出さないので、この確認の間だけ実データの扱いにする
+        page.evaluate("UG.prefs['00'].sample = false; UG.render()")
+        assert "知っていたら 入れてね" in page.evaluate(LABEL)
+        calib_label("step1-calib-city-approx",
+                    "Object.values(UG.prefs).forEach(p => p.cities.forEach(c => c.approx = true))",
+                    "Object.values(UG.prefs).forEach(p => p.cities.forEach(c => delete c.approx))")
+        calib_label("step1-calib-school-approx",
+                    "Object.values(UG.prefs).forEach(p => p.cities.forEach(c => c.schools.forEach(s => { if (s.id === UG.state.schoolId) s.approx = true; })))",
+                    "Object.values(UG.prefs).forEach(p => p.cities.forEach(c => c.schools.forEach(s => delete s.approx)))")
+        page.evaluate("UG.prefs['00'].sample = true; UG.render()")
+        assert page.locator("#calib").count() == 0
         assert page.is_disabled("#next-btn")
         page.click('[data-guess="down"]')
         page.fill("#reason", "空き家がふえているから")
