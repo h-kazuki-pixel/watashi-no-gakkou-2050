@@ -42,6 +42,14 @@ def merge_same_school(features: list[Feature], fields: DistrictFields, pref_code
     return [groups[k] for k in order]
 
 
+def strip_owner(name: str) -> str:
+    """学校名の先頭の設置者（「北九州市立」「〇〇町立」「〇〇組合立」など）を取り、学区データの形（「大積小学校」）にそろえる。
+    国土数値情報「学校」は設置者つき、「小学校区」は設置者なしで収録されているため。「立花小学校」のように
+    「立」で始まる名前はそのまま。"""
+    m = re.match(r"^.{1,12}?(?:市|町|村|区|組合)立(.+(?:学校|学園|分校))$", name or "")
+    return m.group(1) if m else (name or "")
+
+
 def city_from_address(addr: str) -> str:
     """所在地から市区町村名を取り出す（例：福岡県福岡市中央区天神… → 福岡市中央区、糟屋郡宇美町… → 宇美町）。"""
     a = re.sub(r"^(北海道|東京都|大阪府|京都府|.{2,3}県)", "", (addr or "").strip())

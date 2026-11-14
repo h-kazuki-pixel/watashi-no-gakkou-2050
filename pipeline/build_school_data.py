@@ -30,7 +30,7 @@ import time
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from school2050 import estimate, export, inputs, readers, terms  # noqa: E402
+from school2050 import estimate, export, geo, inputs, readers, terms  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -123,7 +123,7 @@ def _school_points(path, pref_code) -> dict:
         if f.school_code and ft.props.get(f.school_code):
             out[ft.props[f.school_code]] = xy
         city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else pref_code + "000"
-        out[(city, ft.props.get(f.name, ""))] = xy
+        out[(city, export.strip_owner(ft.props.get(f.name, "")))] = xy
     return out
 
 
@@ -142,7 +142,7 @@ def _gap_schools(path, gap_cities: set, dfields) -> list:
         if city not in gap_cities:
             continue
         code = ft.props.get(f.school_code, "") if f.school_code else ""
-        name = ft.props.get(f.name, "")
+        name = export.strip_owner(ft.props.get(f.name, ""))
         if code:
             # 文部科学省の学校コード：先頭2文字が学校種（B1＝小学校）、5文字目が設置者（2＝公立）
             if not (code.startswith("B1") and code[4:5] == "2"):
@@ -301,10 +301,10 @@ def cmd_build(args) -> int:
     return 0
 
 
-def cmd_build_all(args) -> int:
-    """フォルダの中の zip / ファイルを中身で仕分けし、学区とメッシュがそろった県をすべて生成する。"""
-    root = pathlib.Path(args.input)
-    items = sorted(p for p in root.iterdir() if not p.name.startswith("."))
+def _scan_inputs(root) -> dict:
+    """フォルダの中の zip / ファイルを中身で仕分ける。{都道府県コード: {"districts"|"mesh"|"schools": パス}}"""
+    root = pathlib.Path(root)
+    items = sorted(p for p in root.iterdir() if not p.name.startswith(".") and not p.is_dir())
     found: dict = {}
     for it in items:
         try:
@@ -326,6 +326,12 @@ def cmd_build_all(args) -> int:
             continue
         found.setdefault(pref, {})[kind] = it
         log(f"{it.name} → {export.PREF_NAMES.get(pref, pref)} の{ {'districts': '学区', 'mesh': 'メッシュ', 'schools': '学校の位置'}[kind] }")
+    return found
+
+
+def cmd_build_all(args) -> int:
+    """フォルダの中の zip / ファイルを中身で仕分けし、学区とメッシュがそろった県をすべて生成する。"""
+    found = _scan_inputs(args.input)
     results, missing = {}, {}
     for pref in sorted(found):
         got = found[pref]
@@ -343,6 +349,85 @@ def cmd_build_all(args) -> int:
             log(f"{pref} 失敗: {e}")
     print(json.dumps({"built": results, "missing": missing}, ensure_ascii=False, indent=1))
     return 0 if results and all(v == "ok" for v in results.values()) else 1
+
+
+def _validate_pref(pref, got, args) -> dict:
+    """学区データのある市区町村で、学区を使わず「おおよその区域」と同じ方法で割り当て直し、学校ごとのずれを要約する。"""
+    sub = argparse.Namespace(districts=str(got["districts"]), mesh=str(got["mesh"]), schools=None, pref=pref,
+                             name_field=None, city_field=None, code_field=None, owner_field=None, address_field=None,
+                             age_columns=None)
+    _resolve(sub)
+    feats = readers.read_features(sub.districts)
+    fields = _fields(feats, sub)
+    if not fields.city_code:
+        raise ValueError("学区データに行政区域コードが無いので、市区町村ごとに比べられません")
+    # build と同じく、利用条件で再配布できない市区町村の学区は使わない
+    ex = terms.excluded(terms.load())
+    def city_of(f):
+        return str(f.props.get(fields.city_code, "")).strip().zfill(5)
+    excluded = sorted({city_of(f) for f in feats if city_of(f) in ex})
+    feats = [f for f in feats if city_of(f) not in ex]
+    feats = export.merge_same_school(feats, fields, pref)
+    df = readers.read_table(sub.mesh)
+    mt = readers.build_mesh_table(df, _mesh_columns(df, sub))
+    if not mt.city:
+        raise ValueError("メッシュに行政区域コードが無いので、おおよその区域を作れません")
+
+    # 学校の位置：おおよその区域と同じく国土数値情報「学校」を使う。学校コード → (市区町村, 学校名) の順に探し、
+    # 見つからない学校だけ学区の重心で代える（件数を出す）
+    pts = _school_points(str(inputs.find_schools(got["schools"]).points), pref)
+    xy, fallback = [], 0
+    for f in feats:
+        code = f.props.get(fields.school_code, "") if fields.school_code else ""
+        loc = pts.get(code) or pts.get((f.props["_city"], f.props.get(fields.name, "")))
+        if not loc:
+            loc, fallback = geo.centroid(f.rings), fallback + 1
+        xy.append(loc)
+    city = [f.props["_city"] for f in feats]
+    year_i = 0  # 2025年
+    d, n = estimate.compare_nearest(mt.codes, mt.city, mt.kids[:, year_i:year_i + 1], feats, xy, city, k=args.k)
+    d, n = d[:, 0], n[:, 0]
+
+    per_city: dict = {}
+    for i, c in enumerate(city):
+        if d[i] >= args.min_children:  # build と同じく、推計1人未満の学区は比べない
+            per_city.setdefault(c, []).append((n[i] - d[i]) / d[i])
+    names = export._city_names(feats, fields, None)
+    cities = {c: {"name": names.get(c, ""), **estimate.summarize_rel(r)} for c, r in sorted(per_city.items()) if len(r) >= 2}
+    all_rel = [v for c in cities for v in per_city[c]]
+    return {
+        "year": mt.years[year_i],
+        "method": "学区データのある市区町村で、学区を使わずに、メッシュの点を同じ市区町村（境界のメッシュは並んだ市区町村）の"
+                  "いちばん近い学校に割り当て直した推計と、学区を使った推計を学校ごとに比べた。"
+                  "ずれ＝(近い学校での推計 − 学区での推計) ÷ 学区での推計。学校が1校だけの市区町村は除く。",
+        "excluded_by_terms": excluded,
+        "location_fallback_schools": fallback,
+        "pref": estimate.summarize_rel(all_rel),
+        "cities": cities,
+    }
+
+
+def cmd_validate_approx(args) -> int:
+    """おおよその区域の当たり具合を、学区データのある市区町村で測り、report_XX.json に書き足す。"""
+    found = _scan_inputs(args.input)
+    out = {}
+    for pref in sorted(found):
+        got = found[pref]
+        lack = [k for k in ("districts", "mesh", "schools") if k not in got]
+        if lack:
+            out[pref] = "足りないファイル: " + ", ".join(lack)
+            continue
+        log(f"== {export.PREF_NAMES.get(pref, pref)}（{pref}）おおよその区域の当たり具合")
+        res = _validate_pref(pref, got, args)
+        rp = pathlib.Path(args.opendata) / f"report_{pref}.json"
+        report = json.loads(rp.read_text(encoding="utf-8")) if rp.exists() else {"pref": pref}
+        report["validate_approx"] = res
+        rp.parent.mkdir(parents=True, exist_ok=True)
+        rp.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+        log(f"書き出し: {rp}")
+        out[pref] = res["pref"]
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    return 0
 
 
 def main(argv=None) -> int:
@@ -371,6 +456,13 @@ def main(argv=None) -> int:
     pb.add_argument("--min-children", type=float, default=1.0, help="2025年の推計がこれ未満の学区は出力しない")
     pb.add_argument("--fill-schools", help="（任意）国土数値情報「学校」。学区データの無い市区町村を、学校の位置からおおよその区域で補う")
     pb.set_defaults(fn=cmd_build)
+
+    pv = sub.add_parser("validate-approx", help="おおよその区域の当たり具合を、学区データのある市区町村で測る")
+    pv.add_argument("--input", required=True, help="国土数値情報の zip を入れたフォルダ（学区・メッシュ・学校の3つ）")
+    pv.add_argument("--opendata", required=True, help="report_XX.json のあるフォルダ（validate_approx を書き足す）")
+    pv.add_argument("--k", type=int, default=4)
+    pv.add_argument("--min-children", type=float, default=1.0)
+    pv.set_defaults(fn=cmd_validate_approx)
 
     pa = sub.add_parser("build-all", help="フォルダの中のダウンロードファイルをまとめて処理する")
     pa.add_argument("--input", required=True, help="国土数値情報の zip を入れたフォルダ")

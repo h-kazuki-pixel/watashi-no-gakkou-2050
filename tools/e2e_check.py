@@ -60,6 +60,28 @@ def main() -> int:
         def shot(name, full=True):
             page.screenshot(path=str(OUT / f"{name}.png"), full_page=full)
 
+        LINE_DONE = "Object.keys(UG.state.draw).length === UG.model.DRAW_YEARS.length"
+
+        def draw_line(fy0, fy1, right_margin, steps):
+            """グラフをなぞり、全部の年に値が入る（線が描けた）ことを条件に待つ。
+            幅を変えた直後は、アプリが 200ms 遅れて画面を描き直す（main.js の resize）。それがなぞっている途中に
+            重なると、線は最初の1点だけになる（20回に1回ほど落ちた原因）。そのときは新しいグラフにもう一度なぞる。"""
+            for _ in range(3):
+                box = page.locator("svg.chart .pad").bounding_box()
+                x0, x1 = box["x"] + 6, box["x"] + box["width"] - right_margin
+                y0, y1 = box["y"] + box["height"] * fy0, box["y"] + box["height"] * fy1
+                page.mouse.move(x0, y0); page.mouse.down()
+                for i in range(1, steps + 1):
+                    t = i / steps
+                    page.mouse.move(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+                page.mouse.up()
+                try:
+                    page.wait_for_function(LINE_DONE, timeout=2000)
+                    return
+                except Exception:
+                    continue
+            raise AssertionError("3回なぞっても線が描けない: " + json.dumps(page.evaluate("UG.state.draw")))
+
         def bare(step):
             for chars, ctx in page.evaluate(FIND_BARE_KANJI):
                 rest = "".join(c for c in chars if c not in ALLOW)
@@ -96,14 +118,7 @@ def main() -> int:
         page.wait_for_selector("svg.chart .pad")
         assert page.is_disabled("#next-btn")
         shot("2-yosou-before", full=False)
-        box = page.locator("svg.chart .pad").bounding_box()
-        x0, x1 = box["x"] + 6, box["x"] + box["width"] - 140
-        y0, y1 = box["y"] + box["height"] * 0.62, box["y"] + box["height"] * 0.74
-        page.mouse.move(x0, y0); page.mouse.down()
-        for i in range(1, 31):
-            t = i / 30
-            page.mouse.move(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
-        page.mouse.up()
+        draw_line(0.62, 0.74, 140, 30)
         assert not page.is_disabled("#next-btn"), "線を描いても次へ進めない"
         drawn = page.evaluate("UG.state.draw")
         assert len(drawn) == 5, drawn
@@ -175,9 +190,8 @@ def main() -> int:
         assert page.evaluate("[UG.state.schoolId, Object.keys(UG.state.draw).length, UG.state.grade]") == ["S5", 0, "e5"]
         assert [t.strip() for t in page.locator(".school-btn.on .nm").all_inner_texts()] == ["山の上小学校"]
         page.click("#start"); page.click('[data-guess="same"]'); page.click("#next-btn")
-        box = page.locator("svg.chart .pad").bounding_box()
-        page.mouse.move(box["x"] + 5, box["y"] + box["height"] * 0.8); page.mouse.down()
-        page.mouse.move(box["x"] + box["width"] - 140, box["y"] + box["height"] * 0.85, steps=20); page.mouse.up()
+        page.wait_for_selector("svg.chart .pad")
+        draw_line(0.8, 0.85, 140, 20)
         page.click("#next-btn"); page.wait_for_selector(".verdict"); page.wait_for_timeout(2500)
         shot("3-small-school"); bare("small")
 

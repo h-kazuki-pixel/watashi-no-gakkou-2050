@@ -5,6 +5,6 @@ UG.registerIndex([
   "name": "福岡県",
   "cities": 72,
   "schools": 704,
-  "generated": "2026-11-14"
+  "generated": "2026-11-15"
  }
 ]);

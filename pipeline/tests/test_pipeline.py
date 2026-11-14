@@ -513,6 +513,60 @@ def test_gap_city_listed_as_missing_without_school_points(tmp_path, capsys):
     capsys.readouterr()
 
 
+# ---------------------------------------------------------------- おおよその区域の当たり具合（validate-approx）
+
+def _grid_8x8():
+    codes = [meshcode.encode(LAT0 + (r + 0.5) * DLAT, LNG0 + (c + 0.5) * DLNG, 9) for r in range(8) for c in range(8)]
+    return codes, ["99101"] * 64, np.full((64, 1), 10.0)
+
+
+def test_compare_nearest_is_zero_when_districts_match_nearest_school():
+    # 学区の境目（列 4）が、2つの学校（列 2 と列 6、同じ行）からの距離が等しい線と一致する配置 → ずれは 0
+    codes, city, values = _grid_8x8()
+    west = readers.Feature({}, [np.array(rect(0, 0, 4, 8))])
+    east = readers.Feature({}, [np.array(rect(4, 0, 8, 8))])
+    xy = [(LNG0 + 2 * DLNG, LAT0 + 4 * DLAT), (LNG0 + 6 * DLNG, LAT0 + 4 * DLAT)]
+    d, n = estimate.compare_nearest(codes, city, values, [west, east], xy, ["99101", "99101"], k=4)
+    assert d[:, 0] == pytest.approx([320.0, 320.0])
+    assert n[:, 0] == pytest.approx(d[:, 0])
+    s = estimate.summarize_rel((n[:, 0] - d[:, 0]) / d[:, 0])
+    assert s["median"] == 0 and s["abs_median"] == 0 and s["within_10"] == 1.0 and s["over_30"] == 0.0 and s["schools"] == 2
+
+
+def test_compare_nearest_detects_shifted_boundary():
+    # 西の学校を列 1 に寄せると、距離が等しい線は列 3.5 → 西は 32 → 28 列分（−12.5%）、東は +12.5%
+    codes, city, values = _grid_8x8()
+    west = readers.Feature({}, [np.array(rect(0, 0, 4, 8))])
+    east = readers.Feature({}, [np.array(rect(4, 0, 8, 8))])
+    xy = [(LNG0 + 1 * DLNG, LAT0 + 4 * DLAT), (LNG0 + 6 * DLNG, LAT0 + 4 * DLAT)]
+    d, n = estimate.compare_nearest(codes, city, values, [west, east], xy, ["99101", "99101"], k=4)
+    rel = (n[:, 0] - d[:, 0]) / d[:, 0]
+    assert rel == pytest.approx([-0.125, 0.125])
+    s = estimate.summarize_rel(rel)
+    assert s["abs_median"] == pytest.approx(0.125) and s["within_10"] == 0.0 and s["over_30"] == 0.0
+
+
+def test_validate_approx_cli_writes_city_summaries(tmp_path, capsys):
+    import zipfile
+    folder = tmp_path / "dl"
+    _make_gap_downloads(folder)
+    feats = [{"type": "Feature", "properties": p, "geometry": {"type": "MultiPolygon", "coordinates": g}}
+             for p, g in district_features()]
+    with zipfile.ZipFile(folder / "A27-23_99_GML.zip", "w") as z:   # 両方の区の学区を入れる
+        z.writestr("A27-23_99.geojson", json.dumps({"type": "FeatureCollection", "features": feats}, ensure_ascii=False))
+    od = tmp_path / "od"
+    assert cli.main(["build-all", "--input", str(folder), "--out", str(tmp_path / "d"), "--opendata", str(od)]) == 0
+    assert cli.main(["validate-approx", "--input", str(folder), "--opendata", str(od)]) == 0
+    report = json.loads((od / "report_99.json").read_text(encoding="utf-8"))
+    v = report["validate_approx"]
+    assert v["year"] == 2025 and set(v["cities"]) == {"99101", "99102"}
+    assert v["pref"]["schools"] == sum(c["schools"] for c in v["cities"].values()) == 4
+    assert report["schools"] == 4                                # build の結果は残っている
+    text = json.dumps(v, ensure_ascii=False)
+    assert "小学校" not in text                                   # 学校名は出さない
+    capsys.readouterr()
+
+
 # ---------------------------------------------------------------- 学区データの利用条件
 
 def _terms_downloads(tmp_path, monkeypatch, with_schools=True):
@@ -590,6 +644,16 @@ def test_detect_fields_when_kindergartens_come_first():
                                 "P29_004": name, "P29_005": f"テスト県みほん市東区{i}丁目"}, [np.zeros((1, 2))])
     feats = [ft(i, f"みほん{i}幼稚園") for i in range(450)] + [ft(i, f"みほん{i}小学校") for i in range(450, 1500)]
     assert readers.detect_fields(feats).name == "P29_004"
+
+
+def test_strip_owner():
+    from school2050.export import strip_owner
+    assert strip_owner("北九州市立大積小学校") == "大積小学校"
+    assert strip_owner("宇美町立宇美小学校") == "宇美小学校"
+    assert strip_owner("久留米市立青峰小学校") == "青峰小学校"
+    assert strip_owner("立花小学校") == "立花小学校"            # 「立」で始まる名前はそのまま
+    assert strip_owner("三並小学校") == "三並小学校"
+    assert strip_owner("福岡市立") == "福岡市立"                 # 学校名が残らないときは触らない
 
 
 def test_city_from_address():

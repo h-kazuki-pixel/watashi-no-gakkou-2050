@@ -168,3 +168,36 @@ def convex_hull(pts: np.ndarray) -> np.ndarray:
         upper.append(q)
     h = np.array(lower[:-1] + upper[:-1])
     return np.vstack([h, h[:1]])
+
+
+# ---------------------------------------------------------------- おおよその区域の当たり具合
+
+def compare_nearest(codes: list, mesh_city: list, values: np.ndarray, districts: list, school_xy: list,
+                    school_city: list, k: int = 4) -> tuple[np.ndarray, np.ndarray]:
+    """学区データのある市区町村で、学区を使った配分と「おおよその区域」の配分を同じ学校について比べる。
+
+    districts: 学区（.rings）。school_xy: 各学区の学校の位置 (経度, 緯度)。school_city: 各学区の市区町村コード。
+    おおよその区域は、学区データの無い市区町村と同じ方法（allocate_nearest。メッシュの市区町村の中で
+    いちばん近い学校）で、学区を使わずに全部の点を割り当て直したもの。
+    返り値: (学区での推計, 近い学校での推計)。どちらも (学校の数, 特徴量の数)。
+    """
+    by_district = allocate(codes, values, districts, k=k).sums
+    schools = [(c, float(x), float(y)) for c, (x, y) in zip(school_city, school_xy)]
+    near = allocate_nearest(codes, mesh_city, values, schools, set(school_city), k=k)
+    return by_district, near.sums
+
+
+def summarize_rel(rel) -> dict:
+    """ずれの割合（(近い学校 − 学区) ÷ 学区）の要約。中央値・四分位は符号つき、abs_median は絶対値の中央値。"""
+    r = np.asarray([v for v in rel if np.isfinite(v)], dtype=float)
+    if r.size == 0:
+        return {"schools": 0}
+    a = np.abs(r)
+    q1, med, q3 = np.percentile(r, [25, 50, 75])
+    return {
+        "schools": int(r.size),
+        "median": round(float(med), 4), "q1": round(float(q1), 4), "q3": round(float(q3), 4),
+        "abs_median": round(float(np.median(a)), 4),
+        "within_10": round(float((a <= 0.10).mean()), 4),
+        "over_30": round(float((a > 0.30).mean()), 4),
+    }
