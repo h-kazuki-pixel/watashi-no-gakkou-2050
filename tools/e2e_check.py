@@ -267,8 +267,12 @@ def main() -> int:
         tiles = page.evaluate("""() => [...document.querySelectorAll('#tiles .fit')].map(f => {
           const n = f.querySelector('.nw') && f.querySelector('.pre') ? f.querySelector('.nw') : f, rs = [...n.getClientRects()];
           const t = f.parentElement.getBoundingClientRect(), b = f.querySelector('b');
-          const r = document.createRange(); r.selectNodeContents(n); const lines = new Set([...r.getClientRects()].filter(x => x.width > 1).map(x => Math.round(x.bottom / 6)));
-          return {text: n.textContent, lines: lines.size, inside: f.getBoundingClientRect().right <= t.right - 2, size: getComputedStyle(b).fontSize}; })""")
+          // 行の数：要素自身の箱の数と、文字の箱の top を「数字の高さの半分」以上の差で分けた数の、大きいほう。
+          // 数字（b）と単位（人）は字の大きさが違い下端が数px ずれるので、下端を丸めて数えると書体しだいで2行と数えてしまう
+          const bh = b.getBoundingClientRect().height, r = document.createRange(); r.selectNodeContents(n);
+          const tops = [...r.getClientRects()].filter(x => x.width > 1).map(x => x.top).sort((x, y) => x - y);
+          let rows = 0, cur = -Infinity; tops.forEach(y => { if (y - cur >= bh / 2) { rows++; cur = y; } });
+          return {text: n.textContent, lines: Math.max(rs.length, rows), boxes: rs.length, rows, inside: f.getBoundingClientRect().right <= t.right - 2, size: getComputedStyle(b).fontSize}; })""")
         assert any("1," in t["text"] for t in tiles), tiles
         for t in tiles:
             assert t["lines"] == 1 and t["inside"], f"[step3 320px] 箱の数字が折れる・はみ出す: {t}"
