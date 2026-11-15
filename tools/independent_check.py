@@ -196,7 +196,8 @@ def main():
     est = {}
     for f, ins in zip(feats, hits):
         w = w0 / count[ins]
-        sid = f["properties"]["A27_003"]
+        # 学校コードが無い学校（浜松市の鏡山小など）は（市区町村, 学校名）で数える
+        sid = f["properties"]["A27_003"] or f'{f["properties"]["A27_001"]}|{f["properties"]["A27_004"]}'
         if sid in est:  # 同じ学校が複数の図形に分かれているとき
             est[sid]["e"] += (kids[pm[ins]] * w[:, None]).sum(0)
             est[sid]["a"] += (V[pm[ins], :, 0] * w[:, None]).sum(0)
@@ -292,7 +293,9 @@ def main():
     # アプリのデータと比べる
     s = open(args.pref_js, encoding="utf-8").read()
     app = json.loads(s[s.index("UG.registerPref(") + 16:s.rindex(")")])
-    app_s = {sc["id"]: (c["code"], sc) for c in app["cities"] for sc in c["schools"]}
+    # 学校コードの無い学校は、アプリでは「市区町村コード-番号」の id になるので（市区町村, 学校名）で突き合わせる
+    app_s = {(sc["id"] if re.match(r"^[A-H]\d{12}$", sc["id"]) else f'{c["code"]}|{sc["name"]}'): (c["code"], sc)
+             for c in app["cities"] for sc in c["schools"]}
     mine = {k for k, v in est.items() if v["e"][0] >= 1.0}  # 2025年の推計が1人未満の学校は出力されない
     only_app, only_mine = sorted(set(app_s) - mine), sorted(mine - set(app_s))
     bad_d, bad_a, bad_meta, worst = [], [], [], 0.0
