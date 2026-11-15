@@ -325,6 +325,35 @@ def test_cli_explicit_columns_and_inspect(raw, tmp_path, capsys):
                   "--age-columns", "X_{Y},Y_{Y},Z_{Y}"])
 
 
+def test_generated_date_makes_rebuild_identical(raw, tmp_path, capsys):
+    # --generated で生成日を決めると、同じ入力から1バイトも違わないファイルができる。tools/compare_builds.py は「違いなし」
+    sys.path.insert(0, str(ROOT.parent / "tools"))
+    import compare_builds
+    for d in ("a", "b"):
+        assert cli.main(["build", "--pref", "99", "--districts", str(raw / "A27-23_99.geojson"),
+                         "--mesh", str(raw / "500m_mesh_2024_99.csv"), "--out", str(tmp_path / d / "app"),
+                         "--opendata", str(tmp_path / d / "od"), "--generated", "2026-11-15"]) == 0
+    a, b = tmp_path / "a", tmp_path / "b"
+    assert (a / "app" / "pref_99.js").read_bytes() == (b / "app" / "pref_99.js").read_bytes()
+    assert load_registered(a / "app" / "pref_99.js", "registerPref")["generated"] == "2026-11-15"
+    assert compare_builds.compare(a / "app", a / "od", b / "app", b / "od") == ["== 99: 違いなし"]
+    # 生成日・実行時間・validate_approx だけが違うときも「違いなし」
+    cli.main(["build", "--pref", "99", "--districts", str(raw / "A27-23_99.geojson"), "--mesh", str(raw / "500m_mesh_2024_99.csv"),
+              "--out", str(b / "app"), "--opendata", str(b / "od"), "--generated", "2026-12-01"])
+    rp = b / "od" / "report_99.json"
+    rep = json.loads(rp.read_text(encoding="utf-8")); rep["seconds"] = 99.9; rep["validate_approx"] = {"x": 1}
+    rp.write_text(json.dumps(rep), encoding="utf-8")
+    assert compare_builds.compare(a / "app", a / "od", b / "app", b / "od") == ["== 99: 違いなし"]
+    # 学校の推計が変われば、学校単位で出る
+    js = (b / "app" / "pref_99.js").read_text(encoding="utf-8").replace('"est":[300.0,', '"est":[299.0,')
+    (b / "app" / "pref_99.js").write_text(js, encoding="utf-8")
+    out = compare_builds.compare(a / "app", a / "od", b / "app", b / "od")
+    assert out[0] == "== 99: 違い 1 件" and "B199110000019" in out[1] and "2025年 300.0 → 299.0" in out[1]
+    with pytest.raises(SystemExit):
+        cli.main(["build", "--districts", "x", "--mesh", "y", "--generated", "2026/11/15"])
+    capsys.readouterr()
+
+
 # ---------------------------------------------------------------- ダウンロードした zip のまま使う
 
 def _make_downloads(folder):

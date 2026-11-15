@@ -320,7 +320,8 @@ def cmd_build(args) -> int:
         "method": f"面積按分（{args.k}×{args.k}点サンプリング）。6〜11歳＝(5〜9歳)×4/5＋(10〜14歳)×2/5",
         "credit": "国土数値情報（国土交通省）を加工して作成",
     }
-    obj, rows = export.build_pref(pref, feats, fields, sums, mt.years, ny, points, overrides, source, args.min_children)
+    obj, rows = export.build_pref(pref, feats, fields, sums, mt.years, ny, points, overrides, source, args.min_children,
+                                  generated=getattr(args, "generated", None))
     have = {c["code"] for c in obj["cities"]}
     names = getattr(args, "_gap_names", {})
     obj["missing"] = [{"code": c, "name": names.get(c, "")} for c in sorted(gaps) if c not in have]
@@ -521,6 +522,15 @@ def cmd_validate_approx(args) -> int:
     return 0
 
 
+def _date(s: str) -> str:
+    """--generated の値（YYYY-MM-DD）を確かめる。"""
+    import datetime
+    try:
+        return datetime.date.fromisoformat(s).isoformat()
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"日付は YYYY-MM-DD で書いてください: {s}")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -546,6 +556,7 @@ def main(argv=None) -> int:
     pb.add_argument("--k", type=int, default=4, help="メッシュ1辺あたりのサンプル点数（既定 4）")
     pb.add_argument("--min-children", type=float, default=1.0, help="2025年の推計がこれ未満の学区は出力しない")
     pb.add_argument("--fill-schools", help="（任意）国土数値情報「学校」。学区データの無い市区町村を、学校の位置からおおよその区域で補う")
+    pb.add_argument("--generated", type=_date, help="生成日（YYYY-MM-DD）。省略すると今日。作り直して前と比べるときに指定する")
     pb.set_defaults(fn=cmd_build)
 
     pv = sub.add_parser("validate-approx", help="おおよその区域の当たり具合を、学区データのある市区町村で測る")
@@ -563,6 +574,7 @@ def main(argv=None) -> int:
     pa.add_argument("--k", type=int, default=4)
     pa.add_argument("--min-children", type=float, default=1.0)
     pa.add_argument("--no-fill", action="store_true", help="学区データの無い市区町村を補わない")
+    pa.add_argument("--generated", type=_date, help="生成日（YYYY-MM-DD）。省略すると今日。作り直して前と比べるときに指定する")
     for opt in ("name_field", "city_field", "code_field", "owner_field", "address_field", "age_columns"):
         pa.set_defaults(**{opt: None})
     pa.set_defaults(fn=cmd_build_all)

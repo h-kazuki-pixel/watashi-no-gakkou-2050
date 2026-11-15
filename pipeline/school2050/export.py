@@ -107,8 +107,10 @@ def _city_names(features, fields: DistrictFields, overrides: dict | None) -> dic
 
 def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, sums: np.ndarray, years: list,
                n_years: int, school_points: dict | None = None, city_overrides: dict | None = None,
-               source: dict | None = None, min_children: float = 1.0) -> tuple[dict, list[dict]]:
-    """アプリ用のオブジェクトと、オープンデータ用の行を作る。sums の列は [年ごとの6〜11歳…, 0〜11歳の各歳…]。"""
+               source: dict | None = None, min_children: float = 1.0,
+               generated: str | None = None) -> tuple[dict, list[dict]]:
+    """アプリ用のオブジェクトと、オープンデータ用の行を作る。sums の列は [年ごとの6〜11歳…, 0〜11歳の各歳…]。
+    generated：生成日（YYYY-MM-DD）。省略すると今日の日付。同じ入力から同じファイルを作り直すときに指定する。"""
     names = _city_names(features, fields, city_overrides)
     cities: dict = {}
     rows, dropped, used_ids = [], [], set()
@@ -160,7 +162,7 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
     obj = {
         "code": pref_code,
         "name": PREF_NAMES.get(pref_code, pref_code),
-        "generated": datetime.date.today().isoformat(),
+        "generated": generated or datetime.date.today().isoformat(),
         "source": source or {},
         "cities": [cities[k] for k in sorted(cities)],
         "missing": [],
