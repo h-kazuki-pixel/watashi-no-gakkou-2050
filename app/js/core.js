@@ -59,10 +59,13 @@
     if (dictRe === null) buildDictRe();
     var keep = [];
     function stash(s, isRuby) { keep.push(s); return "\u0003" + (isRuby ? "r" : "") + (keep.length - 1) + "\u0004"; }
+    // 先にタグ（属性の値ごと）と <textarea> の中身をよける。入力欄の文（value・<textarea> の中）に
+    // ふりがなや <wbr> が入ると、子どもの文そのものが書きかわる（ステップ5の提案の箱にタグが出ていた）
     var s = String(html)
+      .replace(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi, function (t) { return stash(t); })
+      .replace(/<[^>]+>/g, function (t) { return stash(t); })
       .replace(/\u0001([\s\S]*?)\u0002/g, function (_, t) { return stash("<span data-nr>" + t + "</span>"); })
-      .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, function (m) { return stash(explicit(m), true); })
-      .replace(/<[^>]+>/g, function (t) { return stash(t); });
+      .replace(/\{([^|{}]+)\|([^|{}]+)\}/g, function (m) { return stash(explicit(m), true); });
     if (dictRe) {
       s = s.replace(dictRe, function (w) {
         var r = UG.RUBY[w];
@@ -154,6 +157,18 @@
     };
   };
   UG.state = UG.defaults();
+  /** 子どもが書いた文から、まちがって入りこんだタグとよけ印を取りのぞく。
+   *  以前の UG.ruby は <textarea> の中身にもふりがなを付けていた。そのまま箱の文を消したり直したりすると、
+   *  タグごと保存された（<span class="w"><ruby …>教室<rt>きょうしつ</rt></ruby>を</span>）。
+   *  入力欄の value には {漢字|よみ} がよけ印（\u0003r1\u0004）になって入っていた。読みこむときにもとの文にもどす。 */
+  UG.cleanText = function (s) {
+    if (typeof s !== "string") return s;
+    return s
+      .replace(/<rt\b[^>]*>[^<]*(<\/[^>]*>)?/gi, "")   // ふりがな（よみ）は文ではない。とじタグがこわれていても消す
+      .replace(/<\/?[a-z][^<>]*>/gi, "")                // <span …> <ruby …> <wbr> とそのとじタグ（こわれたものも）
+      .replace(/[\u0001-\u0004]r?\d*[\u0004]?/g, "");    // ふりがな処理のよけ印
+  };
+  var FREE_TEXT = ["reason", "ownIdea", "proposal", "nick"];
   UG.loadState = function (seed) {
     var saved = null;
     try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { saved = null; }
@@ -161,6 +176,7 @@
     if (src && typeof src === "object") {
       var d = UG.defaults();
       Object.keys(d).forEach(function (k) { if (src[k] !== undefined) d[k] = src[k]; });
+      FREE_TEXT.forEach(function (k) { d[k] = UG.cleanText(d[k]); });
       UG.state = d;
     }
   };

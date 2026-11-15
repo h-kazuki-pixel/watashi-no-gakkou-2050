@@ -259,6 +259,23 @@ def main() -> int:
         shot("3-shiraberu"); bare("step3")
         # ステップ3の「人数が かわると、…どう なるだろう。つまみを …」は、句読点の後で改行できる
         assert "なるだろう。<wbr>" in page.inner_html("#view"), "ステップ3の文の句点の後に <wbr> がない"
+        # 箱の「数字＋単位」（1,589人・やく 265人・48クラス）は1行で、箱からはみ出さない（4桁・320px）。3つの数字は同じ大きさ
+        est_s3 = page.evaluate("UG.ctx().school.est.slice()")
+        page.set_viewport_size({"width": 320, "height": 820})
+        page.evaluate("UG.ctx().school.est.forEach(function (v, i, a) { a[i] = 1589 - i * 30; }); UG.render()")
+        page.wait_for_timeout(400)
+        tiles = page.evaluate("""() => [...document.querySelectorAll('#tiles .fit')].map(f => {
+          const n = f.querySelector('.nw') && f.querySelector('.pre') ? f.querySelector('.nw') : f, rs = [...n.getClientRects()];
+          const t = f.parentElement.getBoundingClientRect(), b = f.querySelector('b');
+          const r = document.createRange(); r.selectNodeContents(n); const lines = new Set([...r.getClientRects()].filter(x => x.width > 1).map(x => Math.round(x.bottom / 6)));
+          return {text: n.textContent, lines: lines.size, inside: f.getBoundingClientRect().right <= t.right - 2, size: getComputedStyle(b).fontSize}; })""")
+        assert any("1," in t["text"] for t in tiles), tiles
+        for t in tiles:
+            assert t["lines"] == 1 and t["inside"], f"[step3 320px] 箱の数字が折れる・はみ出す: {t}"
+        assert len({t["size"] for t in tiles}) == 1, f"[step3 320px] 箱の数字の大きさがそろっていない: {tiles}"
+        page.evaluate(f"UG.ctx().school.est.splice(0, 10, ...{json.dumps(est_s3)}); UG.render()")
+        page.set_viewport_size({"width": 1180, "height": 820})
+        page.wait_for_timeout(400)
         with_school_approx("step3")
         page.fill("#hist-y", "1990"); page.fill("#hist-v", "960"); page.click("#hist-form button")
         page.locator("#year-range").fill("9")
@@ -300,6 +317,41 @@ def main() -> int:
         assert page.evaluate("UG.state.ideas") == ["room_town", "online", "bus"], page.evaluate("UG.state.ideas")
         page.click('[data-idea="bus"]')
         assert page.evaluate("UG.state.ideas") == ["room_town", "online"]
+
+        # 提案を書く → 再読みこみ → ステップ5に戻る：箱の中身が書いたとおりで「<」を含まない。提案カード（画面・印刷）と文も同じ。
+        # 以前は UG.ruby が <textarea> の中身にもふりがなを付け、箱に <span class="w"><ruby …> が出ていた
+        PROP = "空いた 教室を 使う。みんなで 本を 読む、地域の 人も 来る"
+        page.fill("#proposal", PROP)
+        page.fill("#own-idea", "校庭で {朝|あさ}市")   # {漢字|よみ} の形を書いても、入力欄の文は変わらない
+        def step5_texts():
+            return page.evaluate("""() => ({box: document.getElementById('proposal').value, idea: document.getElementById('own-idea').value,
+              card: document.querySelector('#card svg').textContent, data: UG.cardData().proposal, text: UG.cardText(UG.cardData())})""")
+        def check_step5(where):
+            t = step5_texts()
+            assert t["box"] == PROP, f"[{where}] 提案の箱の中身が変わった: {t['box']!r}"
+            assert t["idea"] == "校庭で {朝|あさ}市", f"[{where}] アイデアの入力欄の中身が変わった: {t['idea']!r}"
+            assert t["data"] == PROP and PROP in t["text"], f"[{where}] 提案カードの文が変わった: {t['data']!r}"
+            card = t["card"].replace(" ", "")
+            for part in ("空いた", "教室を", "使う"):
+                assert part in card, f"[{where}] 提案カード（画面・印刷）に「{part}」が無い"
+            for v in (t["box"], t["data"], t["text"], t["card"]):
+                assert "<" not in v and "\u0003" not in v, f"[{where}] タグかよけ印が混ざった: {v!r}"
+        check_step5("書いた直後")
+        page.reload(); page.wait_for_selector("#view")
+        page.evaluate("UG.go('step5')"); page.wait_for_selector("#card svg")
+        check_step5("再読みこみ後")
+        page.click("#proposal"); page.keyboard.press("ControlOrMeta+End"); page.keyboard.press("Backspace"); page.keyboard.type("る")
+        assert page.evaluate("UG.state.proposal") == PROP, page.evaluate("UG.state.proposal")  # 消して打ち直しても文のまま
+        # 以前のふぐあいで、タグごと保存されてしまった提案は、読みこむときにもとの文にもどす
+        page.evaluate("""() => { const k = 'ug2050:v1', v = JSON.parse(localStorage.getItem(k));
+          v.proposal = '<span class="w"><ruby data-g="1">空<rt>あ</rt></ruby>いた</span> <span class="w"><ruby data-g="2">教室<rt>きょうしつ</rt></ruy>を</span> '
+            + '<span class="w"><ruby data-g="3">使<rt>つか</rt></ruby>う。</span><wbr>みんなで 本を 読む、<wbr>地域の 人も 来る';
+          v.ownIdea = '校庭で \u0003r1\u0004市'; localStorage.setItem(k, JSON.stringify(v)); }""")
+        page.reload(); page.wait_for_selector("#view"); page.evaluate("UG.go('step5')"); page.wait_for_selector("#card svg")
+        assert page.input_value("#proposal") == PROP, page.input_value("#proposal")
+        assert page.input_value("#own-idea") == "校庭で 市", page.input_value("#own-idea")
+        page.fill("#own-idea", "校庭で月に1回、朝市をひらく")
+        page.fill("#proposal", "空いた教室を図書室にして、地域の人も入れるようにしてほしいです。子どもとお年よりがいっしょに本を読める場所にしたいです。")
 
         page.click('[data-go="teachers"]')
         page.wait_for_selector(".teachers")

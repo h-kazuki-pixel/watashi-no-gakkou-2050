@@ -395,17 +395,49 @@
         '<tr><th scope="row">きみの よそう（人）</th>' + years.map(function (y) { return cell(y, y === 2025 ? cc.now : st.draw[y]); }).join("") + "</tr>" +
         "</tbody></table>");
     }
+    /** 箱の数字の大きさを合わせる。3つの箱（全校・1学年・クラスの 数）は同じ大きさにそろえ、
+     *  「数字＋単位」が箱に入りきらないときだけ 1px ずつ小さくする（いちばん小さくて 18px）。
+     *  「やく」を同じ行に入れると 26px より小さくなるときは、「やく」を数字の上の行に出す（.stack）。 */
+    var TILE_MIN = 18, PRE_MIN = 26;
+    function fitTiles() {
+      var fits = UG.$$("#tiles .fit", root);
+      if (!fits.length) return;
+      function largest(el, box) {   // el（数字＋単位）が box の中に入る、いちばん大きい字の大きさ
+        var b = el.querySelector("b"), cs = getComputedStyle(box);
+        var avail = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        b.style.fontSize = "";
+        var size = parseFloat(getComputedStyle(b).fontSize);
+        while (el.getBoundingClientRect().width > avail && size > TILE_MIN) { size -= 1; b.style.fontSize = size + "px"; }
+        return size;
+      }
+      var size = Infinity;
+      fits.forEach(function (el) {
+        var tile = el.parentElement, s;
+        tile.classList.remove("stack");
+        s = largest(el, tile);
+        if (el.querySelector(".pre") && s < PRE_MIN) {
+          tile.classList.add("stack");
+          s = largest(el.querySelector(".nw"), tile);
+        }
+        size = Math.min(size, s);
+      });
+      fits.forEach(function (el) { el.querySelector("b").style.fontSize = size + "px"; });
+    }
+    // 文字（Web フォント）が読みこまれると幅が変わるので、読みこみのあとにもう一度合わせる
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (root.isConnected) fitTiles(); });
     function drawRooms() {
       var y = st.viewYear, total = M.interp(UG.ctx().est, y), plan = M.classPlan(total);
       UG.$("#year-out", root).textContent = y + "年";
       var perGrade = plan.total / 6;
       var shuffle = plan.shuffle === "all" ? "どの 学年も できる" : plan.shuffle === "some" ? "できる 学年と できない 学年が ある" : "できない";
       UG.$("#tiles", root).innerHTML = UG.ruby(
-        '<div class="tile"><span>全校</span><b>' + num(plan.total) + "</b>人</div>" +
-        '<div class="tile"><span>1学年</span>やく&nbsp;<b>' + num(perGrade) + "</b>人</div>" +
-        '<div class="tile"><span>クラスの 数</span><b>' + plan.classCount + "</b>クラス</div>" +
-        '<div class="tile wide ' + plan.shuffle + '"><span>クラスがえ</span><b class="txt">' + shuffle + "</b></div>"
+        // 数字と単位（「1,306人」「やく 218人」「42クラス」）は1行にまとめる（.fit）。入りきらない幅では数字の字を小さくする（fitTiles）
+        '<div class="tile"><span class="lab">全校</span><span class="nw fit"><b>' + num(plan.total) + "</b>人</span></div>" +
+        '<div class="tile"><span class="lab">1学年</span><span class="nw fit"><span class="pre">やく </span><span class="nw"><b>' + num(perGrade) + "</b>人</span></span></div>" +
+        '<div class="tile"><span class="lab">クラスの 数</span><span class="nw fit"><b>' + plan.classCount + "</b>クラス</span></div>" +
+        '<div class="tile wide ' + plan.shuffle + '"><span class="lab">クラスがえ</span><b class="txt">' + shuffle + "</b></div>"
       );
+      fitTiles();
       UG.$("#rooms", root).innerHTML = UG.ruby(plan.rows.map(function (r) {
         var label = r.grades.join("・") + "年";
         var boxes = r.classes.map(function (n) {
