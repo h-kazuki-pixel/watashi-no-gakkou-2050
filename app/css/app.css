@@ -288,6 +288,19 @@ svg.chart { display: block; width: 100%; height: auto; font-family: var(--font-b
 .legend .k.est::before { border-top-color: var(--red); }
 .legend .k.alt::before { border-top: 4px dashed var(--green); }
 .readout { font-size: 1.05em; min-height: 2.05em; }
+/* ステップ2：よそうの数字と「かきなおす」を同じ行に。幅が足りないときだけボタンが下の行（右寄せ）に回る */
+/* 数字の欄は 11em（「2050年に 1,589人」が1行に入る幅）あればボタンと並ぶ。狭いときは「きみの よそう：」の後で2行に折れる */
+.readout-row { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 2px; }
+.readout-row .readout { flex: 1 1 11em; min-width: 0; }
+/* 脇の操作（主役は「データと くらべる →」）。小さく控えめに。指で押せる高さ 44px は保つ */
+.btn.sub {
+  margin-left: auto; min-height: 44px; padding: 0 14px; font-size: 14px; line-height: 1.2; border-width: 1.5px;
+  border-color: var(--grid-strong); border-radius: 999px; background: transparent; color: var(--ink-soft); box-shadow: none;
+}
+.btn.sub:hover:not(:disabled) { box-shadow: none; transform: none; border-color: var(--ink); color: var(--ink); }
+.btn.sub:active:not(:disabled) { box-shadow: none; transform: none; background: var(--marker-soft); }
+/* キーボードの案内は、タッチの端末では出さない */
+@media (pointer: coarse) { .kbd-hint { display: none; } }
 .readout b, .tile b.txt { font-weight: 700; font-size: 1.35em; }
 .tip { background: var(--marker-soft); border-left: 6px solid var(--marker); border-radius: 4px; padding: 10px 16px; transform: rotate(-0.4deg); max-width: 46em; }
 

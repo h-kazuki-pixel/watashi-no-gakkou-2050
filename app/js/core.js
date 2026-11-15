@@ -51,7 +51,10 @@
   var SEP = "\\s\u3000・〜";
   var CORE = "(?:[^" + SEP + OPEN + CLOSE + "\u0003\u0004]|\u0003r\\d+\u0004)+";
   var WORD_RE = new RegExp("[" + OPEN + "]*" + CORE + "(?:[" + CLOSE_BR + "]+" + CORE + ")*[" + CLOSE + "]*", "g");
-  var LONE_RUBY = /^<ruby[^>]*>[^<]*<rt>[^<]*<\/rt><\/ruby>$/;
+  /* 句点・読点の後は、空白が無くても改行してよい。読点（、）も入れるのは、WebKit で「同じ まちでも、場所に」の「、」の後で
+   * 折れず、前の行に大きな空きが残ったため（Chromium はもともと「、」の後で折る。入れると両方の折れ方がそろう）。 */
+  var BREAK_AFTER_RE = new RegExp("[。．！？!?、，](?=[^" + SEP + CLOSE + "])", "g");
+  var LONE_RUBY =/^<ruby[^>]*>[^<]*<rt>[^<]*<\/rt><\/ruby>$/;
   UG.ruby = function (html) {
     if (dictRe === null) buildDictRe();
     var keep = [];
@@ -69,6 +72,10 @@
         return lead + stash(html.replace(/^\s+/, ""), true);
       });
     }
+    // 句読点の後に、空白が無くても改行してよい所（<wbr>）を置く。ふりがなの無い文にも効かせる。
+    // WebKit は word-break: keep-all のとき「なるだろう。つまみを」の「。」の後で改行しないため。
+    // 後ろが空白・閉じかっこ・句読点・文の終わりのときは置かない（「なぜ？」を の「を」の前では折らない）
+    s = s.replace(BREAK_AFTER_RE, function (c) { return c + stash("<wbr>"); });
     // ルビを含み、ほかの文字かルビとつながっている語だけを包む（ルビ1つだけなら改行は起きない）。長すぎる語は包まない
     s = s.replace(WORD_RE, function (w) {
       if (w.indexOf("\u0003r") < 0) return w;
@@ -80,7 +87,7 @@
       return (OPEN.indexOf(w.charAt(0)) >= 0 ? "<wbr>" : "") + '<span class="w">' + w + "</span>" +
         (PUNCT.indexOf(w.charAt(w.length - 1)) >= 0 ? "<wbr>" : "");
     });
-    return s.replace(/\u0003r?(\d+)\u0004/g, function (_, i) { return keep[+i]; });
+    return s.replace(/\u0003r?(\d+)\u0004/g, function (_, i) { return keep[+i]; }).replace(/(?:<wbr>)+/g, "<wbr>");
   };
   /** ルビなしのプレーンテキスト（カード画像・コピー用） */
   UG.plain = function (html) {

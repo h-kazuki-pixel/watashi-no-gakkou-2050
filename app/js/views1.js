@@ -284,9 +284,11 @@
       '<section class="card chart-card">' +
         '<div class="legend"><span class="k hist">これまで</span><span class="k mine">きみの よそう</span></div>' +
         '<div id="chart"></div>' +
-        '<div class="readout" id="readout" aria-live="polite"></div>' +
-        '<div class="row end"><button type="button" class="btn small ghost" id="redo">かきなおす</button></div>' +
-        '<p class="fine">キーボードの ときは、丸を えらんで ↑↓ で 動かせます。</p>' +
+        // よそうの数字と「かきなおす」は同じ行。幅が足りないときだけ、ボタンが下の行（右寄せ）に回る
+        '<div class="readout-row"><div class="readout" id="readout" aria-live="polite"></div>' +
+          '<button type="button" class="btn sub" id="redo">かきなおす</button></div>' +
+        // タッチの端末（pointer: coarse）では出さない。キーボードでの操作そのものは変えない
+        '<p class="fine kbd-hint">キーボードの ときは、丸を えらんで ↑↓ で 動かせます。</p>' +
       "</section>" +
       '<aside class="tip"><b>ヒント</b>　まわりの ようすを 思い出そう。新しい 家は ふえている？ 赤ちゃんや 小さい 子を よく 見かける？ 空き家は ある？</aside>' +
       nav("step1", "もどる", "step3", "データと くらべる", !done)
@@ -294,7 +296,7 @@
     function readout(vals, ok) {
       var el = UG.$("#readout", root);
       el.innerHTML = UG.ruby(ok
-        ? "きみの よそう：2050年に <span class=\"nw\"><b>" + num(vals[2050]) + "</b>人</span>"
+        ? "きみの よそう：<wbr>2050年に <span class=\"nw\"><b>" + num(vals[2050]) + "</b>人</span>"
         : "2050年まで 線を のばそう");
     }
     var chart = UG.lineChart(UG.$("#chart", root), {
@@ -400,7 +402,7 @@
       var shuffle = plan.shuffle === "all" ? "どの 学年も できる" : plan.shuffle === "some" ? "できる 学年と できない 学年が ある" : "できない";
       UG.$("#tiles", root).innerHTML = UG.ruby(
         '<div class="tile"><span>全校</span><b>' + num(plan.total) + "</b>人</div>" +
-        '<div class="tile"><span>1学年</span>やく<b>' + num(perGrade) + "</b>人</div>" +
+        '<div class="tile"><span>1学年</span>やく&nbsp;<b>' + num(perGrade) + "</b>人</div>" +
         '<div class="tile"><span>クラスの 数</span><b>' + plan.classCount + "</b>クラス</div>" +
         '<div class="tile wide ' + plan.shuffle + '"><span>クラスがえ</span><b class="txt">' + shuffle + "</b></div>"
       );

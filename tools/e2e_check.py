@@ -99,6 +99,16 @@ def main() -> int:
         assert 'の <span class="w">' in wrap[1] or "の <ruby" in wrap[1], wrap[1]  # 「 人」の空白は語の外
         assert '<span class="w">' not in wrap[2], wrap[2]                        # ルビ1つだけの語は包まない
         assert '<span class="w"><ruby data-g="1">力<rt>ちから</rt></ruby>」を</span>' in wrap[3], wrap[3]  # 閉じかっこの後の「を」も同じ語
+        # 句読点の後は、空白が無くても改行してよい（<wbr>）。ふりがなの無い文でも。WebKit は keep-all のとき
+        # 「なるだろう。つまみを」の「。」の後で改行せず、前の行の右が大きく空いた（iPhone で見つかった）
+        brk = page.evaluate("""() => [UG.ruby('どう なるだろう。つまみを うごかして'), UG.ruby('かわると、クラスは'),
+          UG.ruby('「なぜ？」を さがす'), UG.ruby('おわり。'), UG.ruby('いいよ。 つぎ'), UG.ruby('ほんとう？！ うん')]""")
+        assert "なるだろう。<wbr>つまみを" in brk[0], brk[0]          # 句点の後
+        assert "かわると、<wbr>クラスは" in brk[1], brk[1]            # 読点の後
+        assert "<wbr>" not in brk[2], brk[2]                        # 閉じかっこの前（「を」の前でも）は折らない
+        assert "<wbr>" not in brk[3] and "<wbr>" not in brk[4], brk[3:5]  # 文の終わり・空白の前には足さない
+        assert "<wbr>" not in brk[5], brk[5]                        # 「？！」の間では折らない
+        assert page.evaluate("UG.ruby('計算を それに 合わせるよ。つぎ')").count("<wbr>") == 1  # ルビの語の後でも1つだけ
         shot("0-home-empty")
         bare("home")
         page.click('[data-school="S2"]')
@@ -186,6 +196,24 @@ def main() -> int:
         def labels_apart(where):
             ok, lab = page.evaluate(NO_OVERLAP)
             assert ok, f"[step2 {where}] 「{lab}」と案内の文が重なる"
+        # 「かきなおす」：高さ 44px 以上。よそうの数字と同じ行の右端。幅が足りないときだけ下の行（右寄せ）。枠からはみ出さない
+        REDO = """() => { const b = document.getElementById('redo').getBoundingClientRect();
+          const r = document.getElementById('readout').getBoundingClientRect();
+          const row = document.querySelector('.readout-row').getBoundingClientRect();
+          const card = document.querySelector('.chart-card').getBoundingClientRect();
+          return {h: b.height, same: b.top < r.bottom && r.top < b.bottom, below: b.top >= r.bottom - 1,
+                  right: Math.abs(b.right - row.right) <= 1, inside: b.left >= card.left && b.right <= card.right && r.right <= card.right + 0.5,
+                  fits: r.width + b.width + 12 <= row.width + 1, page: document.documentElement.scrollWidth <= innerWidth,
+                  text: document.getElementById('readout').textContent}; }"""
+        def redo_ok(where, same_row):
+            r = page.evaluate(REDO)
+            assert r["h"] >= 44, f"[step2 {where}] かきなおす の高さが {r['h']}px"
+            assert r["right"] and r["inside"] and r["page"], f"[step2 {where}] かきなおす の位置・はみ出し {r}"
+            if same_row is True:
+                assert r["same"], f"[step2 {where}] かきなおす が「{r['text']}」と同じ行にない {r}"
+            elif same_row is False:
+                assert r["below"], f"[step2 {where}] かきなおす が下の行に回っていない {r}"
+        redo_ok("1180px 線の前", True)
         labels_apart("1180px")
         est0 = page.evaluate("UG.ctx().school.est[0]")
         for w, v in ((390, None), (320, 1589), (320, 3)):
@@ -195,6 +223,7 @@ def main() -> int:
             page.wait_for_function("!!document.querySelector('svg.chart .hint')")
             page.wait_for_timeout(300)  # main.js の resize の描き直し（200ms）を待つ
             labels_apart(f"{w}px いま{v or ''}")
+            redo_ok(f"{w}px 線の前", True if w == 390 else None)
         page.evaluate(f"UG.ctx().school.est[0] = {est0}; UG.render()")
         page.set_viewport_size({"width": 1180, "height": 820})
         page.wait_for_timeout(300)
@@ -202,12 +231,34 @@ def main() -> int:
         assert not page.is_disabled("#next-btn"), "線を描いても次へ進めない"
         drawn = page.evaluate("UG.state.draw")
         assert len(drawn) == 5, drawn
+        redo_ok("1180px 線のあと", True)
+        # 4桁のよそう・320px：数字の行に入りきらなければ、ボタンは下の行へ。はみ出さない
+        page.set_viewport_size({"width": 320, "height": 820})
+        page.evaluate("UG.state.draw[2050] = 1589; UG.render()")
+        page.wait_for_timeout(300)
+        redo_ok("320px 4桁", False if not page.evaluate(REDO)["fits"] else True)
+        assert "1,589" in page.inner_text("#readout")
+        page.evaluate(f"UG.state.draw = {json.dumps(drawn)}; UG.save(); UG.render()")
+        page.set_viewport_size({"width": 1180, "height": 820})
+        page.wait_for_timeout(300)
+        # キーボードの案内：マウスの端末では出す。タッチの端末（pointer: coarse）では出さない
+        assert page.is_visible(".kbd-hint"), "キーボードの案内が出ない"
+        tctx = browser.new_context(viewport={"width": 390, "height": 820}, has_touch=True)
+        tp = tctx.new_page(); tp.goto(URL); tp.wait_for_selector(".school-btn")
+        tp.click('[data-school="S2"]'); tp.click('[data-grade="e5"]'); tp.click("#start")
+        tp.click('[data-guess="down"]'); tp.click("#next-btn"); tp.wait_for_selector("svg.chart .pad")
+        assert tp.evaluate("matchMedia('(pointer: coarse)').matches")
+        assert tp.locator(".kbd-hint").count() == 1 and not tp.is_visible(".kbd-hint"), "タッチの端末でキーボードの案内が出ている"
+        assert tp.evaluate("document.querySelector('svg.chart [role=slider][tabindex=\"0\"]') !== null"), "丸をキーボードで選べない"
+        tctx.close()
         shot("2-yosou"); bare("step2")
         page.click("#next-btn")
 
         page.wait_for_selector(".verdict")
         page.wait_for_timeout(2600)
         shot("3-shiraberu"); bare("step3")
+        # ステップ3の「人数が かわると、…どう なるだろう。つまみを …」は、句読点の後で改行できる
+        assert "なるだろう。<wbr>" in page.inner_html("#view"), "ステップ3の文の句点の後に <wbr> がない"
         with_school_approx("step3")
         page.fill("#hist-y", "1990"); page.fill("#hist-v", "960"); page.click("#hist-form button")
         page.locator("#year-range").fill("9")
