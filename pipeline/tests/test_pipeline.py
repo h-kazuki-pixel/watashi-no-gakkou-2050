@@ -472,6 +472,16 @@ def test_gap_city_filled_from_school_points(tmp_path, capsys):
     capsys.readouterr()
 
 
+def test_inspect_accepts_points_only_school_zip(tmp_path, capsys):
+    # 国土数値情報「学校」(P29) の zip には学区のポリゴンが無い。inspect --schools に渡しても止まらない
+    _make_gap_downloads(tmp_path / "dl")
+    dl = tmp_path / "dl"
+    rc = cli.main(["inspect", "--districts", str(dl / "A27-23_99_GML.zip"), "--mesh", str(dl / "500m_mesh_2024_99.zip"),
+                   "--schools", str(dl / "P29-23_99.zip")])
+    text = capsys.readouterr().out
+    assert rc == 0 and "[学校]" in text and "P29-23_99.geojson: 5 件" in text and "P29_004" in text
+
+
 def test_gap_fill_with_straddling_meshes_conserves_total(tmp_path, capsys):
     # 列 3（"99101_99102"）は にし小 の学区内なので学区に配分済み。最寄りの学校には二重に足さない。
     # 列 4（"99102_99101"）は学区が無いので、99102 の学校（うみ・やま）のうち近い方に割り当てる。

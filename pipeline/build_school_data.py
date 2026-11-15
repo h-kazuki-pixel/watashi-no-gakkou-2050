@@ -74,8 +74,12 @@ def _resolve(args) -> None:
         args.mesh = str(ms.table)
         args.pref_guess = args.pref_guess or ms.pref
     if getattr(args, "schools", None) and pathlib.Path(args.schools).suffix.lower() == ".zip":
-        ds = inputs.find_districts(args.schools)
-        args.schools = str(ds.points or ds.polygons)
+        # 国土数値情報「学校」(P29) の zip はポイントだけ。学区の zip（ポイントの層が同梱）が渡されることもある
+        try:
+            args.schools = str(inputs.find_schools(args.schools).points)
+        except ValueError:
+            ds = inputs.find_districts(args.schools)
+            args.schools = str(ds.points or ds.polygons)
 
 
 def cmd_inspect(args) -> int:
