@@ -157,12 +157,59 @@ def _city_coded(feats, mt, schools_path, table=None):
     return found, (wards.mapper(found, table) if found else None)
 
 
+# 国土数値情報「学校」の休校区分（コード表「休校コード」：0 調査なし、1 開校中、2 休校中）
+CLOSED_CODES = {"0", "1", "2"}
+
+
+def closed_field(feats) -> str | None:
+    """休校区分の属性：名前が P29_007 か「休校」を含み、中身が1桁の数字（空欄を除く）だけのもの。無ければ None。"""
+    if not feats:
+        return None
+    keys = list(feats[0].props)
+    for k in [k for k in keys if k == "P29_007"] + [k for k in keys if "休校" in k]:
+        vals = {ft.props.get(k, "") for ft in feats} - {""}
+        if vals and all(len(v) == 1 and v.isdigit() for v in vals):
+            return k
+    return None
+
+
+def is_closed(value: str) -> bool:
+    """休校中（2）か、コード表に無い値（9 など）なら True。空欄・0・1 は False。"""
+    return bool(value) and (value == "2" or value not in CLOSED_CODES)
+
+
+def _public_elementary(code: str, name: str) -> bool:
+    """公立小学校か。学校コードがあれば先頭2文字が B1（小学校）で5文字目が 2（公立）。無ければ名前で決める。"""
+    if code:
+        return code.startswith("B1") and code[4:5] == "2"
+    return name.endswith("小学校") and not re.search(r"附属|私立", name)
+
+
+def _closed_schools(path, to_city=None) -> tuple[list, str | None]:
+    """学校の位置データのうち、休校の公立小学校。返り値: ([{city, name, code, value}], 休校区分の属性名)"""
+    feats = readers.read_features(inputs.find_schools(path).points)
+    f = readers.detect_fields(feats)
+    cf = closed_field(feats)
+    if not cf:
+        return [], None
+    out = []
+    for ft in feats:
+        code = ft.props.get(f.school_code, "") if f.school_code else ""
+        name = export.strip_owner(ft.props.get(f.name, ""))
+        if not _public_elementary(code, name) or not is_closed(ft.props.get(cf, "")):
+            continue
+        city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else ""
+        out.append({"city": to_city(city) if to_city and city else city, "name": name, "code": code, "value": ft.props.get(cf, "")})
+    return out, cf
+
+
 def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) -> list:
     """学校の位置データから、学区の無い市区町村の公立小学校を取り出す。
     返り値: [(行政区域コード, 経度, 緯度, 学区データと同じ属性名に直した props)]"""
     src = inputs.find_schools(path)
     feats = readers.read_features(src.points)
     f = readers.detect_fields(feats)
+    cf = closed_field(feats)  # 休校区分。休校中・コード表に無い値の学校は使わない（docs/DATA_METHOD.md）
     out, names = [], {}
     for ft in feats:
         city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else ""
@@ -177,11 +224,10 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
             continue
         code = ft.props.get(f.school_code, "") if f.school_code else ""
         name = export.strip_owner(ft.props.get(f.name, ""))
-        if code:
-            # 文部科学省の学校コード：先頭2文字が学校種（B1＝小学校）、5文字目が設置者（2＝公立）
-            if not (code.startswith("B1") and code[4:5] == "2"):
-                continue
-        elif not name.endswith("小学校") or re.search(r"附属|私立", name):
+        # 文部科学省の学校コード：先頭2文字が学校種（B1＝小学校）、5文字目が設置者（2＝公立）
+        if not _public_elementary(code, name):
+            continue
+        if cf and is_closed(ft.props.get(cf, "")):
             continue
         x, y = float(ft.rings[0][0][0]), float(ft.rings[0][0][1])
         props = {dfields.name: name, "_city_name": names.get(city, "")}
@@ -217,6 +263,7 @@ def _fill_missing(args, mt, values, alloc, feats, fields, sums, gaps, taken=None
         c[1] += v * a
     dcities = {f.props["_city"] for f in feats if not f.props.get("_approx")} - set(gaps)
     low = {c for c in dcities if c in by_city and by_city[c][0] > 0 and by_city[c][1] / by_city[c][0] < COVERAGE_FILL}
+    args._fill_low = low
     if not low:
         return sums, feats, {}, zero
     sch = _gap_schools(args.fill_schools, low, fields, getattr(args, "_to_city", None), getattr(args, "_to_city_names", None))
@@ -372,6 +419,30 @@ def cmd_build(args) -> int:
         if c["code"] in noted:
             c["note"] = True
 
+    # 休校の公立小学校（学校の位置データから選ぶ候補に使わなかった学校）
+    closed_out = []
+    if args.fill_schools:
+        closed, cf = _closed_schools(args.fill_schools, args._to_city)
+        if cf is None:
+            log("注意: 学校の位置データに休校区分の属性が見つかりません。休校の学校も候補に使います")
+        have_code = {f.props.get(fields.school_code) for f in feats
+                     if fields.school_code and f.props.get(fields.school_code) and not f.props.get("_approx")}
+        have_name = {(f.props["_city"], export.strip_owner(f.props.get(fields.name, ""))) for f in feats if not f.props.get("_approx")}
+        low = getattr(args, "_fill_low", set())
+        for s in closed:
+            if s["code"] in have_code or (s["city"], s["name"]) in have_name:
+                how = "学区データにあるので学区の学校として使う"
+            elif s["city"] in gaps:
+                how = "おおよその区域の候補から外した"
+            elif s["city"] in low:
+                how = "補う学校の候補から外した"
+            else:
+                how = "候補になる市区町村ではない"
+            closed_out.append({"city": s["city"], "name": s["name"], "value": s["value"], "how": how})
+        if closed_out:
+            log("休校の公立小学校（学校の位置データの候補に使わない）: "
+                + ", ".join(f"{s['city']} {s['name']}（{s['value']}、{s['how']}）" for s in closed_out))
+
     filled_out: dict = {}
     for c in obj["cities"]:
         if not c.get("approx"):
@@ -403,6 +474,8 @@ def cmd_build(args) -> int:
         "city_coded_districts": {c: cc.to_report() for c, cc in city_coded.items()},
         # 区で分けて出した市区町村のうち、欠番（再編前など）の区のコード。今の区と名前が合わない
         "obsolete_ward_cities": wards.obsolete_split([c["code"] for c in obj["cities"]], wt),
+        # 休校区分が休校中（2）かコード表に無い値の公立小学校。学校の位置データから選ぶ候補には使わない
+        "closed_schools_excluded": closed_out,
         "seconds": round(time.time() - t0, 1),
     }
     if report["obsolete_ward_cities"]:

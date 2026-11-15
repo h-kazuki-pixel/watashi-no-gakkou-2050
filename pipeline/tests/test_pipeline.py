@@ -729,6 +729,66 @@ def test_city_from_address():
     assert city_from_address("東京都八王子市元本郷町3-24-1") == "八王子市"
 
 
+# ---------------------------------------------------------------- 休校の学校（国土数値情報「学校」の休校区分）
+
+def _set_closed(zip_path, values: dict, extra=()):
+    """P29 の zip の学校に休校区分（P29_007）を入れる。values: {学校名に含む文字: 値}。extra: 足す地物"""
+    import zipfile
+    with zipfile.ZipFile(zip_path) as z:
+        name = next(n for n in z.namelist() if n.endswith(".geojson"))
+        doc = json.loads(z.read(name))
+    for f in doc["features"]:
+        f["properties"]["P29_007"] = next((v for k, v in values.items() if k in f["properties"]["P29_004"]), "1")
+    doc["features"] += list(extra)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr(name, json.dumps(doc, ensure_ascii=False))
+
+
+def test_closed_field_and_values():
+    def ft(**p):
+        return readers.Feature(p, [np.zeros((1, 2))])
+    assert cli.closed_field([ft(P29_006="3", P29_007="1"), ft(P29_006="3", P29_007="9"), ft(P29_006="3", P29_007="")]) == "P29_007"
+    assert cli.closed_field([ft(休校区分="2"), ft(休校区分="1")]) == "休校区分"
+    assert cli.closed_field([ft(P29_007="開校")]) is None and cli.closed_field([ft(P29_006="3")]) is None
+    assert [cli.is_closed(v) for v in ("0", "1", "2", "9", "")] == [False, False, True, True, False]
+
+
+def test_closed_schools_are_not_candidates(tmp_path, capsys):
+    # 学区データなしの区（99102）：やま小が休校区分 9（コード表に無い値）→ おおよその区域の候補にしない。
+    # 学区のある区（99101）：にし小が休校中（2）でも、学区データにあるので学区の学校として使う（学校コードが違うので名前で突き合わせる）
+    _make_gap_downloads(tmp_path / "dl")
+    east = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 0.3 * DLNG, LAT0 + 0.3 * DLAT]},
+            "properties": {"P29_001": "99101", "P29_002": "B199210000079", "P29_003": "16001", "P29_004": "みほん市立にし小学校",
+                           "P29_005": "テスト県みほん市東区1丁目", "P29_007": "2"}}
+    _set_closed(tmp_path / "dl" / "P29-23_99.zip", {"やま": "9"}, [east])
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["approx_cities"] == {"99102": 1}
+    assert sorted(report["closed_schools_excluded"], key=lambda s: s["city"]) == [
+        {"city": "99101", "name": "にし小学校", "value": "2", "how": "学区データにあるので学区の学校として使う"},
+        {"city": "99102", "name": "やま小学校", "value": "9", "how": "おおよその区域の候補から外した"}]
+    assert report["conservation_error"] < 1e-6 and report["unassigned_2025"] == 0.0
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    by = {s["name"]: s for c in pref["cities"] for s in c["schools"]}
+    assert "やま小学校" not in by and by["うみ小学校"]["est"][0] == pytest.approx(320.0, abs=0.2)
+    assert by["にし小学校"]["est"][0] == EXPECT_2025["にし小学校"] and "approx" not in by["にし小学校"]
+    capsys.readouterr()
+
+
+def test_closed_school_is_not_filled_as_missing(tmp_path, capsys):
+    # 学区データに無い「きた小」が休校中（2）なら補わない。その区域の子どもは未配分のまま
+    _missing_school_downloads(tmp_path / "dl")
+    _set_closed(tmp_path / "dl" / "P29-23_99.zip", {"きた小": "2"})
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["filled_missing_schools"] == {}
+    assert report["closed_schools_excluded"] == [{"city": "99102", "name": "きた小学校", "value": "2", "how": "補う学校の候補から外した"}]
+    assert report["unassigned_2025"] == pytest.approx(180.0) and report["conservation_error"] < 1e-6
+    capsys.readouterr()
+
+
 # ---------------------------------------------------------------- 学区データが市のコードで入っている政令市
 
 WARD_TABLE = ("区のコード,区の名称,市のコード,市の名称,状態,改正年月日,改正後のコード,改正後の名称,改正事由\n"

@@ -14,11 +14,18 @@ zip はあらかじめ展開しておく。必要なのは numpy だけ。
 後者は、配分率が 0.9 未満の市区町村だけで、名前が「分校」で終わる学校は除く。どの学区にも入らなかった点を、
 「補う学校の中で」いちばん近い学校に当てる（学区のある学校は候補にしない。学区のある学校の線引きは正しいとみなす）。
 距離は、経度の差に点ごとの緯度の cos を掛ける（--lat-scale point。mean は以前のパイプラインの、県全体で1つの値）。
+学校の位置データ（P29）から学校を選ぶときは、休校区分（P29_007 か名前に「休校」を含む属性）が 2（休校中）か、
+コード表（0・1・2）に無い値の学校を使わない。学区データの学校は休校区分に関係なく使う。
+政令市の学区データが市のコードで入っているとき（学区データに市のコードがあり、メッシュと P29 にはそのコードが無く、
+その市の区のコードがある）は、メッシュと P29 の区のコードを市のコードに読み替える。区と市の対応は
+pipeline/terms/designated_city_wards.csv（国土数値情報「行政区域コード」から作った表。データとして読む）。
 学区データのある学校が 0.06人を超えて違えば終了コード 1。おおよその区域の学校は、2つの学校からほぼ同じ距離にある点の
 割り当てが入れ替わることがあるので、違いの数と大きさを報告する（--strict を付けると、これも 1 件で終了コード 1）。
 """
 import argparse
+import csv
 import json
+import pathlib
 import math
 import re
 import sys
@@ -27,6 +34,7 @@ from collections import defaultdict
 import numpy as np
 
 YEARS = list(range(2025, 2075, 5))
+WARD_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "designated_city_wards.csv"
 K = 4  # メッシュ1つにつき K×K の点
 
 
@@ -108,6 +116,32 @@ def in_geom(x, y, geom):
     return res
 
 
+def ward_to_city():
+    """区のコード → 市のコード（政令指定都市。欠番の区も入る）。"""
+    with open(WARD_TABLE, encoding="utf-8-sig", newline="") as f:
+        return {r["区のコード"]: r["市のコード"] for r in csv.DictReader(f)}
+
+
+def recode(code, table):
+    """"22101_22102" のような市区町村コードの並びを、表で読み替えて重複を除く。"""
+    out = []
+    for c in code.split("_"):
+        c = table.get(c, c)
+        if c not in out:
+            out.append(c)
+    return "_".join(out)
+
+
+def closed_key(props_list):
+    """休校区分の属性名：P29_007 か、名前に「休校」を含み、中身が1桁の数字（空欄を除く）だけのもの。"""
+    keys = list(props_list[0]) if props_list else []
+    for k in [k for k in keys if k == "P29_007"] + [k for k in keys if "休校" in k]:
+        vals = {str(p.get(k) or "") for p in props_list} - {""}
+        if vals and all(len(v) == 1 and v.isdigit() for v in vals):
+            return k
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mesh", required=True)
@@ -134,8 +168,24 @@ def main():
     pm = np.repeat(np.arange(n), K * K)
     w0 = 1.0 / (K * K)
 
-    # 学区への配分
     feats = [f for f in json.load(open(args.districts, encoding="utf-8"))["features"] if f["properties"]["A27_001"] not in exclude]
+    pts = json.load(open(args.schools, encoding="utf-8"))["features"]
+
+    # 政令市の学区データが市のコードで入っているとき：メッシュと P29 の区のコードを市のコードに読み替える
+    w2c = ward_to_city()
+    dcodes = {f["properties"]["A27_001"] for f in feats}
+    mesh_codes = {c for m in mcity for c in m.split("_")}
+    p29_codes = {f["properties"]["P29_001"] for f in pts}
+    city_coded = sorted(c for c in dcodes if c not in mesh_codes and c not in p29_codes
+                        and any(w2c.get(m) == c for m in mesh_codes) and any(w2c.get(p) == c for p in p29_codes))
+    table = {w: c for w, c in w2c.items() if c in city_coded}
+    if city_coded:
+        mcity = [recode(m, table) for m in mcity]
+        for f in pts:
+            f["properties"]["P29_001"] = recode(f["properties"]["P29_001"], table)
+    print(f"学区データが市のコードで入っている政令市: {city_coded}")
+
+    # 学区への配分
     hits, count = [], np.zeros(px.shape[0], int)
     for f in feats:
         outer = np.array([p for poly in polygons(f["geometry"]) for p in poly[0]])
@@ -164,11 +214,17 @@ def main():
     gap = {c for c in tot if tot[c] > 0 and got[c] / tot[c] < 0.05}
     low = {c: round(float(got[c] / tot[c]), 3) for c in sorted(tot) if tot[c] > 0 and c not in gap and got[c] / tot[c] < 0.9}
 
-    # おおよその区域：公立小学校（学校コードの先頭2文字が B1、5文字目が 2）のうち、いちばん近い学校
-    pts = json.load(open(args.schools, encoding="utf-8"))["features"]
+    # おおよその区域：公立小学校（学校コードの先頭2文字が B1、5文字目が 2）のうち、いちばん近い学校。
+    # 休校区分が 2（休校中）か、コード表（0・1・2）に無い値の学校は使わない
+    ck = closed_key([f["properties"] for f in pts])
+    def closed(f):
+        v = str(f["properties"].get(ck) or "") if ck else ""
+        return v != "" and v not in ("0", "1")
+    pub_all = [f for f in pts if f["properties"]["P29_002"][:2] == "B1" and f["properties"]["P29_002"][4] == "2"]
+    print(f"休校区分の属性: {ck}。使わない公立小学校: {[(f['properties']['P29_001'], strip_owner(f['properties']['P29_004']), f['properties'][ck]) for f in pub_all if closed(f)]}")
     public = [(f["properties"]["P29_002"], strip_owner(f["properties"]["P29_004"]), f["properties"]["P29_001"],
                *f["geometry"]["coordinates"][:2])
-              for f in pts if f["properties"]["P29_002"][:2] == "B1" and f["properties"]["P29_002"][4] == "2"]
+              for f in pub_all if not closed(f)]
     S = [s for s in public if s[2] in gap]
     scity = np.array([s[2] for s in S])
     sx, sy = np.array([s[3] for s in S], float), np.array([s[4] for s in S], float)
