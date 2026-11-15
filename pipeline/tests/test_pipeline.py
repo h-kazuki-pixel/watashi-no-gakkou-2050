@@ -729,6 +729,113 @@ def test_city_from_address():
     assert city_from_address("東京都八王子市元本郷町3-24-1") == "八王子市"
 
 
+# ---------------------------------------------------------------- 学区データが市のコードで入っている政令市
+
+WARD_TABLE = ("区のコード,区の名称,市のコード,市の名称,状態,改正年月日,改正後のコード,改正後の名称,改正事由\n"
+              "99101,みほん市東区,99100,みほん市,現行,,,,\n"
+              "99102,みほん市西区,99100,みほん市,欠番,2024-01-01,99103,みほん市中央区,再編後は中央区\n"
+              "99103,みほん市中央区,99100,みほん市,現行,,,,\n")
+
+
+def _ward_table(tmp_path, monkeypatch):
+    from school2050 import wards
+    p = tmp_path / "wards.csv"
+    p.write_text(WARD_TABLE, encoding="utf-8")
+    monkeypatch.setattr(wards, "DEFAULT", p)
+
+
+def _city_coded_downloads(folder, district_city="99100"):
+    """学区データは市のコード（99100）、メッシュと学校の位置（P29）は区のコード（99101・99102）。静岡市・浜松市の形。"""
+    import zipfile
+    folder.mkdir(parents=True, exist_ok=True)
+    feats = []
+    for p, g in district_features():
+        p = dict(p, A27_001=district_city, A27_002="みほん市立")
+        feats.append({"type": "Feature", "properties": p, "geometry": {"type": "MultiPolygon", "coordinates": g}})
+    with zipfile.ZipFile(folder / "A27-23_99_GML.zip", "w") as z:
+        z.writestr("A27-23_99.geojson", json.dumps({"type": "FeatureCollection", "features": feats}, ensure_ascii=False))
+
+    def school(city, code, name, c, r):
+        return {"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + c * DLNG, LAT0 + r * DLAT]},
+                "properties": {"P29_001": city, "P29_002": code, "P29_003": "16001", "P29_004": "みほん市立" + name,
+                               "P29_005": "テスト県みほん市" + ("東区" if city == "99101" else "西区") + "1丁目", "P29_007": "1"}}
+    pts = [school("99101", "B199110000019", "にし小学校", 0.3, 0.3), school("99101", "B199110000028", "かさなり小学校", 2.0, 2.0),
+           school("99102", "B199110000037", "みなみ小学校", 6.0, 2.0), school("99102", "B199110000046", "きた小学校", 6.0, 6.0)]
+    with zipfile.ZipFile(folder / "P29-23_99.zip", "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps({"type": "FeatureCollection", "features": pts}, ensure_ascii=False))
+    make_mesh_csv(folder / "m.csv", straddle=True)
+    with zipfile.ZipFile(folder / "500m_mesh_2024_99.zip", "w") as z:
+        z.write(folder / "m.csv", "500m_mesh_2024_99.csv")
+    (folder / "m.csv").unlink()
+
+
+def test_ward_mapper_and_detection():
+    from school2050 import wards
+    table = {"99101": wards.Ward("99101", "みほん市東区", "99100", "みほん市", False),
+             "99102": wards.Ward("99102", "みほん市西区", "99100", "みほん市", True, "99103", "みほん市中央区")}
+    found = wards.find_city_coded({"99100", "99200"}, ["99101", "99102_99101", "99200"], {"99101", "99102"}, table)
+    assert list(found) == ["99100"] and found["99100"].mesh_wards == ["99101", "99102"]
+    assert found["99100"].obsolete_wards == ["99102"]
+    f = wards.mapper(found, table)
+    assert f("99101") == "99100" and f("99102_99101") == "99100" and f("99101_99200") == "99100_99200" and f("99200") == "99200"
+    # 学区データが区のコード（福岡県の形）や、メッシュに市のコードがあるときは対象にしない
+    assert wards.find_city_coded({"99101", "99102"}, ["99101", "99102"], {"99101"}, table) == {}
+    assert wards.find_city_coded({"99100"}, ["99100", "99101"], None, table) == {}
+    # P29 に市のコードがある・区のコードが無いときも対象にしない
+    assert wards.find_city_coded({"99100"}, ["99101"], {"99100"}, table) == {}
+    assert wards.find_city_coded({"99100"}, ["99101"], {"99300"}, table) == {}
+    assert wards.obsolete_split(["99102", "99101", "99300"], table) == {"99102": "みほん市西区 → みほん市中央区"}
+
+
+def test_city_coded_designated_city_is_one_city(tmp_path, monkeypatch, capsys):
+    _ward_table(tmp_path, monkeypatch)
+    _city_coded_downloads(tmp_path / "dl")
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["city_coded_districts"] == {"99100": {"name": "みほん市", "mesh_wards": ["99101", "99102"],
+                                                         "school_wards": ["99101", "99102"], "obsolete_wards": ["99102"]}}
+    # 区は「学区データなし」にならない（おおよその区域で補わない）。配分率は市の単位
+    assert report["approx_cities"] == {} and report["filled_missing_schools"] == {} and report["missing_cities"] == []
+    assert set(report["city_coverage_2025"]) == {"99100"} and report["obsolete_ward_cities"] == {}
+    assert report["conservation_error"] < 1e-6 and report["unassigned_2025"] == 10.0
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    assert [(c["code"], c["name"], len(c["schools"])) for c in pref["cities"]] == [("99100", "みほん市", 4)]
+    by = {s["name"]: s for s in pref["cities"][0]["schools"]}
+    assert {n: s["est"][0] for n, s in by.items()} == EXPECT_2025
+    assert not any(s.get("approx") for s in by.values())
+    # 学校の位置は P29 から（学校コードで突き合わせ）
+    assert by["きた小学校"]["lng"] == round(LNG0 + 6 * DLNG, 5)
+    capsys.readouterr()
+
+
+def test_ward_coded_districts_stay_by_ward_and_warn_obsolete(tmp_path, monkeypatch, capsys):
+    # 学区データが区のコードなら、今までどおり区で分ける。欠番の区で出すときは警告（report の obsolete_ward_cities）
+    _ward_table(tmp_path, monkeypatch)
+    _make_gap_downloads(tmp_path / "dl")
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["city_coded_districts"] == {} and report["approx_cities"] == {"99102": 2}
+    assert report["obsolete_ward_cities"] == {"99102": "みほん市西区 → みほん市中央区"}
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    assert [c["code"] for c in pref["cities"]] == ["99101", "99102"]
+    capsys.readouterr()
+
+
+def test_designated_city_ward_table_covers_all_cities():
+    from school2050 import wards
+    t = wards.load()
+    cities = {w.city: w.city_name for w in t.values()}
+    assert len(cities) == 20 and cities["22100"] == "静岡市" and cities["01100"] == "札幌市"
+    assert t["01110"].city == "01100"                      # 10の位をまたぐ区
+    assert t["27128"].city == "27100" and t["27141"].city == "27140"  # 大阪市と堺市
+    assert t["40131"].city == "40130" and not t["40131"].obsolete
+    assert t["22135"].obsolete and t["22135"].new_codes == "22138/22139"   # 浜松市北区（再編で2つに分かれた）
+    assert t["22140"].city == "22130" and not t["22140"].obsolete
+    assert "13101" not in t                                 # 東京23区は政令市の区ではない
+
+
 # ---------------------------------------------------------------- 学区データに入っていない学校を補う
 
 def _missing_school_downloads(folder):

@@ -10,6 +10,7 @@
   report_XX.json                   … 検査の値
 次の欄は生成のたびに変わるので比べない：
   pref_XX.js の generated（生成日）、report_XX.json の seconds（実行時間）と validate_approx（validate-approx が書き足す）
+report_XX.json の欄は、無いことと空（{}・[]）を同じとみなす（あとから足した欄が、前の生成に無いだけのとき）。
 
 違いが無ければ「違いなし」と出して 0 で終わる。違いがあれば 1 で終わる。
 学校は id（学校コード）で突き合わせる。学校名は手元の確認用で、出力を公開物に貼らないこと。
@@ -116,7 +117,7 @@ def diff_report(old: dict, new: dict) -> list[str]:
     lines = []
     for k in sorted(set(old) | set(new)):
         a, b = old.get(k), new.get(k)
-        if a == b:
+        if a == b or (a in (None, {}, []) and b in (None, {}, [])):
             continue
         if isinstance(a, dict) and isinstance(b, dict):
             for kk in sorted(set(a) | set(b)):

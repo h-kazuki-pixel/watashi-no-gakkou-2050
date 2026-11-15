@@ -30,7 +30,7 @@ import time
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from school2050 import estimate, export, geo, inputs, readers, terms  # noqa: E402
+from school2050 import estimate, export, geo, inputs, readers, terms, wards  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -113,8 +113,9 @@ def cmd_inspect(args) -> int:
     return 0
 
 
-def _school_points(path, pref_code) -> dict:
-    """学校の位置を、学校コードと（行政区域コード, 学校名）の両方で引けるようにする。"""
+def _school_points(path, pref_code, to_city=None) -> dict:
+    """学校の位置を、学校コードと（行政区域コード, 学校名）の両方で引けるようにする。
+    to_city：区のコードを市のコードに読み替える関数（学区データが市のコードで入っている政令市）。"""
     feats = readers.read_features(path)
     try:
         f = readers.detect_fields(feats)
@@ -127,11 +128,36 @@ def _school_points(path, pref_code) -> dict:
         if f.school_code and ft.props.get(f.school_code):
             out[ft.props[f.school_code]] = xy
         city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else pref_code + "000"
+        if to_city:
+            city = to_city(city)
         out[(city, export.strip_owner(ft.props.get(f.name, "")))] = xy
     return out
 
 
-def _gap_schools(path, gap_cities: set, dfields) -> list:
+def _school_city_codes(path) -> set | None:
+    """学校の位置データ（P29）にある行政区域コード。読めなければ None。"""
+    if not path:
+        return None
+    try:
+        feats = readers.read_features(inputs.find_schools(path).points)
+        f = readers.detect_fields(feats)
+    except (ValueError, KeyError, OSError):
+        return None
+    if not f.city_code:
+        return None
+    return {ft.props.get(f.city_code, "").zfill(5) for ft in feats if ft.props.get(f.city_code)}
+
+
+def _city_coded(feats, mt, schools_path, table=None):
+    """学区データが市のコードで入っている政令市を見つける。返り値: ({市のコード: CityCoded}, 読み替える関数)"""
+    table = wards.load() if table is None else table
+    if not mt.city or not table:
+        return {}, None
+    found = wards.find_city_coded({f.props["_city"] for f in feats}, mt.city, _school_city_codes(schools_path), table)
+    return found, (wards.mapper(found, table) if found else None)
+
+
+def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) -> list:
     """学校の位置データから、学区の無い市区町村の公立小学校を取り出す。
     返り値: [(行政区域コード, 経度, 緯度, 学区データと同じ属性名に直した props)]"""
     src = inputs.find_schools(path)
@@ -140,8 +166,12 @@ def _gap_schools(path, gap_cities: set, dfields) -> list:
     out, names = [], {}
     for ft in feats:
         city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else ""
+        if to_city and city:
+            city = to_city(city)
         addr = ft.props.get(f.address, "") if f.address else ""
-        if city and addr and city not in names:
+        if city and city_names and city in city_names:
+            names[city] = city_names[city]
+        elif city and addr and city not in names:
             names[city] = export.city_from_address(addr)
         if city not in gap_cities:
             continue
@@ -189,7 +219,7 @@ def _fill_missing(args, mt, values, alloc, feats, fields, sums, gaps, taken=None
     low = {c for c in dcities if c in by_city and by_city[c][0] > 0 and by_city[c][1] / by_city[c][0] < COVERAGE_FILL}
     if not low:
         return sums, feats, {}, zero
-    sch = _gap_schools(args.fill_schools, low, fields)
+    sch = _gap_schools(args.fill_schools, low, fields, getattr(args, "_to_city", None), getattr(args, "_to_city_names", None))
     have_code = {f.props.get(fields.school_code) for f in feats if fields.school_code and f.props.get(fields.school_code)}
     have_name = {(f.props["_city"], export.strip_owner(f.props.get(fields.name, ""))) for f in feats}
     miss = [s2 for s2 in sch
@@ -257,6 +287,17 @@ def cmd_build(args) -> int:
     mt = readers.build_mesh_table(df, mc)
     log(f"子ども（0〜14歳）のいるメッシュ {len(mt.codes)} 件")
 
+    # ---- 学区データが市のコードで入っている政令市（静岡市 22100 など）。メッシュと学校の位置の区のコードを市にまとめる
+    wt = wards.load()
+    city_coded, args._to_city = _city_coded(feats, mt, args.fill_schools, wt)
+    args._to_city_names = {c: cc.name for c, cc in city_coded.items()}
+    if city_coded:
+        mt.city = [args._to_city(c) for c in mt.city]
+        log("注意: 学区データが市のコードで入っている政令市があります。メッシュと学校の位置の区を市にまとめて扱います: "
+            + ", ".join(f"{c} {cc.name}（区 {', '.join(cc.mesh_wards)}"
+                        + (f"。うち欠番 {', '.join(cc.obsolete_wards)}" if cc.obsolete_wards else "") + "）"
+                        for c, cc in city_coded.items()))
+
     values = np.hstack([mt.kids, mt.ages])
     alloc = estimate.allocate(mt.codes, values, feats, k=args.k, log=log)
     ny = len(mt.years)
@@ -274,7 +315,7 @@ def cmd_build(args) -> int:
     sums = alloc.sums
     gap_near = None
     if gaps and args.fill_schools:
-        sch = _gap_schools(args.fill_schools, set(gaps), fields)
+        sch = _gap_schools(args.fill_schools, set(gaps), fields, args._to_city, args._to_city_names)
         args._gap_names = getattr(_gap_schools, "names", {})
         if sch:
             near = estimate.allocate_nearest(mt.codes, mt.city, values, [(c, x, y) for c, x, y, _p in sch], set(gaps), k=args.k,
@@ -309,7 +350,7 @@ def cmd_build(args) -> int:
         if not np.array_equal(sums[:n_dist], alloc.sums):
             raise SystemExit("学区データに無い学校を補ったら、学区のある学校の値が変わりました")
 
-    points = _school_points(args.schools, pref) if args.schools else None
+    points = _school_points(args.schools, pref, args._to_city) if args.schools else None
     overrides = None
     if args.city_names:
         with open(args.city_names, encoding="utf-8-sig", newline="") as fh:
@@ -358,8 +399,15 @@ def cmd_build(args) -> int:
         "excluded_by_terms": excluded_by_terms,
         "note_cities": sorted(c["code"] for c in obj["cities"] if c.get("note")),
         "missing_cities": obj["missing"],
+        # 学区データが市のコードで入っていたので、区を市にまとめた政令市
+        "city_coded_districts": {c: cc.to_report() for c, cc in city_coded.items()},
+        # 区で分けて出した市区町村のうち、欠番（再編前など）の区のコード。今の区と名前が合わない
+        "obsolete_ward_cities": wards.obsolete_split([c["code"] for c in obj["cities"]], wt),
         "seconds": round(time.time() - t0, 1),
     }
+    if report["obsolete_ward_cities"]:
+        log("注意: 再編前の区のコードで区を分けて出しています（今の区と合いません）: "
+            + ", ".join(f"{c} {v}" for c, v in report["obsolete_ward_cities"].items()))
     if mt.city:
         by_city = {}
         for code, v, a in zip(mt.city, mt.kids[:, 0], alloc.mesh_assigned):
@@ -456,10 +504,14 @@ def _validate_pref(pref, got, args) -> dict:
     mt = readers.build_mesh_table(df, _mesh_columns(df, sub))
     if not mt.city:
         raise ValueError("メッシュに行政区域コードが無いので、おおよその区域を作れません")
+    # build と同じく、学区データが市のコードで入っている政令市は、区を市にまとめる
+    city_coded, to_city = _city_coded(feats, mt, got["schools"])
+    if to_city:
+        mt.city = [to_city(c) for c in mt.city]
 
     # 学校の位置：おおよその区域と同じく国土数値情報「学校」を使う。学校コード → (市区町村, 学校名) の順に探し、
     # 見つからない学校だけ学区の重心で代える（件数を出す）
-    pts = _school_points(str(inputs.find_schools(got["schools"]).points), pref)
+    pts = _school_points(str(inputs.find_schools(got["schools"]).points), pref, to_city)
     xy, fallback = [], 0
     for f in feats:
         code = f.props.get(fields.school_code, "") if fields.school_code else ""
