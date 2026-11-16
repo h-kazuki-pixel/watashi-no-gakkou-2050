@@ -215,8 +215,8 @@ def update_index(out_dir, obj: dict) -> pathlib.Path:
         if m:
             try:
                 entries = json.loads(m.group(1))
-            except json.JSONDecodeError:
-                entries = []
+            except json.JSONDecodeError as e:  # 読めないまま書くと、ほかの県が一覧から消える
+                raise SystemExit(f"{p} を読めません（{e}）。直してから作り直してください")
     entries = [e for e in entries if e.get("code") != obj["code"]]
     entries.append({
         "code": obj["code"], "name": obj["name"], "cities": len(obj["cities"]),

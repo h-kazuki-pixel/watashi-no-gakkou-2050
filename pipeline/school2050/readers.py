@@ -260,6 +260,16 @@ def build_mesh_table(df: pd.DataFrame, mc: MeshColumns, years=EST_YEARS) -> Mesh
     if miss:
         raise ValueError(f"次の年の列が見つかりません: {miss}")
     n = len(df)
+    # 使う列に、空欄でも数値でもない値があれば止める（黙って0にしない）。空欄は秘匿メッシュなどで0
+    used = sorted({c for y in years for c in mc.ages[y][:3] if c})
+    bad = []
+    for c in used:
+        v = df[c].str.strip().str.replace(",", "", regex=False)
+        nn = v[(v != "") & pd.to_numeric(v, errors="coerce").isna()]
+        if len(nn):
+            bad.append(f"{c}: {', '.join(sorted(set(nn))[:3])}（{len(nn)}件）")
+    if bad:
+        raise ValueError("メッシュの年齢階級の列に、数値でない値があります: " + "; ".join(bad))
     kids = np.zeros((n, len(years)))
     for i, y in enumerate(years):
         _a, b, c, _t = mc.ages[y]

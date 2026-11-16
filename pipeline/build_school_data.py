@@ -175,8 +175,8 @@ def _not_handled(args, mt, values, alloc, feats, areas) -> tuple:
         src = args.fill_schools or args.schools
         sch = _area_schools(src, set(members), getattr(args, "_to_city", None)) if src else []
         if not sch:
-            log(f"注意: まとめた区域 {area} の学校の位置が無いので、学区の外の点を市町村に分けられません（扱わない区域は学区の分だけ）")
-            continue
+            raise SystemExit(f"まとめた区域 {area} の学校の位置（国土数値情報「学校」）が無いので、学区の外の点を市町村に分けられません。"
+                             "--fill-schools を渡してください")
         gidx, owner = estimate.nearest_in_area(mt.codes, mt.city, area, sch, alloc.count, k=args.k)
         sel = np.array([sch[o][0] in hidden for o in owner], dtype=bool)
         if sel.any():
@@ -238,16 +238,16 @@ def _school_points(path, pref_code, to_city=None) -> dict:
 
 
 def _school_city_codes(path) -> set | None:
-    """学校の位置データ（P29）にある行政区域コード。読めなければ None。"""
+    """学校の位置データ（P29）にある行政区域コード。渡されていなければ None。渡されたのに読めなければ止める。"""
     if not path:
         return None
     try:
         feats = readers.read_features(inputs.find_schools(path).points)
         f = readers.detect_fields(feats)
-    except (ValueError, KeyError, OSError):
-        return None
+    except (ValueError, KeyError, OSError) as e:
+        raise SystemExit(f"学校の位置データを読めません（政令市の判定に使う）: {path}（{e}）")
     if not f.city_code:
-        return None
+        raise SystemExit(f"学校の位置データに行政区域コードの属性がありません（政令市の判定に使う）: {path}")
     return {ft.props.get(f.city_code, "").zfill(5) for ft in feats if ft.props.get(f.city_code)}
 
 
@@ -460,7 +460,7 @@ def cmd_build(args) -> int:
     # 利用条件で再配布できない市区町村の学区は、配分の前に除く（学区データなしとして扱う）
     tm = terms.load()
     if not tm:
-        log(f"注意: 利用条件の一覧（{terms.DEFAULT}）がありません。学区を除かずに進めます")
+        raise SystemExit(f"利用条件の一覧（{terms.DEFAULT}）がありません。再配布できない学区を除けないので止めます")
     # 確認が取れるまで使わない市区町村（pipeline/terms/pending_confirmation.csv。小田原市）も同じく除く
     ex = terms.excluded(tm, terms.pending())
     excluded_by_terms = []
@@ -609,9 +609,10 @@ def cmd_build(args) -> int:
             c["note"] = True
 
     # 休校の公立小学校（学校の位置データから選ぶ候補に使わなかった学校）
-    closed_out = []
+    closed_out, closed_cf = [], None
     if args.fill_schools:
         closed, cf = _closed_schools(args.fill_schools, args._to_city)
+        closed_cf = cf
         if cf is None:
             log("注意: 学校の位置データに休校区分の属性が見つかりません。休校の学校も候補に使います")
         have_code = {f.props.get(fields.school_code) for f in feats
@@ -662,12 +663,16 @@ def cmd_build(args) -> int:
         "excluded_by_terms": excluded_by_terms,
         "note_cities": sorted(c["code"] for c in obj["cities"] if c.get("note")),
         "missing_cities": obj["missing"],
+        # 名前が分からず、画面にコードを出している市区町村
+        "cities_without_name": [c["code"] for c in obj["cities"] if c["name"] == c["code"]],
         # 学区データが市のコードで入っていたので、区を市にまとめた政令市
         "city_coded_districts": {c: cc.to_report() for c, cc in city_coded.items()},
         # 区で分けて出した市区町村のうち、欠番（再編前など）の区のコード。今の区と名前が合わない
         "obsolete_ward_cities": wards.obsolete_split([c["code"] for c in obj["cities"]], wt),
         # 休校区分が休校中（2）かコード表に無い値の公立小学校。学校の位置データから選ぶ候補には使わない
         "closed_schools_excluded": closed_out,
+        # 休校区分の属性名。null なら見つからず、休校の学校も候補に使った
+        "closed_field": closed_cf,
         # 学区の図形の乱れ（同じ輪の重複・外に出た穴・部分の重なり）と、その扱い
         "geometry_issues": geometry_issues,
         # 学区データの学校コードが別の市区町村の学校のもの（学校はそのまま出し、id は「市区町村コード-番号」）

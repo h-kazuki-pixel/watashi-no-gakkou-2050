@@ -67,6 +67,8 @@ def read_gml_table(path) -> pd.DataFrame:
             names = [n for n, _v in lv]
         if len(lv) == len(names):
             rows.append([v for _n, v in lv])
+        else:  # 列の数が違うメッシュを黙って捨てない（その子どもが合計から消える）
+            raise ValueError(f"GML のメッシュの属性の数が、ほかのメッシュと違います（{len(lv)} と {len(names)}）: {path}")
         el.clear()
         if stack:  # 読み終えたメッシュを親から外して、メモリを使い続けないようにする
             try:

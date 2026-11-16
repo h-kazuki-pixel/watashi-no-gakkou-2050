@@ -37,7 +37,7 @@ def pending(path=None) -> dict:
     """確認が取れるまで学区データを使わない市区町村。行政コード → {"name", "reason", "source"}。ファイルが無ければ空。"""
     p = pathlib.Path(path) if path else PENDING
     if not p.exists():
-        return {}
+        raise SystemExit(f"確認待ちの市区町村の表がありません: {p}")
     out = {}
     with p.open(encoding="utf-8-sig", newline="") as fh:
         for r in csv.DictReader(fh):

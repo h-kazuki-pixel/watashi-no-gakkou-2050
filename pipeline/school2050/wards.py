@@ -33,10 +33,10 @@ class Ward:
 
 
 def load(path=None) -> dict:
-    """区のコード → Ward。ファイルが無ければ空。"""
+    """区のコード → Ward。ファイルが無ければ止める（政令市の判定ができないまま進めない）。"""
     p = pathlib.Path(path) if path else DEFAULT
     if not p.exists():
-        return {}
+        raise SystemExit(f"政令指定都市の区と市の対応表がありません: {p}")
     out = {}
     with p.open(encoding="utf-8-sig", newline="") as fh:
         for r in csv.DictReader(fh):

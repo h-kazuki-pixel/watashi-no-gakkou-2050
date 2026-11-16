@@ -17,10 +17,10 @@ DEFAULT = pathlib.Path(__file__).resolve().parents[1] / "terms" / "fukushima_ham
 
 
 def load(path=None) -> dict:
-    """{まとめた区域のコード: {市町村コード: {"name", "show", "kids_514_2020", "children_2025"}}}。ファイルが無ければ空。"""
+    """{まとめた区域のコード: {市町村コード: {"name", "show", "kids_514_2020", "children_2025"}}}。ファイルが無ければ止める。"""
     p = pathlib.Path(path) if path else DEFAULT
     if not p.exists():
-        return {}
+        raise SystemExit(f"まとめた区域の表がありません: {p}")
     out: dict = {}
     with p.open(encoding="utf-8-sig", newline="") as fh:
         for r in csv.DictReader(fh):

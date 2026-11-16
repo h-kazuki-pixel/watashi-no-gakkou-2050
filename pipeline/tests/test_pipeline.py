@@ -651,7 +651,8 @@ def _terms_downloads(tmp_path, monkeypatch, with_schools=True):
                         "99101,みほん市東区,01公開,条件公開,詳しくは教育委員会へ\n"
                         "99102,みほん市西区,01公開,商用利用・再配布不可,-\n", encoding="utf-8")
     monkeypatch.setattr(terms, "DEFAULT", csv_path)
-    monkeypatch.setattr(terms, "PENDING", tmp_path / "pending.csv")   # 確認待ちの表は無し
+    (tmp_path / "pending.csv").write_text("行政区域コード,自治体名,理由,出典\n", encoding="utf-8")
+    monkeypatch.setattr(terms, "PENDING", tmp_path / "pending.csv")   # 確認待ちの市区町村は無し
     return folder
 
 
@@ -1285,3 +1286,38 @@ def test_combined_area_hides_towns_without_moving_children(tmp_path, monkeypatch
     assert pref["missing"] == [{"code": "99102", "name": "みほん市西区", "nothandled": True}]
     assert {s["name"]: s["est"][0] for s in pref["cities"][0]["schools"]} == {"にし小学校": 300.0, "かさなり小学校": 20.0}
     capsys.readouterr()
+
+
+# ---------------------------------------------------------------- 黙って別の値で続けない
+
+def test_non_numeric_mesh_value_stops(raw):
+    df = readers.read_table(raw / "500m_mesh_2024_99.csv")
+    mc = readers.detect_mesh_columns(df)
+    col = mc.ages[2030][1]
+    df.loc[5, col] = "x"
+    with pytest.raises(ValueError, match="数値でない値"):
+        readers.build_mesh_table(df, mc)
+    df.loc[5, col] = ""                                       # 空欄は0（秘匿メッシュ）として続ける
+    readers.build_mesh_table(df, mc)
+
+
+def test_missing_terms_table_stops(tmp_path, monkeypatch, capsys):
+    from school2050 import terms
+    _make_gap_downloads(tmp_path / "dl")
+    monkeypatch.setattr(terms, "DEFAULT", tmp_path / "none.csv")
+    with pytest.raises(SystemExit, match="利用条件の一覧"):
+        cli.cmd_build(cli.argparse.Namespace(**{**vars(cli.argparse.Namespace()), "districts": str(tmp_path / "dl" / "A27-23_99_GML.zip"),
+                      "mesh": str(tmp_path / "dl" / "500m_mesh_2024_99.zip"), "schools": None, "pref": "99", "fill_schools": None,
+                      "name_field": None, "city_field": None, "code_field": None, "owner_field": None, "address_field": None,
+                      "age_columns": None, "k": 4, "min_children": 1.0, "out": str(tmp_path / "d"), "opendata": None,
+                      "city_names": None, "generated": None}))
+    capsys.readouterr()
+
+
+def test_unreadable_school_points_stop(tmp_path):
+    # validate-approx・build で学校の位置データの属性を判定できないとき、学区の重心で黙って代えずに止める
+    p = tmp_path / "p.geojson"
+    p.write_text(json.dumps({"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"a": "1"}, "geometry": {"type": "Point", "coordinates": [130, 33]}}]}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="属性を判定できません"):
+        cli._school_points(str(p), "99")
