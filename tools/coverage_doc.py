@@ -7,6 +7,7 @@
 """
 import argparse
 import collections
+import csv
 import json
 import pathlib
 import sys
@@ -24,11 +25,13 @@ def main() -> int:
     ap.add_argument("--app", default="app/data")
     ap.add_argument("--od", default="opendata")
     ap.add_argument("--out", default="docs/COVERAGE.md")
+    ap.add_argument("--causes", default="tools/unassigned_causes.csv", help="どの学校にも入らなかった子どもの多い市区町村と、地図で見た原因")
     a = ap.parse_args()
     app, od = pathlib.Path(a.app), pathlib.Path(a.od)
     prefs = sorted(p.stem.split("_")[1] for p in app.glob("pref_[0-9][0-9].js"))
     rows, approx_c, nothandled, excluded, filled, closed, nopts, geom, fixes, notes = [], [], [], [], [], [], [], [], [], []
     tot = collections.Counter()
+    left = []  # (県コード, 県名, どの学校にも入らなかった子ども, メッシュの子ども)
     gen = set()
     for p in prefs:
         obj = load_pref(app / f"pref_{p}.js")
@@ -72,6 +75,7 @@ def main() -> int:
                 geom.append((pname, names.get(e["city"], e["city"]), e["name"], kind, how))
         for e in rep.get("source_corrections", []):
             fixes.append(f"| {pname} | {e['data']} | {e['code']} | {e['field']} | {e['from']} | {e['to']} |")
+        left.append((p, pname, rep.get("unassigned_2025", 0.0), rep.get("mesh_children_2025", 0.0)))
         nc = rep.get("note_cities") or []
         if nc:
             notes.append(f"| {pname} | " + "、".join(names.get(c, c) for c in nc) + " |")
@@ -152,6 +156,33 @@ def main() -> int:
     w("|---|---|---|---|")
     L.extend(nopts)
     w("")
+    w("## どの学校にも入らなかった子ども")
+    w("")
+    ua, mc = sum(x[2] for x in left), sum(x[3] for x in left)
+    w(f"2025年の6〜11歳の推計 {mc:,.0f}人のうち、{ua:,.0f}人（{ua / mc * 100:.2f}%）は、どの学校の数字にも入っていません（`report_XX.json` の `unassigned_2025`）。")
+    w("メッシュに 4×4 の点を置き、点が入る学区に人口を配る（DATA_METHOD.md「計算」）ので、学区の外に落ちた点の子どもはどこにも足していません。")
+    w("学区のある学校の数字は変えない、という決まりのためです（学区データに無い学校を補うのは、配分率が0.9未満の市区町村だけ）。")
+    w("")
+    w("| 都道府県 | 人数（2025年） | 割合 |")
+    w("|---|---|---|")
+    for x in left:
+        w(f"| {x[1]} | {x[2]:,.1f} | {x[2] / x[3] * 100 if x[3] else 0:.2f}% |")
+    w("")
+    cp = pathlib.Path(a.causes)
+    if cp.exists():
+        w("人数の多い市区町村で、どの学区にも入らなかった点を学区の図形と重ねて地図にし、原因を分けました（2026-11-17）。分類：")
+        w("ア＝学区データ（令和5年度）より後にできた学校・学区データに無い学校の区域、イ＝学区の図形のすき間・欠け、")
+        w("ウ＝子どもが通う公立小学校の無い区域（基地など）、エ＝その他（県境をまたぐメッシュの県の外側の部分、川・海・湖の水面に置かれた点）。")
+        w("エは、メッシュの中で人口が一様という仮定から出るもので、その子どもは実際には近くの学区に住んでいるとみられます（近くの学校の数字が少し小さめ）。")
+        w("")
+        w("| 都道府県 | 市区町村 | 人数（2025年） | 分類 | 見たこと |")
+        w("|---|---|---|---|---|")
+        pn = {x[0]: x[1] for x in left}
+        for r in csv.DictReader(open(cp, encoding="utf-8")):
+            w(f"| {pn.get(r['都道府県コード'], r['都道府県コード'])} | {r['市区町村']} | {float(r['2025年の人数']):,.1f} | {r['分類']} | {r['見たこと']} |")
+        w("")
+        w("市区町村ごとの人数は、`tools/independent_check.py` と同じ計算で、どの学区にも入らず補いにも当たらなかった点を、メッシュの市区町村コードごとに足したもの（県ごとの合計は `unassigned_2025` と一致）。")
+        w("")
     w("## 乱れた図形")
     w("")
     w("| 都道府県 | 市区町村 | 学校 | 乱れ | 扱い |")
