@@ -91,11 +91,13 @@
   /* ====================== 4 なぜ？ ====================== */
   V.step4 = function (root) {
     var st = UG.state, c = UG.ctx();
-    var ages = M.agesFor(c.school, st.calib);
+    var ages = M.cohortInts(M.agesFor(c.school, st.calib), c.now);
     var agesMax = Math.max.apply(null, ages) || 1;
 
+    /** 変化率。選んだ学校は、ほかの画面と同じ値（補正を入れたときも同じ）にする */
+    function pctOf(s) { return s.id === c.school.id ? c.pct : M.shownPct(s.est[0], s.est[5]); }
     var others = c.city.schools.map(function (s) {
-      return { s: s, pct: M.pctChange(s.est[0], s.est[5]) };
+      return { s: s, pct: pctOf(s) };
     }).filter(function (o) { return o.pct != null; }).sort(function (a, b) { return b.pct - a.pct; });
     var barMax = 60;
     others.forEach(function (o) { barMax = Math.max(barMax, Math.abs(o.pct)); });
@@ -159,7 +161,7 @@
       UG.$("#ages", root).innerHTML = UG.ruby(
         '<div class="bars">' + cur.map(function (v, j) {
           var h = v == null ? 55 : Math.max(3, (v / agesMax) * 100);
-          return '<div class="col' + (j >= 6 ? " el" : "") + (v == null ? " unk" : "") + '"><span class="val">' + (v == null ? "？" : Math.round(v)) + "</span>" +
+          return '<div class="col' + (j >= 6 ? " el" : "") + (v == null ? " unk" : "") + '"><span class="val">' + (v == null ? "？" : v) + "</span>" +
             '<i style="height:' + h.toFixed(0) + '%"></i><span class="ag">' + j + "</span></div>";
         }).join("") + "</div>" +
         '<div class="ages-axis"><span class="pre">入学前（0〜5さい）</span><span class="el">小学生（6〜11さい）</span></div>'
@@ -222,7 +224,7 @@
     drawAges(); drawSim(); drawQuiz(); showMe();
     UG.townMap(UG.$("#cmp-map", root), c.city, {
       selected: c.school.id, showNames: true,
-      value: function (s) { return level(M.pctChange(s.est[0], s.est[5])); }
+      value: function (s) { return level(pctOf(s)); }
     });
 
     UG.$("#age-next", root).addEventListener("click", function () { st.ageStep = Math.min(11, st.ageStep + 1); UG.save(); drawAges(); });

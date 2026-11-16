@@ -49,7 +49,7 @@
     hist.forEach(function (p) { top = Math.max(top, p.v); });
     return {
       school: school, city: school.city, pref: school.pref, sample: !!school.pref.sample,
-      est: est, hist: hist, now: now, v50: v50, pct: M.pctChange(now, v50),
+      est: est, hist: hist, now: now, v50: v50, pct: M.shownPct(now, v50),
       yMax: Math.max(20, M.niceMax(top * 1.35)),
       xMin: hist.length ? Math.min(hist[0].y, 2015) : 2020,
       age: M.ageIn(st.grade, M.TARGET_YEAR)

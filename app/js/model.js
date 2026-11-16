@@ -186,6 +186,33 @@
     return { sum: sum, known: known };
   }
 
+  /**
+   * 年齢の階段に出す各歳の人数（整数）。
+   * 1) 6〜11歳の合計が total（画面の「いまの人数」と同じ値）になるように、12本に同じ倍率を掛ける
+   *    （ages と est はどちらも小数1けたで保存しているので、合計が最大0.3人ほど食い違う）。
+   * 2) 11歳から0歳へ向かって累積し、累積を丸めた差を各歳の整数にする（累積丸め）。
+   * こうすると、2025年の小学生（6〜11歳）の整数の合計は Math.round(total) と必ず一致し、
+   * どの連続した6本の合計も、小数のままの合計と1人未満しかずれない。各世代の整数は年を進めても変わらない。
+   */
+  function cohortInts(ages, total) {
+    var el = 0, j;
+    for (j = 6; j < 12; j++) el += ages[j] || 0;
+    var k = el > 0 && total > 0 ? total / el : 1;
+    var out = new Array(12), cum = 0, prev = 0;
+    for (j = 11; j >= 0; j--) {
+      cum += (ages[j] || 0) * k;
+      var r = Math.round(Math.round(cum * 1e6) / 1e6); // 12.4999999 のような誤差で丸めが変わらないように
+      out[j] = r - prev;
+      prev = r;
+    }
+    return out;
+  }
+
+  /** 画面に出す2つの人数（丸めたもの）から変化率を出す。子どもが画面の数で計算しても同じになる。 */
+  function shownPct(from, to) {
+    return pctChange(Math.round(from), Math.round(to));
+  }
+
   /** グラフの上限をきりのよい数にする */
   function niceMax(v) {
     if (!(v > 0)) return 10;
@@ -243,7 +270,7 @@
     clamp: clamp, interp: interp, estPoints: estPoints, calibFactor: calibFactor, histPoints: histPoints,
     pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan,
     simValue: simValue, simPoints: simPoints, agesFor: agesFor, ageStep: ageStep,
-    elementaryAfter: elementaryAfter, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
+    elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
     schoolQuery: schoolQuery, matchSchool: matchSchool
   };
 });

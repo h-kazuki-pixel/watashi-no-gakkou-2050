@@ -124,3 +124,37 @@ test("学校をさがす：先頭の設置者を外して比べる", () => {
   assert.equal(M.matchSchool("西新小学校", ""), true);
   assert.equal(M.matchSchool("西新小学校", "福岡市立百道小学校"), false);
 });
+
+test("年齢の階段：整数の小学生の合計が、ステップ1の人数とそろう（いわき市 三阪小）", () => {
+  const s = { est: [12.5, 15.1, 17.6, 18.5, 18.3, 14.2, 10.4, 8.2, 7.4, 7.8],
+              ages: [2.9, 2.9, 2.9, 2.9, 2.9, 1.8, 1.8, 1.8, 1.8, 1.8, 2.6, 2.6] };
+  const now = M.estPoints(s, null)[0].v;
+  const I = M.cohortInts(M.agesFor(s, null), now);
+  assert.equal(I.length, 12);
+  assert.ok(I.every((v) => Number.isInteger(v) && v >= 0));
+  assert.equal(M.elementaryAfter(I, 0).sum, Math.round(now)); // 13（各歳を丸めると14、小数の合計は12.4）
+  // 各歳の整数は、小数の値と1人未満しかずれない
+  const ag = M.agesFor(s, null), k = now / ag.slice(6).reduce((a, b) => a + b, 0);
+  I.forEach((v, j) => assert.ok(Math.abs(v - ag[j] * k) < 1));
+  // 年を進めても、どの6本の合計も小数の合計と1人未満
+  for (let step = 1; step <= 6; step++) {
+    const r = M.elementaryAfter(I, step), t = M.elementaryAfter(ag.map((v) => v * k), step);
+    assert.ok(Math.abs(r.sum - t.sum) < 1, step);
+  }
+});
+
+test("年齢の階段：補正（いまの実際の人数）を入れても合計がそろう。0.5ちょうども同じ丸め", () => {
+  const s = { est: [12.5, 15.1, 17.6, 18.5, 18.3, 14.2, 10.4, 8.2, 7.4, 7.8],
+              ages: [2.9, 2.9, 2.9, 2.9, 2.9, 1.8, 1.8, 1.8, 1.8, 1.8, 2.6, 2.6] };
+  [20, 7, 306, 1234].forEach((calib) => {
+    const now = M.estPoints(s, calib)[0].v;
+    assert.equal(M.elementaryAfter(M.cohortInts(M.agesFor(s, calib), now), 0).sum, Math.round(now));
+  });
+  assert.equal(M.elementaryAfter(M.cohortInts([0, 0, 0, 0, 0, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.0], 1.5), 0).sum, 2);
+});
+
+test("変化率は画面に出す丸めた人数から出す", () => {
+  assert.equal(Math.round(M.shownPct(9.3, 5.7)), -33);  // 9人 → 6人。小数のままだと −39%
+  assert.equal(Math.round(M.shownPct(306, 168)), -45);
+  assert.equal(M.shownPct(0.4, 3), null);                // 0人からの変化率は出さない
+});
