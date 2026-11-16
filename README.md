@@ -47,6 +47,7 @@ python3 -m pytest pipeline/tests -q        # パイプライン（numpy, pandas,
 python3 tools/e2e_check.py                 # ブラウザで全ステップ（playwright。Chrome が無ければ付属の Chromium）
 python3 tools/e2e_realdata.py              # パイプライン出力をアプリが読めるか（合成データ）
 python3 tools/e2e_realdata.py --prefs 01,13,14:横浜市,26:京都市東山区,07:いわき市,47   # app/data の実データ
+python3 tools/compare_actual.py            # 実際の児童数との照合（pdfplumber。PDF は data_raw/actual/ に置く。docs/ACCURACY.md）
 ```
 
 ## 実データを入れる
@@ -88,7 +89,7 @@ pipeline/            学区 × メッシュ → 学区別の将来児童数
   school2050/            zip の中身判定、メッシュコード、幾何、読み込み、配分、書き出し
   tests/                 手計算できる合成データでの検算
 tools/               ブラウザ通しテスト（e2e_check, e2e_realdata）、別の実装での検算（independent_check）、
-                     実際の児童数との照合（compare_actual。入力は data_raw/actual/ に置き、リポジトリには入れない）
+                     実際の児童数との照合（compare_actual。pdfplumber が必要。入力は data_raw/actual/ に置き、リポジトリには入れない）
 docs/                応募文、入賞戦略、授業案、データと方法、推計の当たり具合（ACCURACY）、ロードマップ
 ```
 
