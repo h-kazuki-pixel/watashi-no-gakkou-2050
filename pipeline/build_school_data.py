@@ -151,7 +151,7 @@ def _school_points(path, pref_code, to_city=None) -> dict:
         if to_city:
             city = to_city(city)
         if f.school_code and ft.props.get(f.school_code):
-            out[("code", ft.props[f.school_code])] = (city, xy)
+            out[("code", ft.props[f.school_code])] = (city, xy, owner_of(ft.props.get(f.name, "")))
         out[("name", city, export.strip_owner(ft.props.get(f.name, "")))] = xy
     return out
 
@@ -225,6 +225,34 @@ def _closed_schools(path, to_city=None) -> tuple[list, str | None]:
     return out, cf
 
 
+def owner_of(name: str) -> str | None:
+    """学校名の先頭の設置者（「稲沢市立」→「稲沢市」、「双葉郡広野町立」→「広野町」）。組合立や、設置者が無い名前は None。"""
+    m = re.match(r"^(.{1,12}?(?:市|町|村|区))立", name or "")
+    if not m or re.match(r"^.{0,12}組合立", name):
+        return None
+    return re.sub(r"^.+郡", "", m.group(1))
+
+
+def city_owners(feats, f, to_city=None) -> dict:
+    """行政区域コード → その市区町村の公立学校（学校コードの5文字目が 2）の設置者の名前で、いちばん多いもの。"""
+    from collections import Counter
+    by: dict = {}
+    for ft in feats:
+        code = ft.props.get(f.school_code, "") if f.school_code else ""
+        if code and code[4:5] != "2":
+            continue
+        o = owner_of(ft.props.get(f.name, ""))
+        city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else ""
+        if o and city:
+            by.setdefault(to_city(city) if to_city else city, Counter())[o] += 1
+    out = {}
+    for c, cnt in by.items():
+        top = cnt.most_common(2)
+        if len(top) == 1 or top[0][1] > top[1][1]:
+            out[c] = top[0][0]
+    return out
+
+
 def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) -> list:
     """学校の位置データから、学区の無い市区町村の公立小学校を取り出す。
     返り値: [(行政区域コード, 経度, 緯度, 学区データと同じ属性名に直した props)]"""
@@ -232,6 +260,8 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
     feats = readers.read_features(src.points)
     f = readers.detect_fields(feats)
     cf = closed_field(feats)  # 休校区分。休校中・コード表に無い値の学校は使わない（docs/DATA_METHOD.md）
+    owners = city_owners(feats, f, to_city)
+    _gap_schools.mismatch = []
     out, names = [], {}
     for ft in feats:
         city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else ""
@@ -250,6 +280,12 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
         if not _public_elementary(code, name):
             continue
         if cf and is_closed(ft.props.get(cf, "")):
+            continue
+        # 設置者の名前が、その市区町村の学校の設置者と合わない学校は、行政区域コードの誤りとみて使わない
+        # （愛知県：稲沢市立下津小学校が一宮市のコード）。組合立は外さない
+        own = owner_of(ft.props.get(f.name, ""))
+        if own and city in owners and own != owners[city]:
+            _gap_schools.mismatch.append({"city": city, "name": ft.props.get(f.name, ""), "owner": own, "city_owner": owners[city]})
             continue
         x, y = float(ft.rings[0][0][0]), float(ft.rings[0][0][1])
         props = {dfields.name: name, "_city_name": names.get(city, "")}
@@ -289,6 +325,7 @@ def _fill_missing(args, mt, values, alloc, feats, fields, sums, gaps, taken=None
     if not low:
         return sums, feats, {}, zero
     sch = _gap_schools(args.fill_schools, low, fields, getattr(args, "_to_city", None), getattr(args, "_to_city_names", None))
+    args._owner_mismatch += [m for m in _gap_schools.mismatch if m not in args._owner_mismatch]
     have_code = {f.props.get(fields.school_code) for f in feats if fields.school_code and f.props.get(fields.school_code)}
     have_name = {(f.props["_city"], export.strip_owner(f.props.get(fields.name, ""))) for f in feats}
     miss = [s2 for s2 in sch
@@ -321,7 +358,11 @@ def _fill_missing(args, mt, values, alloc, feats, fields, sums, gaps, taken=None
 
 def cmd_build(args) -> int:
     t0 = time.time()
+    # 学校の位置（ピン）は、--schools が無ければ --fill-schools（国土数値情報「学校」）から取る（build-all と同じ）
+    if not getattr(args, "schools", None) and getattr(args, "fill_schools", None):
+        args.schools = args.fill_schools
     _resolve(args)
+    args._owner_mismatch = []
     if not args.pref and not args.pref_guess:
         raise SystemExit("都道府県コードを中身から判定できませんでした。--pref で指定してください")
     pref = str(args.pref or args.pref_guess).zfill(2)
@@ -392,6 +433,7 @@ def cmd_build(args) -> int:
     if gaps and args.fill_schools:
         sch = _gap_schools(args.fill_schools, set(gaps), fields, args._to_city, args._to_city_names)
         args._gap_names = getattr(_gap_schools, "names", {})
+        args._owner_mismatch += [m for m in _gap_schools.mismatch if m not in args._owner_mismatch]
         if sch:
             near = estimate.allocate_nearest(mt.codes, mt.city, values, [(c, x, y) for c, x, y, _p in sch], set(gaps), k=args.k,
                                            count=alloc.count)
@@ -426,6 +468,23 @@ def cmd_build(args) -> int:
             raise SystemExit("学区データに無い学校を補ったら、学区のある学校の値が変わりました")
 
     points = _school_points(args.schools, pref, args._to_city) if args.schools else None
+    # 学区データの学校コードが、学校の位置データでは別の市区町村の学校のもの（古河市の学区データに水戸市の学校コード）。
+    # 学校はそのまま出し、id には学校コードを使わない（本来の学校と id が重ならないように）
+    # 同じ学校で P29 の行政区域コードだけが誤っているとき（大野城市立下大利小が太宰府市のコード）は、設置者が同じなので当たらない
+    code_other = []
+    if points and fields.school_code:
+        for f in feats:
+            code = f.props.get(fields.school_code, "")
+            hit = points.get(("code", code)) if code and not f.props.get("_approx") else None
+            mine = re.sub(r"立$", "", f.props.get(fields.owner, "")) if fields.owner else ""
+            mine = re.sub(r"^.+郡", "", mine)
+            if hit and hit[0] != f.props["_city"] and not (hit[2] and mine and hit[2] == mine):
+                f.props["_code_other_city"] = hit[0]
+                code_other.append({"city": f.props["_city"], "name": f.props.get(fields.name, ""), "code": code,
+                                   "code_city": hit[0]})
+        if code_other:
+            log("注意: 学区データの学校コードが、学校の位置データでは別の市区町村の学校のものです: "
+                + ", ".join(f"{e['city']} {e['name']}（{e['code']} は {e['code_city']}）" for e in code_other))
     overrides = None
     if args.city_names:
         with open(args.city_names, encoding="utf-8-sig", newline="") as fh:
@@ -506,6 +565,10 @@ def cmd_build(args) -> int:
         "closed_schools_excluded": closed_out,
         # 学区の図形の乱れ（同じ輪の重複・外に出た穴・部分の重なり）と、その扱い
         "geometry_issues": geometry_issues,
+        # 学区データの学校コードが別の市区町村の学校のもの（学校はそのまま出し、id は「市区町村コード-番号」）
+        "district_code_other_city": code_other,
+        # 設置者の名前が市区町村と合わないので、学校の位置データから選ぶ候補に使わなかった学校
+        "owner_mismatch_excluded": args._owner_mismatch,
         # 学区データのある学校のうち、学校の位置データに見つからず学区の重心にした学校と、位置が学区の外にある学校
         "location_fallback": obj["_no_location"],
         "location_outside_district": obj["_location_outside_district"],

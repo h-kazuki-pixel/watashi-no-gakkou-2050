@@ -1082,7 +1082,7 @@ def test_shapefile_rings_grouped_by_orientation(tmp_path):
 # ---------------------------------------------------------------- 学区データのある学校のピン（学校の位置データから）
 
 def test_locate_uses_code_only_when_city_matches():
-    pts = {("code", "B108210000010"): ("08201", (140.4, 36.4)),            # 水戸市の学校コード
+    pts = {("code", "B108210000010"): ("08201", (140.4, 36.4), "水戸市"),   # 水戸市の学校コード
            ("name", "08204", "上大野小学校"): (139.7, 36.2)}               # 古河市の上大野小
     # 古河市（08204）の学区データの上大野小には、水戸市の学校コードが入っている → 名前で引く
     assert export.locate(pts, "B108210000010", "08204", "上大野小学校") == (139.7, 36.2)
@@ -1113,4 +1113,87 @@ def test_build_all_pins_district_schools_from_school_points(tmp_path, capsys):
     report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
     assert sorted(e["name"] for e in report["location_fallback"]) == ["かさなり小学校", "にし小学校"]
     assert report["location_outside_district"] == []
+    capsys.readouterr()
+
+
+# ---------------------------------------------------------------- 元データのコードの誤り
+
+def test_owner_of():
+    assert cli.owner_of("稲沢市立下津小学校") == "稲沢市"
+    assert cli.owner_of("双葉郡広野町立広野小学校") == "広野町"      # 郡名は外す
+    assert cli.owner_of("相馬郡新地町立新地小学校") == "新地町"
+    assert cli.owner_of("新宿区立四谷小学校") == "新宿区"
+    assert cli.owner_of("牧之原市菊川市学校組合立牧之原小学校") is None  # 組合立は判定しない
+    assert cli.owner_of("下津小学校") is None and cli.owner_of("立花小学校") is None
+
+
+def test_candidate_with_other_city_owner_is_excluded(tmp_path, capsys):
+    # 愛知県の P29 の形：稲沢市立下津小学校が一宮市のコードで入っている。おおよその区域の候補に使わない
+    import zipfile
+    _make_gap_downloads(tmp_path / "dl")
+    zp = tmp_path / "dl" / "P29-23_99.zip"
+    doc = json.loads(zipfile.ZipFile(zp).read("P29-23_99.geojson"))
+    for f in doc["features"]:
+        if f["properties"]["P29_001"] == "99102":
+            f["properties"]["P29_004"] = "みほん市立" + f["properties"]["P29_004"]
+    doc["features"].append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 7.5 * DLNG, LAT0 + 0.5 * DLAT]},
+                            "properties": {"P29_001": "99102", "P29_002": "B199210000042", "P29_003": "16001",
+                                           "P29_004": "となり市立しもつ小学校", "P29_005": "テスト県となり市1丁目"}})
+    zp.unlink()
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps(doc, ensure_ascii=False))
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["owner_mismatch_excluded"] == [{"city": "99102", "name": "となり市立しもつ小学校", "owner": "となり市",
+                                                   "city_owner": "みほん市"}]
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    assert "しもつ小学校" not in {s["name"] for c in pref["cities"] for s in c["schools"]}
+    capsys.readouterr()
+
+
+def test_district_school_with_other_city_code_keeps_name_and_gets_local_id(tmp_path, capsys):
+    # 古河市の形：学区データ（99101 にし小）の学校コードが、P29 では別の市区町村（99102）の学校のもの
+    import zipfile
+    _make_gap_downloads(tmp_path / "dl")
+    zp = tmp_path / "dl" / "P29-23_99.zip"
+    doc = json.loads(zipfile.ZipFile(zp).read("P29-23_99.geojson"))
+    doc["features"].append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 6.5 * DLNG, LAT0 + 0.5 * DLAT]},
+                            "properties": {"P29_001": "99102", "P29_002": "B199110000019", "P29_003": "16001",
+                                           "P29_004": "べつ小学校", "P29_005": "テスト県みほん市西区"}})
+    zp.unlink()
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps(doc, ensure_ascii=False))
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["district_code_other_city"] == [{"city": "99101", "name": "にし小学校", "code": "B199110000019", "code_city": "99102"}]
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    ids = [s["id"] for c in pref["cities"] for s in c["schools"]]
+    by = {(c["code"], s["name"]): s for c in pref["cities"] for s in c["schools"]}
+    assert by[("99101", "にし小学校")]["id"].startswith("99101-")   # 学校コード（べつ小のもの）を id に使わない
+    assert len(ids) == len(set(ids))
+    capsys.readouterr()
+
+
+def test_same_school_with_wrong_p29_city_keeps_code_as_id(tmp_path, capsys):
+    # 福岡県の形：P29 で「大野城市立下大利小学校」が太宰府市のコードで入っている。学校コードは学区データの学校そのもの（設置者が同じ）。
+    # 別の市区町村の学校のコードではないので、id は学校コードのまま
+    import zipfile
+    _make_gap_downloads(tmp_path / "dl")
+    zp = tmp_path / "dl" / "P29-23_99.zip"
+    doc = json.loads(zipfile.ZipFile(zp).read("P29-23_99.geojson"))
+    doc["features"].append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 1.5 * DLNG, LAT0 + 4.5 * DLAT]},
+                            "properties": {"P29_001": "99102", "P29_002": "B199110000019", "P29_003": "16001",
+                                           "P29_004": "みほん市立にし小学校", "P29_005": "テスト県みほん市東区"}})
+    zp.unlink()
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps(doc, ensure_ascii=False))
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["district_code_other_city"] == []
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    by = {(c["code"], s["name"]): s for c in pref["cities"] for s in c["schools"]}
+    assert by[("99101", "にし小学校")]["id"] == "B199110000019"
     capsys.readouterr()

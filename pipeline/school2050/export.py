@@ -51,7 +51,7 @@ def locate(points: dict | None, code: str, city: str, name: str):
         return None
     hit = points.get(("code", code)) if code else None
     if hit and hit[0] == city:
-        return hit[1]
+        return hit[1]  # ("code", 学校コード) → (市区町村, 位置, 設置者)
     return points.get(("name", city, strip_owner(name)))
 
 
@@ -137,7 +137,7 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
             dropped.append(name)
             continue
         sid = f.props.get(fields.school_code, "") if fields.school_code else ""
-        if not sid or sid in used_ids:
+        if not sid or sid in used_ids or f.props.get("_code_other_city"):
             sid = f"{city}-{i:04d}"
         used_ids.add(sid)
         loc, loc_src = None, "学区の重心"

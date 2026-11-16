@@ -271,8 +271,10 @@ def main():
 
     # 学区の区域：学校ごと（学校コード、無ければ（市区町村, 学校名）。浜松市の鏡山小など）に部分を集めて1つの区域にする。
     # 外に出た穴の「ほかの学校の学区」には、利用条件で除く前の学区データを全部使う
+    # 学校は（学校コード, 市区町村）で区別する。学校コードの無い学校は（市区町村, 学校名）
     def skey(f):
-        return f["properties"]["A27_003"] or f'{f["properties"]["A27_001"]}|{f["properties"]["A27_004"]}'
+        p = f["properties"]
+        return f'{p["A27_003"]}@{p["A27_001"]}' if p["A27_003"] else f'{p["A27_001"]}|{p["A27_004"]}'
     areas, shape_issues = school_areas(all_feats, skey)
     print(f"学区の図形：同じ輪の重複 {shape_issues['duplicate_rings']}、外に出た穴 {shape_issues['hole_outside_outer']}")
     info = {}
@@ -311,6 +313,28 @@ def main():
         v = str(f["properties"].get(ck) or "") if ck else ""
         return v != "" and v not in ("0", "1")
     pub_all = [f for f in pts if f["properties"]["P29_002"][:2] == "B1" and f["properties"]["P29_002"][4] == "2"]
+    # 設置者の名前（「○○市立」など。郡名は外す。組合立は見ない）が、その市区町村の公立学校の設置者でいちばん多いものと違う学校は使わない
+    def owner(name):
+        if re.match(r"^.{0,12}組合立", name or ""):
+            return None
+        m = re.match(r"^(.{1,12}?(?:市|町|村|区))立", name or "")
+        return re.sub(r"^.+郡", "", m.group(1)) if m else None
+    tally = defaultdict(lambda: defaultdict(int))
+    for f in pts:
+        p = f["properties"]
+        if (p["P29_002"] or "")[4:5] == "2" or not p["P29_002"]:
+            o = owner(p["P29_004"])
+            if o:
+                tally[p["P29_001"]][o] += 1
+    major = {}
+    for c, t in tally.items():
+        top = sorted(t.items(), key=lambda kv: -kv[1])
+        if len(top) == 1 or top[0][1] > top[1][1]:
+            major[c] = top[0][0]
+    wrong = [f for f in pub_all if owner(f["properties"]["P29_004"]) and f["properties"]["P29_001"] in major
+             and owner(f["properties"]["P29_004"]) != major[f["properties"]["P29_001"]]]
+    print(f"設置者の名前が市区町村と合わないので使わない学校: {[(f['properties']['P29_001'], f['properties']['P29_004']) for f in wrong]}")
+    pub_all = [f for f in pub_all if f not in wrong]
     print(f"休校区分の属性: {ck}。使わない公立小学校: {[(f['properties']['P29_001'], strip_owner(f['properties']['P29_004']), f['properties'][ck]) for f in pub_all if closed(f)]}")
     public = [(f["properties"]["P29_002"], strip_owner(f["properties"]["P29_004"]), f["properties"]["P29_001"],
                *f["geometry"]["coordinates"][:2])
@@ -337,7 +361,7 @@ def main():
         np.add.at(near, o, kids[pm[js]] * w0)
         np.add.at(neara, o, V[pm[js], :, 0] * w0)
     for i, s in enumerate(S):
-        est[s[0]] = dict(name=s[1], city=s[2], approx=True, e=near[i], a=neara[i])
+        est[f"{s[0]}@{s[2]}"] = dict(name=s[1], city=s[2], approx=True, e=near[i], a=neara[i])
 
     # 学区データのある市区町村（配分率 0.9 未満）で、学区データに入っていない公立小学校
     # （学校コード、無ければ（市区町村, 設置者を外した名前）で突き合わせる。「分校」で終わる学校は除く）
@@ -366,7 +390,7 @@ def main():
         np.add.at(filla, o, V[pm[js], :, 0] * w0)
     for i in sorted(miss):
         s = T[i]
-        est[s[0]] = dict(name=s[1], city=s[2], approx=True, e=fill[i], a=filla[i])
+        est[f"{s[0]}@{s[2]}"] = dict(name=s[1], city=s[2], approx=True, e=fill[i], a=filla[i])
     filled = defaultdict(list)
     for i in sorted(miss):
         filled[T[i][2]].append((T[i][1], round(float(fill[i, 0]), 1)))
@@ -382,11 +406,31 @@ def main():
     # アプリのデータと比べる
     s = open(args.pref_js, encoding="utf-8").read()
     app = json.loads(s[s.index("UG.registerPref(") + 16:s.rindex(")")])
-    # 学校コードの無い学校は、アプリでは「市区町村コード-番号」の id になるので（市区町村, 学校名）で突き合わせる
-    app_s = {(sc["id"] if re.match(r"^[A-H]\d{12}$", sc["id"]) else f'{c["code"]}|{sc["name"]}'): (c["code"], sc)
-             for c in app["cities"] for sc in c["schools"]}
+    # アプリの学校は（id が学校コードなら）（学校コード, 市区町村）で、id が「市区町村コード-番号」なら（市区町村, 学校名）で突き合わせる。
+    # 学区データの学校コードが P29 では別の市区町村の学校のもの（古河市）は、id に学校コードを使っていないことも確かめる
+    # 別の市区町村の学校のコード＝P29 でそのコードの学校の市区町村が違い、設置者の名前も学区データの設置者と違うもの
+    # （大野城市立下大利小が太宰府市のコードで入っているような、P29 の行政区域コードだけの誤りは当たらない）
+    p29_city = {f["properties"]["P29_002"]: f["properties"]["P29_001"] for f in pts if f["properties"]["P29_002"]}
+    p29_owner = {f["properties"]["P29_002"]: owner(f["properties"]["P29_004"]) for f in pts if f["properties"]["P29_002"]}
+    a27_owner = {skey(f): re.sub(r"^.+郡", "", re.sub(r"立$", "", f["properties"]["A27_002"] or "")) for f in feats}
     mine = {k for k, v in est.items() if v["e"][0] >= 1.0}  # 2025年の推計が1人未満の学校は出力されない
-    only_app, only_mine = sorted(set(app_s) - mine), sorted(mine - set(app_s))
+    by_name = {f'{v["city"]}|{v["name"]}': k for k, v in est.items() if k in mine}
+    app_s, only_app, foreign_id = {}, [], []
+    for c in app["cities"]:
+        for sc in c["schools"]:
+            k = f'{sc["id"]}@{c["code"]}' if re.match(r"^[A-H]\d{12}$", sc["id"]) else None
+            if k is None or k not in mine:
+                k = by_name.get(f'{c["code"]}|{sc["name"]}') if k is None else k
+            if k is None or k not in mine or k in app_s:
+                only_app.append((c["code"], sc["name"]))
+                continue
+            app_s[k] = (c["code"], sc)
+            code = k.split("@")[0] if "@" in k else ""
+            if (code and not est[k]["approx"] and p29_city.get(code, c["code"]) != c["code"]
+                    and p29_owner.get(code) != a27_owner.get(k) and sc["id"] == code):
+                foreign_id.append(k)
+    only_mine = sorted(mine - set(app_s))
+    print(f"学区データの学校コードが別の市区町村の学校のもの（id に使っていてはいけない）: 違反 {foreign_id}")
     bad_d, bad_a, bad_meta, worst = [], [], [], 0.0
     for k in set(app_s) & mine:
         code, sc = app_s[k]
@@ -403,7 +447,7 @@ def main():
     print(f"0.06人を超えて違う学校：学区のある学校 {len(bad_d)}、おおよその区域の学校 {len(bad_a)}（最大 {worst:.2f}人）")
     for row in sorted(bad_d + bad_a, reverse=True)[:20]:
         print("  ", row)
-    fail = bool(only_app or only_mine or bad_meta or bad_d or (args.strict and bad_a))
+    fail = bool(only_app or only_mine or bad_meta or bad_d or foreign_id or (args.strict and bad_a))
     print("結果:", "不一致あり" if fail else "一致")
     return 1 if fail else 0
 
