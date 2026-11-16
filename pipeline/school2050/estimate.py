@@ -153,6 +153,28 @@ def allocate_nearest(codes: list, mesh_city: list, values: np.ndarray, schools: 
     return NearestAllocation(sums, hulls, mask & covered, gidx[ok])
 
 
+def nearest_in_area(codes: list, mesh_city: list, area: str, schools: list, count: np.ndarray, k: int = 4):
+    """まとめた区域（mesh_city に area が並ぶメッシュ）の、どの学区にも入らなかった点（count == 0）について、
+    いちばん近い学校を決める。schools: (行政区域コード, 経度, 緯度)。距離は near_d2 と同じ。
+    返り値: (点の番号（allocate() と同じ並び）, 学校の番号) の配列。学校が無ければ空。"""
+    idx = np.array([i for i, c in enumerate(mesh_city) if area in split_cities(c)], dtype=np.int64)
+    if idx.size == 0 or not schools:
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
+    lat0, lng0, dlat, dlng = meshcode.decode_many([codes[i] for i in idx])
+    off = (np.arange(k) + 0.5) / k
+    py = (lat0[:, None, None] + off[None, :, None] * dlat[:, None, None] + np.zeros((1, 1, k))).reshape(-1)
+    px = (lng0[:, None, None] + off[None, None, :] * dlng[:, None, None] + np.zeros((1, k, 1))).reshape(-1)
+    gidx = np.repeat(idx, k * k) * (k * k) + np.tile(np.arange(k * k), idx.size)
+    free = np.asarray(count)[gidx] == 0
+    px, py, gidx = px[free], py[free], gidx[free]
+    sx = np.array([s[1] for s in schools], dtype=float)
+    sy = np.array([s[2] for s in schools], dtype=float)
+    owner = np.zeros(gidx.size, dtype=np.int64)
+    for a in range(0, gidx.size, 20000):
+        owner[a:a + 20000] = np.argmin(near_d2(px[a:a + 20000], py[a:a + 20000], sx, sy), axis=1)
+    return gidx, owner
+
+
 def near_d2(px: np.ndarray, py: np.ndarray, sx: np.ndarray, sy: np.ndarray) -> np.ndarray:
     """点 (px, py) と学校 (sx, sy) の距離の2乗（度の単位の平面近似）。返り値 (点の数, 学校の数)。
     経度の差には、その点の緯度の cos を掛ける（県全体で1つの値にすると、南北に長い県で東西の距離がずれるため）。"""

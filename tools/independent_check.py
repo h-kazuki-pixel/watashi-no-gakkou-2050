@@ -38,6 +38,7 @@ import numpy as np
 
 YEARS = list(range(2025, 2075, 5))
 WARD_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "designated_city_wards.csv"
+AREA_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "fukushima_hamadori.csv"
 K = 4  # メッシュ1つにつき K×K の点
 
 
@@ -340,6 +341,40 @@ def main():
     public = [(f["properties"]["P29_002"], strip_owner(f["properties"]["P29_004"]), f["properties"]["P29_001"],
                *f["geometry"]["coordinates"][:2])
               for f in pub_all if not closed(f)]
+    # まとめた区域（DATA_METHOD.md「まとめた区域」）：メッシュに 07999 のようなまとめたコードがあるとき、
+    # 「出さない」町村の学区の子どもと、どの学区にも入らない点のうち、13市町村の公立小・義務教育学校（休校を除く）で
+    # いちばん近いのが「出さない」町村の学校である点の子どもは、扱わない区域（どこにも配分しない）
+    areas = defaultdict(dict)
+    if AREA_TABLE.exists():
+        with open(AREA_TABLE, encoding="utf-8-sig", newline="") as fh:
+            for r in csv.DictReader(fh):
+                areas[r["まとめた区域のコード"]][r["行政区域コード"]] = r["扱い"].startswith("出す")
+    not_handled, nh_by = 0.0, defaultdict(float)
+    for area, members in areas.items():
+        hidden = {c for c, show in members.items() if not show}
+        if not hidden or not any(area in m.split("_") for m in mcity):
+            continue
+        for k in [k for k, v in est.items() if v["city"] in hidden]:
+            not_handled += est[k]["e"][0]
+            nh_by[est[k]["city"]] += est[k]["e"][0]
+            del est[k]
+        sch = [(f["properties"]["P29_001"], *f["geometry"]["coordinates"][:2]) for f in pts
+               if (f["properties"]["P29_002"] or "")[:2] in ("B1", "C2") and f["properties"]["P29_002"][4] == "2"
+               and not closed(f) and f["properties"]["P29_001"] in members]
+        js = np.array([j for j in np.nonzero(count == 0)[0] if area in mcity[pm[j]].split("_")], dtype=int)
+        if not sch or js.size == 0:
+            continue
+        ax, ay = np.array([s[1] for s in sch], float), np.array([s[2] for s in sch], float)
+        d2 = ((px[js, None] - ax[None, :]) * np.cos(np.radians(py[js, None]))) ** 2 + (py[js, None] - ay[None, :]) ** 2
+        own = [sch[o][0] for o in np.argmin(d2, axis=1)]
+        sel = np.array([o in hidden for o in own], bool)
+        for j, o in zip(js[sel], np.array(own)[sel]):
+            nh_by[o] += kids[pm[j], 0] * w0
+        not_handled += float((kids[pm[js[sel]], 0] * w0).sum())
+        count[js[sel]] += 1  # ほかの補いにも使わない
+    if nh_by:
+        print(f"扱わない区域（2025年）: {{{', '.join(f'{c}: {v:.1f}' for c, v in sorted(nh_by.items()))}}}、計 {not_handled:.1f}")
+
     S = [s for s in public if s[2] in gap]
     scity = np.array([s[2] for s in S])
     sx, sy = np.array([s[3] for s in S], float), np.array([s[4] for s in S], float)
@@ -399,7 +434,7 @@ def main():
     total = kids[:, 0].sum()
     allocated = sum(v["e"][0] for v in est.values())
     print(f"メッシュ {n}件、6〜11歳の合計（2025年）{total:.1f}、配分 {allocated:.1f}、未配分 {unassigned:.1f}（{unassigned / total:.4f}）、"
-          f"保存則の誤差 {total - allocated - unassigned:.4f}")
+          f"扱わない区域 {not_handled:.1f}、保存則の誤差 {total - allocated - unassigned - not_handled:.4f}")
     print(f"学区のある学校 {sum(not v['approx'] for v in est.values())}、学区データなしの市区町村 {len(gap)}（学校 {len(S)}）")
     print(f"学区データがあるのに配分率が0.9未満の市区町村: {low}")
     print(f"学区データに無いので補った学校（2025年の推計）: {dict(filled)}")

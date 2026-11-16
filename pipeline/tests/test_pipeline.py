@@ -1244,3 +1244,44 @@ def test_pending_confirmation_city_is_approx(tmp_path, monkeypatch, capsys):
     assert report["excluded_by_terms"] == [{"code": "99102", "name": "みほん市西区", "reason": "確認待ち：市の確認が要る"}]
     assert report["approx_cities"] == {"99102": 2} and report["note_cities"] == []
     capsys.readouterr()
+
+
+# ---------------------------------------------------------------- まとめた区域（福島県浜通り 07999 の形）
+
+def test_combined_area_hides_towns_without_moving_children(tmp_path, monkeypatch, capsys):
+    # メッシュの行政区域コードが、2つの区をまとめた 99999 だけ（浜通りの 07999 と同じ形）。東区（99101）は出す、西区（99102）は出さない。
+    # 西区の学区（みなみ小 140・きた小 170）と、どの学区にも入らない点のうち西区の学校がいちばん近い点（きた小の穴 10）は
+    # 「扱わない区域」（320）。東区の学校には回さない
+    import zipfile
+    from school2050 import combined
+    folder = tmp_path / "dl"
+    _missing_school_downloads(folder)
+    feats = [{"type": "Feature", "properties": p, "geometry": {"type": "MultiPolygon", "coordinates": g}} for p, g in district_features()]
+    (folder / "A27-23_99_GML.zip").unlink()
+    with zipfile.ZipFile(folder / "A27-23_99_GML.zip", "w") as z:
+        z.writestr("A27-23_99.geojson", json.dumps({"type": "FeatureCollection", "features": feats}, ensure_ascii=False))
+    make_mesh_csv(tmp_path / "m.csv")
+    lines = (tmp_path / "m.csv").read_text(encoding="cp932").splitlines()
+    out = [lines[0]] + [",".join([r.split(",")[0], "99999"] + r.split(",")[2:]) for r in lines[1:]]
+    (folder / "500m_mesh_2024_99.zip").unlink()
+    with zipfile.ZipFile(folder / "500m_mesh_2024_99.zip", "w") as z:
+        z.writestr("500m_mesh_2024_99.csv", ("\n".join(out) + "\n").encode("cp932"))
+    table = tmp_path / "area.csv"
+    table.write_text("行政区域コード,市町村名,まとめた区域のコード,扱い,5〜14歳_2020_原数値,5〜14歳_2020_不詳補完値,児童数_2025-05-01,出典\n"
+                     "99101,みほん市東区,99999,出す（注意書きつき）,500,500,300,テスト\n"
+                     "99102,みほん市西区,99999,出さない,10,10,200,テスト\n", encoding="utf-8")
+    monkeypatch.setattr(combined, "DEFAULT", table)
+    rc = cli.main(["build-all", "--input", str(folder), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["not_handled_2025"] == pytest.approx(320.0)
+    assert report["allocated_2025"] == pytest.approx(320.0) and report["unassigned_2025"] == pytest.approx(0.0)
+    assert report["conservation_error"] < 1e-6                        # 配分＋未配分＋扱わない区域＝メッシュの合計
+    area = report["combined_areas"]["99999"]
+    assert area["99102"]["not_handled_2025"] == pytest.approx(320.0) and area["99102"]["schools"] == 0
+    assert area["99101"]["est_2025"] == pytest.approx(320.0) and area["99101"]["ratio_2025"] == pytest.approx(320 / 300, abs=0.001)
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    assert [c["code"] for c in pref["cities"]] == ["99101"] and pref["cities"][0]["combined"] is True
+    assert pref["missing"] == [{"code": "99102", "name": "みほん市西区", "nothandled": True}]
+    assert {s["name"]: s["est"][0] for s in pref["cities"][0]["schools"]} == {"にし小学校": 300.0, "かさなり小学校": 20.0}
+    capsys.readouterr()

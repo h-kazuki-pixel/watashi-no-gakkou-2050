@@ -8,6 +8,8 @@
   var V = (UG.views = {});
   // 学区データの利用条件が「条件公開」か特記条件つきの市区町村（pref_XX.js の city.note）
   UG.TERMS_NOTE = "この まちの 学区は めやすです。くわしくは 教育委員会に たしかめてね。";
+  // 国の 推計が いくつかの まちを まとめて 計算されている まち（pref_XX.js の city.combined。福島県の 浜通り）
+  UG.COMBINED_NOTE = "この ちいきの 推計は、まわりの まちと まとめて 計算されて います。数字は めやすです。";
   UG.APPROX_NOTE = "この まちは 学区の 地図データが ないため、学校から いちばん 近い 場所で 分けた「おおよその 区域」で 計算しています。本当の 学区とは ちがう ところが あります。人数が かなり ちがう ことも あります。";
   // 学区データのある まちで、学区データに 入って いない 学校（学校だけが approx）
   UG.APPROX_SCHOOL_NOTE = "この 学校は 学区の 地図データに 入って いません。まわりの 学区に 入らなかった 場所から「おおよその 区域」を 作って 計算しています。本当の 学区とは ちがう ところが あります。人数が かなり ちがう ことも あります。";
@@ -93,7 +95,8 @@
       var cities = pref.cities.map(function (c) {
         return '<option value="' + esc(c.code) + '"' + (c.code === city.code ? " selected" : "") + ">" + nr(c.name) + "</option>";
       }).join("") + (pref.missing || []).map(function (m) {
-        return "<option disabled>" + nr((m.name || m.code) + "（学区データなし）") + "</option>";
+        // nothandled：このアプリでは 扱わない まち（福島県 浜通りの 7町村）。それ以外は 学区データも 学校の 位置も 無い まち
+        return "<option disabled>" + nr((m.name || m.code) + (m.nothandled ? "（このアプリでは あつかって いません）" : "（学区データなし）")) + "</option>";
       }).join("");
       return '<div class="picker">' +
         '<label for="sel-pref">都道府県</label><select id="sel-pref">' + opts + "</select>" +
@@ -130,6 +133,7 @@
           (pref.sample ? '<p class="note">れんしゅう用の「みらい市」です。本当には ない まちで、数字は つくりものです。</p>' : "") +
           (city.approx ? '<p class="note">' + UG.APPROX_NOTE + "</p>" : "") +
           '<div id="school-note">' + schoolNoteHtml() + "</div>" +
+          (city.combined ? '<p class="note">' + UG.COMBINED_NOTE + "</p>" : "") +
           (city.note ? '<p class="note">' + UG.TERMS_NOTE + "</p>" : "") +
           '<div class="pick-body"><div class="school-list" id="school-list">' + listHtml() + '</div><div class="mapbox" id="home-map"></div></div>' +
         "</div>" +
@@ -240,6 +244,7 @@
         '<p class="fine">● 1つ ＝ ' + unit + "人" + (c.sample ? "" : "（国の 2025年の 推計から 計算）") + "</p>" +
         (UG.approxNote(c.city, c.school) ? '<p class="note">' + UG.approxNote(c.city, c.school) + "</p>" : "") +
         (c.city.note ? '<p class="note">' + UG.TERMS_NOTE + "</p>" : "") +
+        (c.city.combined ? '<p class="note">' + UG.COMBINED_NOTE + "</p>" : "") +
         (c.sample ? "" :
           '<div class="calib"><label for="calib">' + (UG.approxNote(c.city, c.school) ? UG.CALIB_APPROX : UG.CALIB_DISTRICT) + "</label>" +
           '<div class="row"><input id="calib" type="number" inputmode="numeric" min="1" max="3000" value="' + (st.calib || "") + '"><span>人</span>' +

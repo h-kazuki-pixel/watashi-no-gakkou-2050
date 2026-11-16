@@ -127,7 +127,7 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
     generated：生成日（YYYY-MM-DD）。省略すると今日の日付。同じ入力から同じファイルを作り直すときに指定する。"""
     names = _city_names(features, fields, city_overrides)
     cities: dict = {}
-    rows, dropped, used_ids = [], [], set()
+    rows, dropped, used_ids, dropped_where = [], [], set(), []
     no_loc, outside = [], []  # 学校の位置が見つからず学区の重心にした学校、学校の位置が学区の外にある学校
     for i, f in enumerate(features):
         est = sums[i, :n_years]
@@ -136,6 +136,7 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
         city = f.props["_city"]
         if est[0] < min_children:
             dropped.append(name)
+            dropped_where.append((city, name))
             continue
         sid = f.props.get(fields.school_code, "") if fields.school_code else ""
         if not sid or sid in used_ids or f.props.get("_code_other_city"):
@@ -186,6 +187,7 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
         "cities": [cities[k] for k in sorted(cities)],
         "missing": [],
         "_dropped": dropped,
+        "_dropped_where": dropped_where,
         "_no_location": no_loc,
         "_location_outside_district": outside,
     }

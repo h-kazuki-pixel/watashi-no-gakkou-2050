@@ -30,7 +30,7 @@ import time
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from school2050 import estimate, export, geo, inputs, readers, shapes, terms, wards  # noqa: E402
+from school2050 import combined, estimate, export, geo, inputs, readers, shapes, terms, wards  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -132,6 +132,87 @@ def _shape_label(fields):
     def label(f):
         return {"city": f.props.get("_city", ""), "name": f.props.get(fields.name, "")}
     return label
+
+
+def _area_schools(path, members: set, to_city=None) -> list:
+    """まとめた区域の市町村の、公立の小学校・義務教育学校（休校を除く）の位置。返り値: [(行政区域コード, 経度, 緯度)]"""
+    feats = readers.read_features(inputs.find_schools(path).points)
+    f = readers.detect_fields(feats)
+    cf = closed_field(feats)
+    out = []
+    for ft in feats:
+        city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else ""
+        city = to_city(city) if to_city and city else city
+        code = ft.props.get(f.school_code, "") if f.school_code else ""
+        if city not in members or not _public_elementary(code, export.strip_owner(ft.props.get(f.name, ""))):
+            continue
+        if cf and is_closed(ft.props.get(cf, "")):
+            continue
+        out.append((city, float(ft.rings[0][0][0]), float(ft.rings[0][0][1])))
+    return out
+
+
+def _not_handled(args, mt, values, alloc, feats, areas) -> tuple:
+    """まとめた区域で「出さない」市町村（福島県浜通りの7町村）の子どもを「扱わない区域」として外す（docs/DATA_METHOD.md）。
+    - その市町村の学区（学区データ）に入った子ども
+    - どの学区にも入らなかった点のうち、まとめた区域の市町村の学校でいちばん近いのが、その市町村の学校の点
+    その市町村の学校は出力せず、子どもはほかの学校に回さない。alloc（sums・count・unassigned）と feats を書き換える。
+    返り値: (feats, 扱わない区域の合計（特徴量ごと）, {まとめた区域: {市町村: 2025年の6〜11歳}})"""
+    nh = np.zeros(values.shape[1])
+    by: dict = {}
+    for area, members in areas.items():
+        hidden = {c for c, r in members.items() if not r["show"]}
+        if not hidden or not any(area in estimate.split_cities(c) for c in mt.city):
+            continue
+        rec = by.setdefault(area, {c: 0.0 for c in sorted(hidden)})
+        hid = [i for i, f in enumerate(feats) if f.props["_city"] in hidden]
+        for i in hid:
+            rec[feats[i].props["_city"]] += float(alloc.sums[i, 0])
+            nh += alloc.sums[i]
+        keep = [i for i in range(len(feats)) if i not in set(hid)]
+        feats = [feats[i] for i in keep]
+        alloc.sums = alloc.sums[keep]
+        src = args.fill_schools or args.schools
+        sch = _area_schools(src, set(members), getattr(args, "_to_city", None)) if src else []
+        if not sch:
+            log(f"注意: まとめた区域 {area} の学校の位置が無いので、学区の外の点を市町村に分けられません（扱わない区域は学区の分だけ）")
+            continue
+        gidx, owner = estimate.nearest_in_area(mt.codes, mt.city, area, sch, alloc.count, k=args.k)
+        sel = np.array([sch[o][0] in hidden for o in owner], dtype=bool)
+        if sel.any():
+            w = 1.0 / (args.k * args.k)
+            pm = gidx[sel] // (args.k * args.k)
+            v = values[pm] * w
+            nh += v.sum(axis=0)
+            alloc.unassigned = alloc.unassigned - v.sum(axis=0)
+            for c, row in zip([sch[o][0] for o in owner[sel]], v[:, 0]):
+                rec[c] += float(row)
+            alloc.count[gidx[sel]] += 1  # この点は、ほかの市区町村の補いにも使わない
+    return feats, nh, by
+
+
+def _combined_report(areas, not_handled_by, obj) -> dict:
+    """まとめた区域の市町村ごとの数字：学区データの有無・学校数・推計の合計（2025・2050年）・児童数との比・出なかった学校。"""
+    out = {}
+    cities = {c["code"]: c for c in obj["cities"]}
+    for a, members in areas.items():
+        if a not in not_handled_by and not any(c in cities for c in members):
+            continue
+        rows = {}
+        for code, r in sorted(members.items()):
+            c = cities.get(code)
+            sch = c["schools"] if c else []
+            e25 = sum(s["est"][0] for s in sch)
+            e50 = sum(s["est"][5] for s in sch)
+            rows[code] = {
+                "name": r["name"], "show": r["show"], "approx": bool(c and c.get("approx")), "schools": len(sch),
+                "est_2025": round(e25, 1), "est_2050": round(e50, 1), "children_2025": r["children_2025"],
+                "ratio_2025": round(e25 / r["children_2025"], 3) if r["children_2025"] and r["show"] else None,
+                "not_handled_2025": round(not_handled_by.get(a, {}).get(code, 0.0), 1) if not r["show"] else None,
+                "dropped_small": [n for cc, n in obj["_dropped_where"] if cc == code],
+            }
+        out[a] = rows
+    return out
 
 
 def _school_points(path, pref_code, to_city=None) -> dict:
@@ -421,6 +502,13 @@ def cmd_build(args) -> int:
     alloc = estimate.allocate(mt.codes, values, feats, k=args.k, log=log)
     ny = len(mt.years)
 
+    # ---- まとめた区域（福島県浜通り 07999）で「出さない」市町村の子どもは、扱わない区域として外す
+    areas = combined.load()
+    feats, not_handled, not_handled_by = _not_handled(args, mt, values, alloc, feats, areas) if mt.city else (feats, 0.0, {})
+    if not_handled_by:
+        log("まとめた区域で出さない市町村（扱わない区域。2025年の6〜11歳）: "
+            + ", ".join(f"{c} {areas[a][c]['name']} {v:.1f}" for a, m in not_handled_by.items() for c, v in m.items()))
+
     # ---- 学区データの無い市区町村
     gaps, approx_info = {}, {}
     if mt.city:
@@ -503,6 +591,17 @@ def cmd_build(args) -> int:
     have = {c["code"] for c in obj["cities"]}
     names = getattr(args, "_gap_names", {})
     obj["missing"] = [{"code": c, "name": names.get(c, "")} for c in sorted(gaps) if c not in have]
+    # まとめた区域で出さない市町村は「このアプリでは扱っていない」として選択肢に並べる。出す市町村には注意書き（combined）
+    for a, m in areas.items():
+        if a not in not_handled_by:
+            continue
+        for c, r in sorted(m.items()):
+            if not r["show"]:
+                obj["missing"] = [e for e in obj["missing"] if e["code"] != c] + [{"code": c, "name": r["name"], "nothandled": True}]
+        for c in obj["cities"]:
+            if c["code"] in m and m[c["code"]]["show"]:
+                c["combined"] = True
+    obj["missing"].sort(key=lambda e: e["code"])
     # 条件公開・特記条件のある市区町村は、アプリで「学区は めやす」と表示する
     noted = terms.needs_note(tm, ex)
     for c in obj["cities"]:
@@ -550,9 +649,12 @@ def cmd_build(args) -> int:
         "allocated_2025": round(float(got[0]), 1),
         "unassigned_2025": round(float(un[0]), 1),
         "unassigned_share_2025": round(float(un[0] / total[0]), 4) if total[0] else None,
-        "conservation_error": round(float(abs(total - got - un).max()), 6),
+        # まとめた区域で出さない市町村の子ども（扱わない区域）。保存則は 配分＋未配分＋扱わない区域＝メッシュの合計
+        "not_handled_2025": round(float(np.asarray(not_handled)[0]) if np.ndim(not_handled) else 0.0, 1),
+        "conservation_error": round(float(abs(total - got - un - (np.asarray(not_handled)[:ny] if np.ndim(not_handled) else 0)).max()), 6),
         "overlap_point_share": round(alloc.overlap_points / max(1, alloc.total_points), 4),
         "dropped_small": obj["_dropped"],
+        "combined_areas": _combined_report(areas, not_handled_by, obj),
         "approx_cities": approx_info,
         # 学区データに無いので補った学校（出力した学校だけ）。2025年の推計が min_children 未満で出力しなかった学校は別に数える
         "filled_missing_schools": filled_out,
@@ -668,6 +770,9 @@ def _validate_pref(pref, got, args) -> dict:
     if not fields.city_code:
         raise ValueError("学区データに行政区域コードが無いので、市区町村ごとに比べられません")
     _repair_shapes(feats, fields)  # build と同じ図形で比べる
+    # build と同じく、まとめた区域で出さない市町村（福島県浜通りの7町村）の学区は比べない
+    hidden = {c for m in combined.load().values() for c, r in m.items() if not r["show"]}
+    feats = [f for f in feats if str(f.props.get(fields.city_code, "")).strip().zfill(5) not in hidden]
     # build と同じく、利用条件で再配布できない市区町村の学区は使わない
     ex = terms.excluded(terms.load(), terms.pending())
     def city_of(f):
