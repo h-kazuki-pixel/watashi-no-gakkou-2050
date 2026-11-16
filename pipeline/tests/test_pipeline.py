@@ -651,6 +651,7 @@ def _terms_downloads(tmp_path, monkeypatch, with_schools=True):
                         "99101,みほん市東区,01公開,条件公開,詳しくは教育委員会へ\n"
                         "99102,みほん市西区,01公開,商用利用・再配布不可,-\n", encoding="utf-8")
     monkeypatch.setattr(terms, "DEFAULT", csv_path)
+    monkeypatch.setattr(terms, "PENDING", tmp_path / "pending.csv")   # 確認待ちの表は無し
     return folder
 
 
@@ -659,7 +660,7 @@ def test_terms_exclude_no_redistribution_city(tmp_path, monkeypatch, capsys):
     rc = cli.main(["build-all", "--input", str(folder), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
     assert rc == 0
     report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
-    assert report["excluded_by_terms"] == ["99102"]
+    assert report["excluded_by_terms"] == [{"code": "99102", "name": "みほん市西区", "reason": "利用条件「商用利用・再配布不可」"}]
     # 除いた区は学区データなしになり、学校の位置からおおよその区域で補われる
     assert report["approx_cities"] == {"99102": 2}
     # 保存則：配分＋未配分＝合計
@@ -686,7 +687,7 @@ def test_terms_excluded_city_without_school_points_is_missing(tmp_path, monkeypa
     rc = cli.main(["build-all", "--input", str(folder), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
     assert rc == 0
     report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
-    assert report["excluded_by_terms"] == ["99102"] and report["conservation_error"] < 1e-6
+    assert [e["code"] for e in report["excluded_by_terms"]] == ["99102"] and report["conservation_error"] < 1e-6
     pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
     assert [c["code"] for c in pref["cities"]] == ["99101"]
     assert pref["missing"] == [{"code": "99102", "name": ""}]
@@ -699,7 +700,13 @@ def test_terms_csv_rules():
     assert len(t) > 1000
     assert "40228" in terms.excluded(t)                       # 朝倉市：商用利用・再配布不可
     assert {"40220", "40341"} <= terms.needs_note(t)          # 宗像市・宇美町：条件公開＋特記
-    assert "40202" not in terms.excluded(t) | terms.needs_note(t)
+    assert "40202" not in set(terms.excluded(t)) | terms.needs_note(t)
+    # 確認が取れるまで使わない市区町村（小田原市）：学区データを使わず、「学区は めやす」も付けない
+    p = terms.pending()
+    assert set(p) == {"14206"} and "市の確認" in p["14206"]["reason"] and p["14206"]["source"]
+    ex = terms.excluded(t, p)
+    assert ex["14206"]["reason"].startswith("確認待ち") and "14206" not in terms.needs_note(t, ex)
+    assert "14206" in terms.needs_note(t)
 
 
 def test_detect_fields_when_kindergartens_come_first():
@@ -1220,4 +1227,20 @@ def test_public_compulsory_school_is_a_candidate(tmp_path, capsys):
     west = next(c for c in pref["cities"] if c["code"] == "99102")
     assert sorted(s["name"] for s in west["schools"]) == ["うみ小学校", "やま小中学校"]
     assert export.strip_owner("大熊町立学び舎ゆめの森") == "学び舎ゆめの森"
+    capsys.readouterr()
+
+
+def test_pending_confirmation_city_is_approx(tmp_path, monkeypatch, capsys):
+    # 小田原市の形：利用の前に市の確認が要る。確認が取れるまで学区データを使わず、おおよその区域にする
+    from school2050 import terms
+    folder = _terms_downloads(tmp_path, monkeypatch)
+    (tmp_path / "terms.csv").write_text("行政コード,自治体名,公開条件,利用条件,特記条件詳細\n"
+                                        "99102,みほん市西区,01公開,条件公開,利用開始前に利用内容について市の確認を受けること。\n",
+                                        encoding="utf-8")
+    (tmp_path / "pending.csv").write_text("行政区域コード,自治体名,理由,出典\n99102,みほん市西区,市の確認が要る,テスト\n", encoding="utf-8")
+    rc = cli.main(["build-all", "--input", str(folder), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["excluded_by_terms"] == [{"code": "99102", "name": "みほん市西区", "reason": "確認待ち：市の確認が要る"}]
+    assert report["approx_cities"] == {"99102": 2} and report["note_cities"] == []
     capsys.readouterr()

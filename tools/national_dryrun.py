@@ -355,7 +355,8 @@ def do_pref(pref: str, work: pathlib.Path, args) -> dict:
             mx = extract(zips["mesh"], ".xml", tmp)
             dx = extract(zips["districts"], ".geojson", tmp)
             px = extract(zips["schools"], ".geojson", tmp)
-            ex = ",".join((report or {}).get("excluded_by_terms") or [])
+            # excluded_by_terms は {code, name, reason} の並び（以前はコードの並び）
+            ex = ",".join(e["code"] if isinstance(e, dict) else e for e in ((report or {}).get("excluded_by_terms") or []))
             cmd = [py, INDEP, "--mesh", mx, "--districts", dx, "--schools", px, "--pref-js", js]
             if ex:
                 cmd += ["--exclude", ex]

@@ -57,8 +57,10 @@ def row_for(d: pathlib.Path) -> dict:
     for k, v in (st.get("steps") or {}).items():
         if v.get("rc") not in (0, "未対応", "skipped"):
             fail.append(f"{k}: {v.get('error_last') or v.get('error_first') or v.get('rc')}")
+    def ex_codes(r):  # excluded_by_terms は、以前はコードの並び、いまは {code, name, reason} の並び
+        return {e["code"] if isinstance(e, dict) else e for e in (r.get("excluded_by_terms") or [])}
     flags = [f"{n}（{c}）: " + (f"{city_schools[c][1]}校" if c in city_schools else "出力に無い")
-             + ("・除外" if c in (rp.get("excluded_by_terms") or []) else "") + ("・めやす" if c in (rp.get("note_cities") or []) else "")
+             + ("・除外" if c in ex_codes(rp) else "") + ("・めやす" if c in (rp.get("note_cities") or []) else "")
              + ("・おおよそ" if c in approx else "")
              for c, n in WATCH.items() if c[:2] == pref]
     return {

@@ -380,15 +380,17 @@ def cmd_build(args) -> int:
     tm = terms.load()
     if not tm:
         log(f"注意: 利用条件の一覧（{terms.DEFAULT}）がありません。学区を除かずに進めます")
-    ex = terms.excluded(tm)
+    # 確認が取れるまで使わない市区町村（pipeline/terms/pending_confirmation.csv。小田原市）も同じく除く
+    ex = terms.excluded(tm, terms.pending())
     excluded_by_terms = []
     if ex and fields.city_code:
         def city_of(f):
             return str(f.props.get(fields.city_code, "")).strip().zfill(5)
-        excluded_by_terms = sorted({city_of(f) for f in feats if city_of(f) in ex})
+        excluded_by_terms = [{"code": c, **ex[c]} for c in sorted({city_of(f) for f in feats if city_of(f) in ex})]
         if excluded_by_terms:
             feats = [f for f in feats if city_of(f) not in ex]
-            log(f"利用条件（再配布不可）で除いた市区町村: {', '.join(excluded_by_terms)}。残り {len(feats)} 件")
+            log("利用条件・確認待ちで学区データを使わない市区町村: "
+                + ", ".join(f"{e['code']} {e['name']}（{e['reason']}）" for e in excluded_by_terms) + f"。残り {len(feats)} 件")
     elif ex:
         log("注意: 学区データに行政区域コードが無いため、利用条件で除く市区町村を判定できません")
     feats = export.merge_same_school(feats, fields, pref)
@@ -502,7 +504,7 @@ def cmd_build(args) -> int:
     names = getattr(args, "_gap_names", {})
     obj["missing"] = [{"code": c, "name": names.get(c, "")} for c in sorted(gaps) if c not in have]
     # 条件公開・特記条件のある市区町村は、アプリで「学区は めやす」と表示する
-    noted = terms.needs_note(tm)
+    noted = terms.needs_note(tm, ex)
     for c in obj["cities"]:
         if c["code"] in noted:
             c["note"] = True
@@ -667,7 +669,7 @@ def _validate_pref(pref, got, args) -> dict:
         raise ValueError("学区データに行政区域コードが無いので、市区町村ごとに比べられません")
     _repair_shapes(feats, fields)  # build と同じ図形で比べる
     # build と同じく、利用条件で再配布できない市区町村の学区は使わない
-    ex = terms.excluded(terms.load())
+    ex = terms.excluded(terms.load(), terms.pending())
     def city_of(f):
         return str(f.props.get(fields.city_code, "")).strip().zfill(5)
     excluded = sorted({city_of(f) for f in feats if city_of(f) in ex})
