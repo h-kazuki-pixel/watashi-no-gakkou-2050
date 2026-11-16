@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import geo, meshcode
+from . import geo, meshcode, shapes
 
 
 @dataclass
@@ -62,7 +62,7 @@ def allocate(codes: list, values: np.ndarray, districts: list, k: int = 4, log=N
         cand = np.nonzero((pys[lo:hi] >= miny) & (pys[lo:hi] <= maxy))[0] + lo
         if cand.size == 0:
             continue
-        inside = geo.points_in_rings(pxs[cand], pys[cand], dist.rings)
+        inside = geo.points_in_polys(pxs[cand], pys[cand], shapes.polys_of(dist))
         sel = order[cand[inside]]
         if sel.size:
             count[sel] += 1

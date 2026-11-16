@@ -37,6 +37,80 @@ def rings_from_geojson(geom: dict | None) -> list[Ring]:
     return rings
 
 
+def polys_from_geojson(geom: dict | None) -> list[list[Ring]]:
+    """GeoJSON の Polygon / MultiPolygon を、部分（外側の輪 1つ ＋ 穴の輪）ごとに取り出す。"""
+    if not geom:
+        return []
+    t, c = geom.get("type"), geom.get("coordinates")
+    if t == "GeometryCollection":
+        return [p for g in geom.get("geometries", []) for p in polys_from_geojson(g)]
+    polys = [c] if t == "Polygon" else c if t == "MultiPolygon" else []
+    out = []
+    for poly in polys:
+        rings = [np.asarray(r, dtype=float)[:, :2] for r in poly if np.asarray(r).ndim == 2 and len(r) >= 3]
+        if rings:
+            out.append(rings)
+    return out
+
+
+def polys_from_rings(rings: list[Ring]) -> list[list[Ring]]:
+    """部分の区切りが無いリングの並び（シェープファイル、凸包）を、部分ごとに組み立てる。
+
+    シェープファイルの決まりでは、外側の輪と穴の輪は向きが逆（外側が時計回り）。いちばん大きい輪の向きを外側の向きとし、
+    同じ向きの輪を外側、逆向きの輪を穴とする。穴は、頂点のいちばん多くが内側にある外側の輪に付ける（無ければいちばん大きい外側の輪）。"""
+    if not rings:
+        return []
+    areas = [ring_signed_area(r) for r in rings]
+    big = max(range(len(rings)), key=lambda i: abs(areas[i]))
+    sign = 1 if areas[big] >= 0 else -1
+    outers = [i for i in range(len(rings)) if areas[i] * sign >= 0]
+    polys = {i: [rings[i]] for i in outers}
+    for i in range(len(rings)):
+        if i in polys:
+            continue
+        r = rings[i]
+        best, best_n = big, -1
+        for j in outers:
+            n = int(points_in_rings(r[:, 0], r[:, 1], [rings[j]]).sum())
+            if n > best_n:
+                best, best_n = j, n
+        polys[best].append(r)
+    return [polys[i] for i in outers]
+
+
+def points_in_polys(px: np.ndarray, py: np.ndarray, polys: list[list[Ring]]) -> np.ndarray:
+    """点が区域の内側かどうか。区域＝部分ごとの「外側の輪 − 穴」を合わせたもの（部分が重なる所も内側。二重には数えない）。"""
+    px = np.asarray(px, dtype=float)
+    py = np.asarray(py, dtype=float)
+    inside = np.zeros(px.shape[0], dtype=bool)
+    for poly in polys:
+        todo = np.nonzero(~inside)[0]
+        if todo.size == 0:
+            break
+        m = points_in_rings(px[todo], py[todo], [poly[0]])
+        for hole in poly[1:]:
+            sel = np.nonzero(m)[0]
+            if sel.size == 0:
+                break
+            m[sel] &= ~points_in_rings(px[todo][sel], py[todo][sel], [hole])
+        inside[todo[m]] = True
+    return inside
+
+
+def ring_key(ring: Ring) -> tuple:
+    """同じ輪かどうかを比べるための鍵（始点と向きによらない）。"""
+    r = np.round(np.asarray(ring, dtype=float), 9)
+    if len(r) > 1 and np.array_equal(r[0], r[-1]):
+        r = r[:-1]
+    if len(r) == 0:
+        return ()
+    pts = [tuple(p) for p in r]
+    i = min(range(len(pts)), key=lambda k: pts[k])
+    a = pts[i:] + pts[:i]
+    b = [a[0]] + a[1:][::-1]
+    return tuple(min(a, b))
+
+
 def bbox(rings: list[Ring]) -> tuple[float, float, float, float]:
     xs = np.concatenate([r[:, 0] for r in rings])
     ys = np.concatenate([r[:, 1] for r in rings])
@@ -96,6 +170,15 @@ def area_km2(rings: list[Ring]) -> float:
                 depth += 1
         total += areas[i] * (1 if depth % 2 == 0 else -1)
     return total * k * deg_km * deg_km
+
+
+def area_km2_polys(polys: list[list[Ring]]) -> float:
+    """部分ごとの（外側の輪 − 穴）の面積の和（km²）。部分どうしの重なりは2回数える（表示用のおおよその値）。"""
+    if not polys:
+        return 0.0
+    k = _coslat([p[0] for p in polys])
+    total = sum(abs(ring_signed_area(p[0])) - sum(abs(ring_signed_area(h)) for h in p[1:]) for p in polys)
+    return total * k * 111.32 * 111.32
 
 
 def centroid(rings: list[Ring]) -> tuple[float, float]:

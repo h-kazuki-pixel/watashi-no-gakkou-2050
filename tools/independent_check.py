@@ -10,6 +10,9 @@
 
 zip はあらかじめ展開しておく。必要なのは numpy だけ。
 比べるもの：学校の集合、市区町村、おおよその区域かどうか、2025〜2070年の推計（10個）、0〜11歳の各歳（12個）。
+学区の区域は、学校ごとに部分（ポリゴン）を集め、部分ごとの「外側の輪 − 穴の輪」を合わせたもの（重なりは1回）。
+同じ輪の重複は除き、外側の輪の外にはみ出した穴は、はみ出した部分がほかの学区に半分以上入っていなければ飛び地として入れる
+（DATA_METHOD.md「学区の図形」）。
 おおよその区域は2種類：学区データの無い市区町村の学校と、学区データのある市区町村で学区データに入っていない公立小学校。
 後者は、配分率が 0.9 未満の市区町村だけで、名前が「分校」で終わる学校は除く。どの学区にも入らなかった点を、
 「補う学校の中で」いちばん近い学校に当てる（学区のある学校は候補にしない。学区のある学校の線引きは正しいとみなす）。
@@ -106,14 +109,94 @@ def polygons(geom):
     return [geom["coordinates"]] if geom["type"] == "Polygon" else geom["coordinates"]
 
 
-def in_geom(x, y, geom):
+
+
+def in_polys(x, y, polys):
+    """部分ごとに「外側の輪 − 穴の輪」を作り、部分を合わせた区域の内側か（重なりは1回）。"""
     res = np.zeros(x.shape, bool)
-    for poly in polygons(geom):
+    for poly in polys:
         ins = in_ring(x, y, poly[0])
         for hole in poly[1:]:
             ins &= ~in_ring(x, y, hole)
         res |= ins
     return res
+
+
+def ring_id(ring):
+    """座標の並びが同じ輪かを比べる鍵。始点と向きは問わない。"""
+    pts = [tuple(round(float(v), 9) for v in p[:2]) for p in ring]
+    if len(pts) > 1 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    best = None
+    for seq in (pts, pts[::-1]):
+        for i in range(len(seq)):
+            cand = tuple(seq[i:] + seq[:i])
+            if best is None or cand < best:
+                best = cand
+    return best
+
+
+def box(rings):
+    a = np.vstack([np.asarray(r, float)[:, :2] for r in rings])
+    return a[:, 0].min(), a[:, 1].min(), a[:, 0].max(), a[:, 1].max()
+
+
+def school_areas(all_feats, key):
+    """DATA_METHOD.md「学区の図形」：学校ごとに部分を集め、同じ輪の重複を除き、外に出た穴を扱う。
+    返り値: ({学校: [部分…]}, {"duplicate_rings": [学校], "hole_outside_outer": [(学校, はみ出し割合, ほかの学区の割合, 入れたか)]})"""
+    raw = defaultdict(list)
+    for f in all_feats:
+        for poly in polygons(f["geometry"]):
+            raw[key(f)].append([np.asarray(r, float)[:, :2] for r in poly])
+    boxes = {k: box([p[0] for p in v]) for k, v in raw.items()}
+    out, dups, holes = {}, [], []
+    for k, polys in raw.items():
+        so, sh, kept = set(), set(), []
+        removed = 0
+        for p in polys:
+            o = ring_id(p[0])
+            if o in so:
+                removed += 1
+                continue
+            so.add(o)
+            q = [p[0]]
+            for h in p[1:]:
+                hid = ring_id(h)
+                if hid in sh:
+                    removed += 1
+                    continue
+                sh.add(hid)
+                q.append(h)
+            kept.append(q)
+        if removed:
+            dups.append(k)
+        extra = []
+        for p in kept:
+            for h in p[1:]:
+                x0, y0, x1, y1 = box([h])
+                gx, gy = np.meshgrid(np.linspace(x0, x1, 200), np.linspace(y0, y1, 200))
+                gx, gy = gx.ravel(), gy.ravel()
+                inh = in_ring(gx, gy, h)
+                if not inh.any():
+                    continue
+                outside = inh & ~in_ring(gx, gy, p[0])
+                share = outside.sum() / inh.sum()
+                if share <= 0.01:
+                    continue
+                ox, oy = gx[outside], gy[outside]
+                cov = np.zeros(ox.shape, bool)
+                for k2, polys2 in raw.items():
+                    b = boxes[k2]
+                    if k2 == k or b[0] > x1 or b[2] < x0 or b[1] > y1 or b[3] < y0:
+                        continue
+                    cov |= in_polys(ox, oy, polys2)
+                other = cov.mean()
+                take = other < 0.5
+                if take:
+                    extra.append([h, p[0]])  # 穴の輪 − 外側の輪 を飛び地として足す
+                holes.append((k, round(float(share), 3), round(float(other), 3), take))
+        out[k] = kept + extra
+    return out, {"duplicate_rings": dups, "hole_outside_outer": holes}
 
 
 def ward_to_city():
@@ -168,7 +251,8 @@ def main():
     pm = np.repeat(np.arange(n), K * K)
     w0 = 1.0 / (K * K)
 
-    feats = [f for f in json.load(open(args.districts, encoding="utf-8"))["features"] if f["properties"]["A27_001"] not in exclude]
+    all_feats = json.load(open(args.districts, encoding="utf-8"))["features"]
+    feats = [f for f in all_feats if f["properties"]["A27_001"] not in exclude]
     pts = json.load(open(args.schools, encoding="utf-8"))["features"]
 
     # 政令市の学区データが市のコードで入っているとき：メッシュと P29 の区のコードを市のコードに読み替える
@@ -185,25 +269,30 @@ def main():
             f["properties"]["P29_001"] = recode(f["properties"]["P29_001"], table)
     print(f"学区データが市のコードで入っている政令市: {city_coded}")
 
+    # 学区の区域：学校ごと（学校コード、無ければ（市区町村, 学校名）。浜松市の鏡山小など）に部分を集めて1つの区域にする。
+    # 外に出た穴の「ほかの学校の学区」には、利用条件で除く前の学区データを全部使う
+    def skey(f):
+        return f["properties"]["A27_003"] or f'{f["properties"]["A27_001"]}|{f["properties"]["A27_004"]}'
+    areas, shape_issues = school_areas(all_feats, skey)
+    print(f"学区の図形：同じ輪の重複 {shape_issues['duplicate_rings']}、外に出た穴 {shape_issues['hole_outside_outer']}")
+    info = {}
+    for f in feats:
+        info.setdefault(skey(f), (f["properties"]["A27_004"], f["properties"]["A27_001"]))
+
     # 学区への配分
     hits, count = [], np.zeros(px.shape[0], int)
-    for f in feats:
-        outer = np.array([p for poly in polygons(f["geometry"]) for p in poly[0]])
-        idx = np.nonzero((px >= outer[:, 0].min()) & (px <= outer[:, 0].max()) & (py >= outer[:, 1].min()) & (py <= outer[:, 1].max()))[0]
-        ins = idx[in_geom(px[idx], py[idx], f["geometry"])]
+    for sid in info:
+        polys = areas[sid]
+        x0, y0, x1, y1 = box([p[0] for p in polys])
+        idx = np.nonzero((px >= x0) & (px <= x1) & (py >= y0) & (py <= y1))[0]
+        ins = idx[in_polys(px[idx], py[idx], polys)]
         hits.append(ins)
         count[ins] += 1
     est = {}
-    for f, ins in zip(feats, hits):
+    for sid, ins in zip(info, hits):
         w = w0 / count[ins]
-        # 学校コードが無い学校（浜松市の鏡山小など）は（市区町村, 学校名）で数える
-        sid = f["properties"]["A27_003"] or f'{f["properties"]["A27_001"]}|{f["properties"]["A27_004"]}'
-        if sid in est:  # 同じ学校が複数の図形に分かれているとき
-            est[sid]["e"] += (kids[pm[ins]] * w[:, None]).sum(0)
-            est[sid]["a"] += (V[pm[ins], :, 0] * w[:, None]).sum(0)
-        else:
-            est[sid] = dict(name=f["properties"]["A27_004"], city=f["properties"]["A27_001"], approx=False,
-                            e=(kids[pm[ins]] * w[:, None]).sum(0), a=(V[pm[ins], :, 0] * w[:, None]).sum(0))
+        est[sid] = dict(name=info[sid][0], city=info[sid][1], approx=False,
+                        e=(kids[pm[ins]] * w[:, None]).sum(0), a=(V[pm[ins], :, 0] * w[:, None]).sum(0))
 
     # 学区データなしの市区町村：1つの市区町村だけのメッシュで、学区に配分できた子どもが5%未満
     frac = ((count > 0).reshape(n, -1) * w0).sum(1)

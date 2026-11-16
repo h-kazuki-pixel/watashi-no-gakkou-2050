@@ -34,11 +34,14 @@ def merge_same_school(features: list[Feature], fields: DistrictFields, pref_code
         name = f.props.get(fields.name, "")
         key = code if code else (city, name)
         if key not in groups:
-            groups[key] = Feature(dict(f.props), list(f.rings))
+            groups[key] = Feature(dict(f.props), list(f.rings), list(f.polys) if f.polys else None)
             groups[key].props["_city"] = city
             order.append(key)
         else:
-            groups[key].rings += f.rings
+            g = groups[key]
+            if g.polys is not None or f.polys is not None:
+                g.polys = (g.polys or geo.polys_from_rings(g.rings)) + (f.polys or geo.polys_from_rings(f.rings))
+            g.rings += f.rings
     return [groups[k] for k in order]
 
 
@@ -152,7 +155,7 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
         cobj["schools"].append(school)
         row = {"pref_code": pref_code, "city_code": city, "city_name": names.get(city, city), "school_id": sid,
                "school_name": name, "lat": school["lat"], "lng": school["lng"], "loc_source": loc_src,
-               "area_km2": round(geo.area_km2(f.rings), 3),
+               "area_km2": round(geo.area_km2_polys(f.polys) if f.polys else geo.area_km2(f.rings), 3),
                "district_source": "学校から最も近い区域（おおよそ）" if approx else "国土数値情報 小学校区"}
         for y, v in zip(years, school["est"]):
             row[f"age6_11_{y}"] = v

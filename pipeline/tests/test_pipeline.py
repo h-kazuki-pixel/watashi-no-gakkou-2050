@@ -365,7 +365,9 @@ def _make_downloads(folder):
     folder.mkdir(parents=True, exist_ok=True)
     work = folder / "_work"
     work.mkdir()
-    polys = [[np.array(r, float) for r in g[0]] for _p, g in district_features()]
+    # 実物のシェープファイルと同じく、外側の輪は時計回り、穴の輪は反時計回りで書く（天神山小などで確認した向き）
+    polys = [[np.array(r, float)[::-1] if i == 0 else np.array(r, float) for i, r in enumerate(g[0])]
+             for _p, g in district_features()]
     rows = [p for p, _g in district_features()]
     shapefile_min.write_shp_polygons(work / "d.shp", polys)
     shapefile_min.write_dbf(work / "d.dbf", list(rows[0].keys()), rows)
@@ -989,3 +991,90 @@ def test_missing_school_filled_without_changing_district_schools(tmp_path, capsy
     for n, s0 in by0.items():
         assert by[n]["est"] == s0["est"] and by[n]["ages"] == s0["ages"]
     capsys.readouterr()
+
+
+# ---------------------------------------------------------------- 学区の図形の乱れ（全国予行で見つけた形）
+
+def _feat(props, polys):
+    """GeoJSON の MultiPolygon と同じ形の地物（部分ごとに [外側の輪, 穴の輪…]）。"""
+    ps = [[np.array(r, float) for r in p] for p in polys]
+    return readers.Feature(props, [r for p in ps for r in p], ps)
+
+
+def _alloc_2025(feats):
+    codes, _city, values = _grid_8x8()
+    return estimate.allocate(codes, values, feats, k=4).sums[:, 0]
+
+
+def _repair(feats):
+    from school2050 import shapes
+    return shapes.repair(feats, key=lambda f: f.props["name"], label=lambda f: {"city": "99101", "name": f.props["name"]})
+
+
+def test_duplicate_hole_ring_is_counted_once():
+    # 鶴巻小（千葉県旭市）の形：同じ穴の輪が2回入っている。偶奇規則では2つの穴が打ち消し合い、穴の中の子どもを数えてしまう
+    a = _feat({"name": "A"}, [[rect(0, 0, 4, 4), rect(1, 1, 2, 2), rect(1, 1, 2, 2)]])
+    issues = _repair([a])
+    assert issues["duplicate_rings"] == [{"city": "99101", "name": "A", "rings_removed": 1}]
+    assert len(a.polys[0]) == 2 and len(a.rings) == 2
+    assert _alloc_2025([a])[0] == pytest.approx(150.0)             # 16セル − 穴1セル
+
+
+def test_hole_outside_outer_not_in_other_district_becomes_exclave():
+    # 天神山小（石川県七尾市）の形：となりの飛び地（列 2）が、外側の輪（列 0〜1）の「穴」として入っている。どの学区にも入っていない
+    a = _feat({"name": "A"}, [[rect(0, 0, 2, 2), rect(2, 0, 3, 2)]])
+    b = _feat({"name": "B"}, [[rect(4, 0, 6, 2)]])
+    issues = _repair([a, b])
+    [e] = issues["hole_outside_outer"]
+    assert e["name"] == "A" and e["outside_share"] == pytest.approx(1.0, abs=0.02) and e["outside_in_other_districts"] == 0.0
+    assert "飛び地" in e["how"]
+    assert list(_alloc_2025([a, b])) == pytest.approx([60.0, 40.0])  # 4セル ＋ 飛び地2セル
+
+
+def test_hole_outside_outer_inside_other_district_stays_hole():
+    # はみ出した部分がほかの学校の学区に入っていれば、穴のまま（区域に入れない）
+    a = _feat({"name": "A"}, [[rect(0, 0, 2, 2), rect(2, 0, 3, 2)]])
+    b = _feat({"name": "B"}, [[rect(2, 0, 3, 2)]])
+    issues = _repair([a, b])
+    assert issues["hole_outside_outer"][0]["outside_in_other_districts"] == pytest.approx(1.0)
+    assert "穴のまま" in issues["hole_outside_outer"][0]["how"]
+    assert list(_alloc_2025([a, b])) == pytest.approx([40.0, 20.0])
+
+
+def test_hole_partly_inside_outer_keeps_inner_part_as_hole():
+    # 御浜小（三重県御浜町）の形：穴の輪（列 2〜3）の一部（列 2）は外側の輪（列 0〜2）の内側で、そこはほかの学校（B）の学区。
+    # 外に出た部分（列 3）はどの学区にも入らない → 列 3 は飛び地として入れ、列 2 は穴のまま抜く
+    a = _feat({"name": "A"}, [[rect(0, 0, 3, 2), rect(2, 0, 4, 2)]])
+    b = _feat({"name": "B"}, [[rect(2, 0, 3, 2)]])
+    issues = _repair([a, b])
+    assert issues["hole_outside_outer"][0]["outside_share"] == pytest.approx(0.5, abs=0.02)
+    assert list(_alloc_2025([a, b])) == pytest.approx([60.0, 20.0])
+
+
+def test_hole_touching_outer_is_not_reported():
+    # 碩台小（長崎県島原市）の形：穴の輪が外側の輪に接している（頂点が外側の輪の上にある）だけなら、普通の穴
+    a = _feat({"name": "A"}, [[rect(0, 0, 4, 4), rect(0, 0, 2, 2)]])
+    assert _repair([a])["hole_outside_outer"] == []
+    assert _alloc_2025([a])[0] == pytest.approx(120.0)
+
+
+def test_overlapping_parts_counted_once_and_reported():
+    # 大和小（鹿児島県大和村）の形：同じ学校の2つの部分が重なっている。重なり（列 1）は1回だけ数える（偶奇規則では抜けていた）
+    from school2050 import shapes
+    a = _feat({"name": "A", "_city": "99101"}, [[rect(0, 0, 2, 2)], [rect(1, 0, 3, 2)]])
+    assert _alloc_2025([a])[0] == pytest.approx(60.0)
+    assert shapes.overlapping_parts([a], lambda f: {"city": f.props["_city"], "name": f.props["name"]}) == [
+        {"city": "99101", "name": "A", "pairs": 1, "overlap_km2": pytest.approx(0.5, rel=0.05)}]   # 1列×2行＝2セル（1セル約0.25km²）
+
+
+def test_shapefile_rings_grouped_by_orientation(tmp_path):
+    # シェープファイルには部分の区切りが無い。外側の輪（時計回り）と逆向きの輪は穴、同じ向きの輪は別の部分（御浜小の shp はこちら）
+    outer = np.array(rect(0, 0, 4, 4), float)[::-1]
+    hole = np.array(rect(1, 1, 2, 2), float)
+    other = np.array(rect(5, 0, 6, 1), float)[::-1]
+    shapefile_min.write_shp_polygons(tmp_path / "d.shp", [[outer, hole, other]])
+    shapefile_min.write_dbf(tmp_path / "d.dbf", ["A27_004"], [{"A27_004": "A小学校"}])
+    [f] = readers.read_features(tmp_path / "d.shp")
+    assert [len(p) for p in f.polys] == [2, 1]
+    assert _alloc_2025([f])[0] == pytest.approx(160.0)             # 16 − 1 ＋ 1
+

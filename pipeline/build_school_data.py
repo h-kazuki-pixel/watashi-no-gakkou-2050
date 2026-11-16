@@ -30,7 +30,7 @@ import time
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from school2050 import estimate, export, geo, inputs, readers, terms, wards  # noqa: E402
+from school2050 import estimate, export, geo, inputs, readers, shapes, terms, wards  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -111,6 +111,27 @@ def cmd_inspect(args) -> int:
         for f in feats[:3]:
             print("  例:", json.dumps(f.props, ensure_ascii=False))
     return 0
+
+
+def _repair_shapes(feats, fields) -> dict:
+    """学区の図形の乱れ（同じ輪の重複・外に出た穴）を直し、一覧を返す（docs/DATA_METHOD.md「学区の図形」）。"""
+    def city(f):
+        return str(f.props.get(fields.city_code, "")).strip().zfill(5) if fields.city_code else ""
+
+    def key(f):
+        code = f.props.get(fields.school_code, "") if fields.school_code else ""
+        return code or (city(f), f.props.get(fields.name, ""))
+
+    def label(f):
+        return {"city": city(f), "name": f.props.get(fields.name, "")}
+    issues = shapes.repair(feats, key, label)
+    return issues
+
+
+def _shape_label(fields):
+    def label(f):
+        return {"city": f.props.get("_city", ""), "name": f.props.get(fields.name, "")}
+    return label
 
 
 def _school_points(path, pref_code, to_city=None) -> dict:
@@ -310,6 +331,8 @@ def cmd_build(args) -> int:
     feats = readers.read_features(args.districts)
     fields = _fields(feats, args)
     log(f"学区 {len(feats)} 件。{fields.describe()}")
+    # 乱れた図形（同じ輪の重複・外に出た穴）。利用条件で除く前の全部の学区を「ほかの学校の学区」として使う
+    geometry_issues = _repair_shapes(feats, fields)
     # 利用条件で再配布できない市区町村の学区は、配分の前に除く（学区データなしとして扱う）
     tm = terms.load()
     if not tm:
@@ -327,6 +350,10 @@ def cmd_build(args) -> int:
         log("注意: 学区データに行政区域コードが無いため、利用条件で除く市区町村を判定できません")
     feats = export.merge_same_school(feats, fields, pref)
     log(f"同じ学校の地物をまとめて {len(feats)} 校")
+    geometry_issues["overlapping_parts"] = shapes.overlapping_parts(feats, _shape_label(fields))
+    for k, v in geometry_issues.items():
+        if v:
+            log(f"注意: 学区の図形の乱れ（{k}）: " + ", ".join(f"{e['city']} {e['name']}" for e in v))
 
     df = readers.read_table(args.mesh)
     mc = _mesh_columns(df, args)
@@ -476,6 +503,8 @@ def cmd_build(args) -> int:
         "obsolete_ward_cities": wards.obsolete_split([c["code"] for c in obj["cities"]], wt),
         # 休校区分が休校中（2）かコード表に無い値の公立小学校。学校の位置データから選ぶ候補には使わない
         "closed_schools_excluded": closed_out,
+        # 学区の図形の乱れ（同じ輪の重複・外に出た穴・部分の重なり）と、その扱い
+        "geometry_issues": geometry_issues,
         "seconds": round(time.time() - t0, 1),
     }
     if report["obsolete_ward_cities"]:
@@ -566,6 +595,7 @@ def _validate_pref(pref, got, args) -> dict:
     fields = _fields(feats, sub)
     if not fields.city_code:
         raise ValueError("学区データに行政区域コードが無いので、市区町村ごとに比べられません")
+    _repair_shapes(feats, fields)  # build と同じ図形で比べる
     # build と同じく、利用条件で再配布できない市区町村の学区は使わない
     ex = terms.excluded(terms.load())
     def city_of(f):

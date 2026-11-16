@@ -26,7 +26,8 @@ SCHOOL_CODE_RE = re.compile(r"^[A-H]\d{12}$")  # 文部科学省 学校コード
 @dataclass
 class Feature:
     props: dict
-    rings: list  # list[np.ndarray (n,2)]  [経度, 緯度]
+    rings: list  # list[np.ndarray (n,2)]  [経度, 緯度]。すべての輪（外側と穴）
+    polys: list | None = None  # 部分ごとの [外側の輪, 穴の輪…]。無ければ rings から組み立てる（shapes.polys_of）
 
 
 def read_features(path) -> list[Feature]:
@@ -46,17 +47,22 @@ def read_features(path) -> list[Feature]:
         out = []
         for f in doc.get("features", []):
             g = f.get("geometry") or {}
+            polys = None
             if g.get("type") == "Point":
                 rings = [np.asarray([g["coordinates"][:2]], dtype=float)]
             else:
-                rings = geo.rings_from_geojson(g)
+                polys = geo.polys_from_geojson(g)
+                rings = [r for p in polys for r in p]
             if rings:
-                out.append(Feature({k: ("" if v is None else str(v).strip()) for k, v in (f.get("properties") or {}).items()}, rings))
+                out.append(Feature({k: ("" if v is None else str(v).strip()) for k, v in (f.get("properties") or {}).items()},
+                                   rings, polys))
         return out
     if suf == ".shp":
         shapes = shapefile_min.read_shp(p)
         _cols, recs = shapefile_min.read_dbf(p.with_suffix(".dbf"))
-        return [Feature(r, s) for s, r in zip(shapes, recs) if s and r is not None]
+        # シェープファイルは部分の区切りが無いので、輪の向き（外側と穴は逆向き）で部分を組み立てる
+        return [Feature(r, s, geo.polys_from_rings(s) if max(len(q) for q in s) >= 4 else None)
+                for s, r in zip(shapes, recs) if s and r is not None]
     raise ValueError(f"対応していない形式です（.geojson / .shp）: {p}")
 
 
