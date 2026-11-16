@@ -20,6 +20,8 @@ sys.path.insert(0, str(ROOT / "pipeline"))
 from school2050.export import PREF_NAMES  # noqa: E402
 
 WATCH = {"14206": "小田原市"}  # 表に印を付ける市区町村
+GEOM: dict = {}   # --geom（学区の形の問題の数え上げ）
+FIRST: dict = {}  # 予行をやり直した県の、初回の失敗
 
 
 def load(p: pathlib.Path):
@@ -79,7 +81,12 @@ def row_for(d: pathlib.Path) -> dict:
         "pref_js_KB": round(out["pref_js_bytes"] / 1024) if out.get("pref_js_bytes") else "",
         "validate学校": va.get("schools", ""), "validate絶対ずれ中央値": va.get("abs_median", ""),
         "independent_check": ind_s,
-        "build秒": ((st.get("steps") or {}).get("build") or {}).get("seconds", ""),
+        "秒（DL/inspect/build/validate/indep）": "/".join(str(round(x)) if isinstance(x, (int, float)) else "-" for x in (
+            sum(v.get("seconds") or 0 for v in (st.get("downloads") or {}).values()),
+            *[((st.get("steps") or {}).get(k) or {}).get("seconds") for k in ("inspect", "build", "validate_approx", "independent_check")])),
+        "容量MB（zip/出力）": "/".join(f"{(st.get('disk') or {}).get(k, 0) / 1e6:.0f}" for k in ("zips_bytes", "outputs_bytes")) if st.get("disk") else "",
+        "形の問題（重複リング/穴が外/部分の重なり）": "/".join(str(len((GEOM.get(pref) or {}).get(k, []))) for k in ("duplicate_rings", "hole_outside_outer", "overlapping_parts")) if GEOM else "",
+        "初回の失敗": FIRST.get(pref, ""),
         "印": " ".join(flags),
         "失敗": " / ".join(fail),
     }
@@ -89,8 +96,17 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--geom", help="学区の形の問題（県コード → duplicate_rings / hole_outside_outer / overlapping_parts）の JSON")
     a = ap.parse_args(argv)
     work, out = pathlib.Path(a.work), pathlib.Path(a.out)
+    if a.geom:
+        GEOM.update(json.loads(pathlib.Path(a.geom).read_text(encoding="utf-8")))
+    for d in work.iterdir():
+        f = d / "status_first.json"
+        if f.exists():
+            s0 = json.loads(f.read_text(encoding="utf-8"))
+            bad = [f"{k}: {v.get('error_last') or v.get('rc')}" for k, v in (s0.get("steps") or {}).items() if v.get("rc") not in (0, "skipped", "未対応")]
+            FIRST[d.name] = " / ".join(b[:80] for b in bad)
     out.mkdir(parents=True, exist_ok=True)
     rows = [row_for(d) for d in sorted(work.iterdir()) if d.is_dir() and re.fullmatch(r"\d{2}", d.name) and (d / "status.json").exists()]
     if not rows:
