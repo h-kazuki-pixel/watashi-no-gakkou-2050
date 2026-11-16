@@ -8,7 +8,7 @@
 node --test app/tests/model.test.js     # 計算モデル
 python3 -m pytest pipeline/tests -q     # パイプライン
 python3 tools/e2e_check.py              # ブラウザ通し（サンプル）。ふりがな漏れも検出する
-python3 tools/e2e_realdata.py           # パイプライン出力 → アプリ
+python3 tools/e2e_realdata.py           # パイプライン出力 → アプリ（--prefs 01,13,... で app/data の実データ）
 ```
 
 変更したら4つとも通すこと。画面を変えたら `tools/_shots/` のスクリーンショットを目で見る。
@@ -45,4 +45,4 @@ python3 tools/e2e_realdata.py           # パイプライン出力 → アプリ
 
 ## 実データ
 
-ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。福岡県は実データで動作（72市区町村・707校、うち347校は学校の位置から補ったおおよその区域。学区データの無い21市区町村の343校と、学区データに入っていなかった4校。休校の曲渕小は使わない）。静岡県も実データで動作（35市町・484校。静岡市・浜松市は学区データが市のコードなので市で1つ。85校がおおよその区域）。全国は未生成。新しい県を最初に生成するときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。
+ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。全国47都道府県が実データで動作（1,808市区町村・18,657校、うち3,577校は学校の位置から補ったおおよその区域。福島県の7町村は扱わない）。全国をまとめて作り直すのは `tools/national_dryrun.py`、扱いの一覧は `tools/coverage_doc.py` → `docs/COVERAGE.md`。元データの誤記は `pipeline/terms/source_corrections.csv` で直す。作り直すときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。

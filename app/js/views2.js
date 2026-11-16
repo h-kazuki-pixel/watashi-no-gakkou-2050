@@ -370,11 +370,26 @@
   };
 
   /* ====================== 先生・大人の方へ ====================== */
-  /** 先生向けページの出典（県ごと）。data/index.js の datasets（名前・ページ・取得日）から作る */
+  /** 先生向けページの出典。data/index.js の datasets（名前・ページ・取得日）から作る。
+   *  出典（データと取得日）がまったく同じ都道府県は1行にまとめる。半分より多い県が同じなら「○都道府県（△を除く）」と書く */
   UG.sourceList = function () {
     var ja = function (iso) { var p = (iso || "").split("-"); return p.length === 3 ? (+p[0]) + "年" + (+p[1]) + "月" + (+p[2]) + "日" : ""; };
-    return UG.index.filter(function (p) { return p.datasets && p.datasets.length; }).map(function (p) {
-      return "<li><b>" + esc(p.name) + "</b>：出典：" + p.datasets.map(function (d) {
+    var list = UG.index.filter(function (p) { return p.datasets && p.datasets.length; });
+    var groups = [], byKey = {};
+    list.forEach(function (p) {
+      var key = JSON.stringify(p.datasets);
+      if (!byKey[key]) { byKey[key] = { ds: p.datasets, prefs: [] }; groups.push(byKey[key]); }
+      byKey[key].prefs.push(p);
+    });
+    return groups.map(function (g) {
+      var label;
+      if (g.prefs.length > 1 && g.prefs.length * 2 > list.length) {
+        var others = list.filter(function (p) { return g.prefs.indexOf(p) < 0; });
+        label = g.prefs.length + "都道府県" + (others.length ? "（" + others.map(function (p) { return esc(p.name); }).join("・") + "を除く）" : "");
+      } else {
+        label = g.prefs.map(function (p) { return esc(p.name); }).join("・");
+      }
+      return "<li><b>" + label + "</b>：出典：" + g.ds.map(function (d) {
         return "「" + esc(d.name) + "」（国土交通省）（<a href=\"" + esc(d.url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(d.url) + "</a>）" +
           (d.retrieved ? "（" + ja(d.retrieved) + "取得）" : "");
       }).join("、") + "を加工して作成。加工：" + esc(UG.PROCESSOR) + "</li>";
