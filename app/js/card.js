@@ -136,9 +136,12 @@
     s.push('<text font-size="23" fill="' + (d.proposal ? "#1d2b4f" : "#8a96ad") + '">' + tspans(pl, 636, 644, 31) + "</text>");
     // 出典
     var src = d.sample
-      ? "これは れんしゅう用の 架空の まちの データです。"
-      : "データ：国土数値情報（500mメッシュ別将来推計人口・小学校区）を もとに 計算。「いまの ながれが つづいたら」の 推計です。";
-    s.push('<text x="50" y="' + (CH - 34) + '" font-size="16" fill="#51607d">' + esc(src) + "</text>");
+      ? ["これは れんしゅう用の 架空の まちの データです。"]
+      : ["データ：国土数値情報（500mメッシュ別将来推計人口・小学校区）を もとに 計算。「いまの ながれが つづいたら」の 推計です。",
+         "出典：国土数値情報（国土交通省）を加工して作成。加工：" + UG.PROCESSOR];
+    src.forEach(function (t, i) {
+      s.push('<text x="50" y="' + (CH - 34 - (src.length - 1 - i) * 20) + '" font-size="16" fill="#51607d">' + esc(t) + "</text>");
+    });
     s.push("</svg>");
     return s.join("");
   };
@@ -155,6 +158,7 @@
     out.push("");
     out.push([d.nick, d.grade].filter(Boolean).join("・") + (d.nick || d.grade ? "　" : "") + d.date);
     out.push(d.sample ? "（れんしゅう用の架空のデータです）" : "（データ：国土数値情報をもとに「わたしの学校2050」で計算。いまのながれがつづいた場合の推計です）");
+    if (!d.sample) out.push("出典：国土数値情報（国土交通省）を加工して作成。加工：" + UG.PROCESSOR);
     return out.join("\n");
   };
 

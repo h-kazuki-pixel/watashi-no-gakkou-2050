@@ -7,6 +7,7 @@
   var UG = window.UG, M = UG.model, esc = UG.esc, nr = UG.nr, num = UG.num;
   var V = (UG.views = {});
   // 学区データの利用条件が「条件公開」か特記条件つきの市区町村（pref_XX.js の city.note）
+  UG.PROCESSOR = "わたしの学校2050（h-kazuki-pixel）"; // 出典の「加工：」に出す名前（pipeline の export.PROCESSOR と同じ）
   UG.TERMS_NOTE = "この まちの 学区は めやすです。くわしくは 教育委員会に たしかめてね。";
   // 国の 推計が いくつかの まちを まとめて 計算されている まち（pref_XX.js の city.combined。福島県の 浜通り）
   UG.COMBINED_NOTE = "この ちいきの 推計は、まわりの まちと まとめて 計算されて います。数字は めやすです。";
@@ -156,7 +157,7 @@
         }).join("") +
         "</ol></section>" +
       // 出典と、先生向けページへの入口
-      '<p class="credit fine">国土数値情報（国土交通省）を加工して作成　' +
+      '<p class="credit fine">出典：国土数値情報（国土交通省）を加工して作成。加工：' + esc(UG.PROCESSOR) + "　" +
         '<button type="button" class="link" data-go="teachers">先生・大人の方へ →</button></p>'
     );
 
@@ -275,7 +276,7 @@
     if (cb) cb.addEventListener("click", function () {
       var v = parseInt(UG.$("#calib", root).value, 10);
       st.calib = v > 0 ? v : null; st.draw = {}; st.revealed = false; UG.save(); UG.render();
-      UG.toast(st.calib ? "学校の 人数に 合わせました" : "国の 推計に もどしました");
+      UG.toast(st.calib ? "学校の 人数に 合わせました" : "データの よそうに もどしました");
     });
   };
 

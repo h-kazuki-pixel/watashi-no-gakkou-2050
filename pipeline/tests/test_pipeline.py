@@ -279,9 +279,11 @@ def load_registered(js_path, fn):
 def test_cli_build_end_to_end(raw, tmp_path, capsys):
     out, od = tmp_path / "data", tmp_path / "opendata"
     rc = cli.main(["build", "--pref", "99", "--districts", str(raw / "A27-23_99.geojson"),
-                   "--mesh", str(raw / "500m_mesh_2024_99.csv"), "--out", str(out), "--opendata", str(od)])
+                   "--mesh", str(raw / "500m_mesh_2024_99.csv"), "--out", str(out), "--opendata", str(od),
+                   "--retrieved", "2026-11-14"])
     assert rc == 0
     report = json.loads(capsys.readouterr().out)
+    assert report["retrieved_missing"] is False
     assert report["schools"] == 4 and report["cities"] == 2
     assert report["unassigned_2025"] == 10.0 and report["conservation_error"] < 1e-6
 
@@ -298,8 +300,18 @@ def test_cli_build_end_to_end(raw, tmp_path, capsys):
     assert len(schools["きた小学校"]["geom"]) == 1  # 穴は地図に描かない
     assert "_dropped" not in pref
 
+    # 出典：データごとの名前・ページ・取得日と、加工者
+    src = pref["source"]
+    assert [d["name"] for d in src["datasets"]] == ["国土数値情報（小学校区データ）", "国土数値情報（500mメッシュ別将来推計人口データ）"]
+    assert all(d["retrieved"] == "2026-11-14" and d["url"].startswith("https://nlftp.mlit.go.jp/") for d in src["datasets"])
+    assert src["processor"] == "わたしの学校2050（h-kazuki-pixel）"
+    assert src["credit"] == ("出典：「国土数値情報（小学校区データ）」（国土交通省）（https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A27-2023.html）"
+                             "（2026年11月14日取得）、「国土数値情報（500mメッシュ別将来推計人口データ）」（国土交通省）"
+                             "（https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-mesh500r6.html）（2026年11月14日取得）を加工して作成。"
+                             "加工：わたしの学校2050（h-kazuki-pixel）")
     index = load_registered(out / "index.js", "registerIndex")
-    assert index == [{"code": "99", "name": "99", "cities": 2, "schools": 4, "generated": pref["generated"]}]
+    assert index == [{"code": "99", "name": "99", "cities": 2, "schools": 4, "generated": pref["generated"],
+                      "datasets": src["datasets"]}]
     csv_text = (od / "school_district_children_99.csv").read_text(encoding="utf-8-sig")
     assert csv_text.splitlines()[0].startswith("pref_code,city_code,city_name,school_id,school_name,lat,lng")
     assert len(csv_text.splitlines()) == 5
@@ -1321,3 +1333,14 @@ def test_unreadable_school_points_stop(tmp_path):
         {"type": "Feature", "properties": {"a": "1"}, "geometry": {"type": "Point", "coordinates": [130, 33]}}]}), encoding="utf-8")
     with pytest.raises(SystemExit, match="属性を判定できません"):
         cli._school_points(str(p), "99")
+
+
+def test_build_all_reads_retrieved_dates_per_pref(tmp_path, capsys):
+    # 取得日はダウンロードしたときに記録し、build-all に渡す（--input の retrieved.csv）。生成のたびに変わらない
+    _make_gap_downloads(tmp_path / "dl")
+    (tmp_path / "dl" / "retrieved.csv").write_text("都道府県コード,取得日\n99,2026-11-14\n", encoding="utf-8")
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d")])
+    assert rc == 0
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    assert [d["retrieved"] for d in pref["source"]["datasets"]] == ["2026-11-14"] * 3   # 学校データも使ったので3つ
+    capsys.readouterr()

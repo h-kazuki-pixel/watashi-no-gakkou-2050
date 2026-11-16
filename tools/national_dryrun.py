@@ -304,6 +304,8 @@ def do_pref(pref: str, work: pathlib.Path, args) -> dict:
             st["downloads"][kind] = download(BASE + pat.format(p=pref), dest)
         if st["downloads"][kind].get("ok"):
             zips[kind] = dest
+            # 取得日＝ダウンロードした日（ファイルの更新日時）。生成のたびに変わらないよう、build に渡す
+            st["downloads"][kind]["retrieved"] = time.strftime("%Y-%m-%d", time.localtime(dest.stat().st_mtime))
     py = sys.executable
     L = d / "logs"
     if "districts" in zips and "mesh" in zips:
@@ -312,7 +314,8 @@ def do_pref(pref: str, work: pathlib.Path, args) -> dict:
             cmd += ["--schools", zips["schools"]]
         st["steps"]["inspect"] = run(cmd, L / "1_inspect.log", args.timeout)
         cmd = [py, PIPE, "build", "--pref", pref, "--districts", zips["districts"], "--mesh", zips["mesh"],
-               "--out", d / "app", "--opendata", d / "od", "--generated", args.generated]
+               "--out", d / "app", "--opendata", d / "od", "--generated", args.generated,
+               "--retrieved", max(v.get("retrieved", "") for v in st["downloads"].values())]
         if "schools" in zips:
             cmd += ["--fill-schools", zips["schools"]]
         st["steps"]["build"] = run(cmd, L / "2_build.log", args.timeout)

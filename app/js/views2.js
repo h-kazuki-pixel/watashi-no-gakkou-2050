@@ -167,7 +167,7 @@
       var y = 2025 + k, out;
       if (res.known) {
         out = (k === 0 ? "2025年" : k + "年後（" + y + "年）") + "の 小学生は <span class=\"nw\">やく <b>" + num(res.sum) + "人</b></span>" + (k > 0 ? "（ひっこしが ないと したら）。" : "。");
-        if (k > 0) out += "国の データの よそうは " + num(M.interp(c.est, y)) + "人。差は ひっこしなどを 考えた ぶんだよ。";
+        if (k > 0) out += "データの よそうは " + num(M.interp(c.est, y)) + "人。差は ひっこしなどを 考えた ぶんだよ。";
         if (k === 6) out += "<br><mark>ここまでは、いま いる 子どもだけで 計算できる。</mark>";
       } else {
         out = y + "年の 小学生には、まだ 生まれて いない 子（？）が まざる。<mark>何人 生まれるかは だれにも わからない。だから「よそう」が ひつように なる。</mark>";
@@ -370,9 +370,22 @@
   };
 
   /* ====================== 先生・大人の方へ ====================== */
+  /** 先生向けページの出典（県ごと）。data/index.js の datasets（名前・ページ・取得日）から作る */
+  UG.sourceList = function () {
+    var ja = function (iso) { var p = (iso || "").split("-"); return p.length === 3 ? (+p[0]) + "年" + (+p[1]) + "月" + (+p[2]) + "日" : ""; };
+    return UG.index.filter(function (p) { return p.datasets && p.datasets.length; }).map(function (p) {
+      return "<li><b>" + esc(p.name) + "</b>：出典：" + p.datasets.map(function (d) {
+        return "「" + esc(d.name) + "」（国土交通省）（<a href=\"" + esc(d.url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(d.url) + "</a>）" +
+          (d.retrieved ? "（" + ja(d.retrieved) + "取得）" : "");
+      }).join("、") + "を加工して作成。加工：" + esc(UG.PROCESSOR) + "</li>";
+    }).join("");
+  };
+
   V.teachers = function (root) {
     var tpl = document.getElementById("tpl-teachers");
     root.innerHTML = tpl ? tpl.innerHTML : "";
+    var src = UG.$("#src-prefs", root);
+    if (src) src.innerHTML = UG.sourceList();
     var back = UG.$("[data-go]", root);
     if (back && !UG.state.schoolId) back.setAttribute("data-go", "home");
   };

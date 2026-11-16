@@ -24,6 +24,31 @@ PREF_NAMES = {
 }
 
 
+# 出典（docs/DATA_METHOD.md「出典の書き方」）。取得日は生成のたびに変わらないよう、ダウンロードしたときの日を build に渡す
+PROCESSOR = "わたしの学校2050（h-kazuki-pixel）"
+DATASETS = [
+    {"key": "districts", "name": "国土数値情報（小学校区データ）", "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A27-2023.html"},
+    {"key": "mesh", "name": "国土数値情報（500mメッシュ別将来推計人口データ）",
+     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-mesh500r6.html"},
+    {"key": "schools", "name": "国土数値情報（学校データ）", "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html"},
+]
+
+
+def date_ja(iso: str | None) -> str:
+    """2026-11-14 → 2026年11月14日。無ければ空。"""
+    if not iso:
+        return ""
+    y, m, d = iso.split("-")
+    return f"{int(y)}年{int(m)}月{int(d)}日"
+
+
+def credit_text(datasets: list) -> str:
+    """「出典：「国土数値情報（○○データ）」（国土交通省）（URL）（○年○月○日取得）を加工して作成。加工：わたしの学校2050（h-kazuki-pixel）」"""
+    parts = ["「" + d["name"] + "」（国土交通省）（" + d["url"] + "）" + (f"（{date_ja(d.get('retrieved'))}取得）" if d.get("retrieved") else "")
+             for d in datasets]
+    return "出典：" + "、".join(parts) + "を加工して作成。加工：" + PROCESSOR
+
+
 def merge_same_school(features: list[Feature], fields: DistrictFields, pref_code: str) -> list[Feature]:
     """同じ学校の学区が複数の地物（飛び地など）に分かれている場合、1つにまとめる。"""
     groups: dict = {}
@@ -221,6 +246,8 @@ def update_index(out_dir, obj: dict) -> pathlib.Path:
     entries.append({
         "code": obj["code"], "name": obj["name"], "cities": len(obj["cities"]),
         "schools": sum(len(c["schools"]) for c in obj["cities"]), "generated": obj["generated"],
+        # 先生向けページの出典（県ごと）に使う
+        "datasets": (obj.get("source") or {}).get("datasets", []),
     })
     entries.sort(key=lambda e: e["code"])
     p.write_text(

@@ -583,11 +583,19 @@ def cmd_build(args) -> int:
     if args.city_names:
         with open(args.city_names, encoding="utf-8-sig", newline="") as fh:
             overrides = {r[0].strip().zfill(5): r[1].strip() for r in csv.reader(fh) if len(r) >= 2 and r[0].strip().isdigit()}
+    retrieved = getattr(args, "retrieved", None)
+    if not retrieved:
+        log("注意: 取得日（--retrieved）がありません。出典の取得日は空のまま出します（report の retrieved_missing）")
+    datasets = [dict(d, retrieved=retrieved) for d in export.DATASETS
+                if d["key"] in ("districts", "mesh") or (d["key"] == "schools" and (args.schools or args.fill_schools))]
     source = {
         "districts": pathlib.Path(args.districts).name,
         "mesh": pathlib.Path(args.mesh).name,
         "method": f"面積按分（{args.k}×{args.k}点サンプリング）。6〜11歳＝(5〜9歳)×4/5＋(10〜14歳)×2/5",
-        "credit": "国土数値情報（国土交通省）を加工して作成",
+        # 出典：データごとの名前・ページ・取得日と、加工者（docs/DATA_METHOD.md「出典の書き方」）
+        "datasets": [{k: v for k, v in d.items() if k != "key"} for d in datasets],
+        "processor": export.PROCESSOR,
+        "credit": export.credit_text(datasets),
     }
     obj, rows = export.build_pref(pref, feats, fields, sums, mt.years, ny, points, overrides, source, args.min_children,
                                   generated=getattr(args, "generated", None))
@@ -678,6 +686,7 @@ def cmd_build(args) -> int:
         "closed_field": closed_cf,
         # 学区の図形の乱れ（同じ輪の重複・外に出た穴・部分の重なり）と、その扱い
         "geometry_issues": geometry_issues,
+        "retrieved_missing": not retrieved,
         # 学区データの学校コードが別の市区町村の学校のもの（学校はそのまま出し、id は「市区町村コード-番号」）
         "district_code_other_city": code_other,
         # 設置者の名前が市区町村と合わないので、学校の位置データから選ぶ候補に使わなかった学校
@@ -743,10 +752,31 @@ def _scan_inputs(root) -> dict:
     return found
 
 
+def _retrieved_table(args) -> dict:
+    """--retrieved（日付か CSV）か、--input の retrieved.csv から {都道府県コード: 取得日}。"*" は全県。無ければ空。"""
+    v = getattr(args, "retrieved", None)
+    path = None
+    if v and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+        return {"*": _date(v)}
+    if v:
+        path = pathlib.Path(v)
+    elif (pathlib.Path(args.input) / "retrieved.csv").exists():
+        path = pathlib.Path(args.input) / "retrieved.csv"
+    if not path:
+        return {}
+    out = {}
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        for r in csv.reader(fh):
+            if len(r) >= 2 and r[0].strip().isdigit():
+                out[r[0].strip().zfill(2)] = _date(r[1].strip())
+    return out
+
+
 def cmd_build_all(args) -> int:
     """フォルダの中の zip / ファイルを中身で仕分けし、学区とメッシュがそろった県をすべて生成する。"""
     found = _scan_inputs(args.input)
     results, missing = {}, {}
+    ret = _retrieved_table(args)
     for pref in sorted(found):
         got = found[pref]
         if "districts" not in got or "mesh" not in got:
@@ -757,6 +787,7 @@ def cmd_build_all(args) -> int:
         sub.districts, sub.mesh, sub.pref = str(got["districts"]), str(got["mesh"]), pref
         sub.schools = str(got["schools"]) if "schools" in got else None
         sub.fill_schools = None if args.no_fill else (str(got["schools"]) if "schools" in got else None)
+        sub.retrieved = ret.get(pref) or ret.get("*")
         try:
             cmd_build(sub)
             results[pref] = "ok"
@@ -897,6 +928,7 @@ def main(argv=None) -> int:
     pb.add_argument("--min-children", type=float, default=1.0, help="2025年の推計がこれ未満の学区は出力しない")
     pb.add_argument("--fill-schools", help="（任意）国土数値情報「学校」。学区データの無い市区町村を、学校の位置からおおよその区域で補う")
     pb.add_argument("--generated", type=_date, help="生成日（YYYY-MM-DD）。省略すると今日。作り直して前と比べるときに指定する")
+    pb.add_argument("--retrieved", type=_date, help="元データの取得日（YYYY-MM-DD。ダウンロードした日）。出典に出す")
     pb.set_defaults(fn=cmd_build)
 
     pv = sub.add_parser("validate-approx", help="おおよその区域の当たり具合を、学区データのある市区町村で測る")
@@ -915,6 +947,8 @@ def main(argv=None) -> int:
     pa.add_argument("--min-children", type=float, default=1.0)
     pa.add_argument("--no-fill", action="store_true", help="学区データの無い市区町村を補わない")
     pa.add_argument("--generated", type=_date, help="生成日（YYYY-MM-DD）。省略すると今日。作り直して前と比べるときに指定する")
+    pa.add_argument("--retrieved", help="元データの取得日。YYYY-MM-DD（全県同じ）か、「都道府県コード,取得日」の CSV。"
+                                         "省略すると --input の中の retrieved.csv を使う")
     for opt in ("name_field", "city_field", "code_field", "owner_field", "address_field", "age_columns"):
         pa.set_defaults(**{opt: None})
     pa.set_defaults(fn=cmd_build_all)
