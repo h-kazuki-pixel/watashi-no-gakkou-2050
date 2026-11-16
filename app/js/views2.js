@@ -210,7 +210,16 @@
       }).join(""));
     }
 
-    drawAges(); drawSim(); drawQuiz();
+    /** くらべる一覧を、えらんだ 学校が 見える 位置まで 送る（一覧の 中だけ。画面全体は 動かさない）。
+     *  学校の 多い まち（横浜市 338校）では、えらんだ 学校が 一覧の 先頭から 見えない ところに あるため */
+    function showMe() {
+      var list = UG.$("#cmp-list", root), me = list && list.querySelector("li.me");
+      if (!me || list.scrollHeight <= list.clientHeight) return;
+      var off = me.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+      list.scrollTop = Math.max(0, off - (list.clientHeight - me.offsetHeight) / 2);
+    }
+
+    drawAges(); drawSim(); drawQuiz(); showMe();
     UG.townMap(UG.$("#cmp-map", root), c.city, {
       selected: c.school.id, showNames: true,
       value: function (s) { return level(M.pctChange(s.est[0], s.est[5])); }
