@@ -31,7 +31,7 @@ from collections import Counter
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from school2050 import combined, estimate, export, geo, inputs, readers, shapes, terms, wards  # noqa: E402
+from school2050 import combined, corrections, estimate, export, geo, inputs, readers, shapes, terms, wards  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -135,9 +135,16 @@ def _shape_label(fields):
     return label
 
 
+def _read_p29(path) -> list:
+    """国土数値情報「学校」（P29）を読み、誤記の訂正の表（pipeline/terms/source_corrections.csv）で直す。"""
+    feats = readers.read_features(path)
+    corrections.apply(feats, "P29")
+    return feats
+
+
 def _area_schools(path, members: set, to_city=None) -> list:
     """まとめた区域の市町村の、公立の小学校・義務教育学校（休校を除く）の位置。返り値: [(行政区域コード, 経度, 緯度)]"""
-    feats = readers.read_features(inputs.find_schools(path).points)
+    feats = _read_p29(inputs.find_schools(path).points)
     f = readers.detect_fields(feats)
     cf = closed_field(feats)
     out = []
@@ -221,7 +228,7 @@ def _school_points(path, pref_code, to_city=None) -> dict:
     学校コードの鍵には市区町村も持たせる（学区データの学校コードが別の市区町村のものなことがある。古河市）。
     to_city：区のコードを市のコードに読み替える関数（学区データが市のコードで入っている政令市）。
     属性を判定できなければ止める（黙って学区の重心で代えない）。"""
-    feats = readers.read_features(path)
+    feats = _read_p29(path)
     try:
         f = readers.detect_fields(feats)
     except ValueError as e:
@@ -243,7 +250,7 @@ def _school_city_codes(path) -> set | None:
     if not path:
         return None
     try:
-        feats = readers.read_features(inputs.find_schools(path).points)
+        feats = _read_p29(inputs.find_schools(path).points)
         f = readers.detect_fields(feats)
     except (ValueError, KeyError, OSError) as e:
         raise SystemExit(f"学校の位置データを読めません（政令市の判定に使う）: {path}（{e}）")
@@ -295,7 +302,7 @@ def _public_elementary(code: str, name: str) -> bool:
 
 def _closed_schools(path, to_city=None) -> tuple[list, str | None]:
     """学校の位置データのうち、休校の公立小学校。返り値: ([{city, name, code, value}], 休校区分の属性名)"""
-    feats = readers.read_features(inputs.find_schools(path).points)
+    feats = _read_p29(inputs.find_schools(path).points)
     f = readers.detect_fields(feats)
     cf = closed_field(feats)
     if not cf:
@@ -343,7 +350,7 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
     """学校の位置データから、学区の無い市区町村の公立小学校を取り出す。
     返り値: [(行政区域コード, 経度, 緯度, 学区データと同じ属性名に直した props)]"""
     src = inputs.find_schools(path)
-    feats = readers.read_features(src.points)
+    feats = _read_p29(src.points)
     f = readers.detect_fields(feats)
     cf = closed_field(feats)  # 休校区分。休校中（2・9）と意味の分からない値の学校は使わない（docs/DATA_METHOD.md）
     owners = city_owners(feats, f, to_city)
@@ -464,6 +471,7 @@ def cmd_build(args) -> int:
         args.schools = args.fill_schools
     _resolve(args)
     args._owner_mismatch = []
+    corrections.reset()  # 使った誤記の訂正（report の source_corrections）
     args._no_points = []  # 割り当たる点が1つも無く、出力しなかった学校（docs/DATA_METHOD.md）
     if not args.pref and not args.pref_guess:
         raise SystemExit("都道府県コードを中身から判定できませんでした。--pref で指定してください")
@@ -711,6 +719,8 @@ def cmd_build(args) -> int:
         "owner_mismatch_excluded": args._owner_mismatch,
         # 割り当たる点が1つも無く、出力しなかった学校（おおよその区域・学区データに無い学校）。黙って抜かない
         "schools_without_points": args._no_points,
+        # 誤記の訂正の表（pipeline/terms/source_corrections.csv）で直した値
+        "source_corrections": corrections.applied(),
         # 学区データのある学校のうち、学校の位置データに見つからず学区の重心にした学校と、位置が学区の外にある学校
         "location_fallback": obj["_no_location"],
         "location_outside_district": obj["_location_outside_district"],

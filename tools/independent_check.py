@@ -39,6 +39,7 @@ import numpy as np
 YEARS = list(range(2025, 2075, 5))
 WARD_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "designated_city_wards.csv"
 AREA_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "fukushima_hamadori.csv"
+FIX_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "source_corrections.csv"
 K = 4  # メッシュ1つにつき K×K の点
 
 
@@ -260,6 +261,24 @@ def main():
     all_feats = json.load(open(args.districts, encoding="utf-8"))["features"]
     feats = [f for f in all_feats if f["properties"]["A27_001"] not in exclude]
     pts = json.load(open(args.schools, encoding="utf-8"))["features"]
+    # 誤記の訂正の表（DATA_METHOD.md「元データの…誤り」の4）：学校コード（P29_002）が合う地物の項目が「元の値」なら「直した値」にする。
+    # 「直した値」なら何もしない。どちらでもなければ止める。表が無ければ止める
+    if not FIX_TABLE.exists():
+        sys.exit(f"誤記の訂正の表がありません: {FIX_TABLE}")
+    with open(FIX_TABLE, encoding="utf-8-sig", newline="") as fh:
+        fixes = [r for r in csv.DictReader(fh) if r["データ名"] == "P29"]
+    fixed = []
+    for f in pts:
+        for r in fixes:
+            if f["properties"].get("P29_002") != r["学校コード"]:
+                continue
+            v = f["properties"].get(r["項目"])
+            if v == r["元の値"]:
+                f["properties"][r["項目"]] = r["直した値"]
+                fixed.append((r["学校コード"], r["項目"], r["直した値"]))
+            elif v != r["直した値"]:
+                sys.exit(f"誤記の訂正の表が元データと合いません: {r['学校コード']} {r['項目']} {v}")
+    print(f"誤記の訂正: {fixed}")
 
     # 政令市の学区データが市のコードで入っているとき：メッシュと P29 の区のコードを市のコードに読み替える
     w2c = ward_to_city()

@@ -1223,6 +1223,71 @@ def test_candidate_with_other_city_owner_is_excluded(tmp_path, capsys):
     capsys.readouterr()
 
 
+def _typo_downloads(tmp_path):
+    """石川県の P29 の形：珠洲市の若山小学校が「珠州市立若山小学校」（設置者の名前の誤記）。ほかの学校は「珠洲市立」"""
+    import zipfile
+    _make_gap_downloads(tmp_path / "dl")
+    zp = tmp_path / "dl" / "P29-23_99.zip"
+    doc = json.loads(zipfile.ZipFile(zp).read("P29-23_99.geojson"))
+    for f in doc["features"]:
+        if f["properties"]["P29_001"] == "99102":
+            f["properties"]["P29_004"] = "みほん市立" + f["properties"]["P29_004"]
+    doc["features"].append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 7.5 * DLNG, LAT0 + 0.5 * DLAT]},
+                            "properties": {"P29_001": "99102", "P29_002": "B199210000042", "P29_003": "16001",
+                                           "P29_004": "みぼん市立わかやま小学校", "P29_005": "テスト県みほん市西区わかやま町"}})
+    zp.unlink()
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps(doc, ensure_ascii=False))
+
+
+def _fix_table(path, rows):
+    path.write_text("データ名,学校コード,項目,元の値,直した値,根拠\n" + "".join(",".join(r) + "\n" for r in rows), encoding="utf-8")
+    return path
+
+
+def test_source_correction_table_fixes_owner_typo(tmp_path, capsys, monkeypatch):
+    from school2050 import corrections
+    _typo_downloads(tmp_path)
+    # 表が無い・空のとき：誤記のまま、設置者が合わないので候補から外れる
+    monkeypatch.setattr(corrections, "DEFAULT", _fix_table(tmp_path / "none.csv", []))
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d0"), "--opendata", str(tmp_path / "od0")])
+    r0 = json.loads((tmp_path / "od0" / "report_99.json").read_text(encoding="utf-8"))
+    assert rc == 0 and [e["name"] for e in r0["owner_mismatch_excluded"]] == ["みぼん市立わかやま小学校"] and r0["source_corrections"] == []
+    # 表で直すと候補になり、使った訂正が report に出る
+    monkeypatch.setattr(corrections, "DEFAULT", _fix_table(tmp_path / "fix.csv", [
+        ["P29", "B199210000042", "P29_004", "みぼん市立わかやま小学校", "みほん市立わかやま小学校", "所在地がみほん市"],
+        ["P29", "B188888888888", "P29_004", "べつ県の学校", "べつ県の学校2", "この県には無い行"]]))
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert rc == 0 and report["owner_mismatch_excluded"] == []
+    assert report["source_corrections"] == [{"data": "P29", "code": "B199210000042", "field": "P29_004",
+                                             "from": "みぼん市立わかやま小学校", "to": "みほん市立わかやま小学校"}]
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    assert "わかやま小学校" in {s["name"] for c in pref["cities"] for s in c["schools"]}
+    capsys.readouterr()
+
+
+def test_source_correction_table_rules(tmp_path):
+    from school2050 import corrections
+    feats = [readers.Feature({"P29_002": "B1X", "P29_004": "珠州市立若山小学校"}, [np.zeros((1, 2))]),
+             readers.Feature({"P29_002": "B1Y", "P29_004": "珠洲市立若山小学校"}, [np.zeros((1, 2))])]
+    rows = corrections.load(_fix_table(tmp_path / "t.csv", [
+        ["P29", "B1X", "P29_004", "珠州市立若山小学校", "珠洲市立若山小学校", "所在地"],
+        ["P29", "B1Y", "P29_004", "珠州市立若山小学校", "珠洲市立若山小学校", "元データが直ったとき"]]))
+    corrections.reset()
+    assert corrections.apply(feats, "P29", rows) == 1
+    assert [f.props["P29_004"] for f in feats] == ["珠洲市立若山小学校", "珠洲市立若山小学校"]
+    assert len(corrections.applied()) == 1
+    assert corrections.apply(feats, "P29", rows) == 0                    # 2回目はもう直っている
+    bad = [readers.Feature({"P29_002": "B1X", "P29_004": "べつの名前"}, [np.zeros((1, 2))])]
+    with pytest.raises(SystemExit, match="合いません"):
+        corrections.apply(bad, "P29", rows)                              # 表が古い
+    with pytest.raises(SystemExit, match="ありません"):
+        corrections.load(tmp_path / "missing.csv")
+    with pytest.raises(ValueError, match="空の列"):
+        corrections.load(_fix_table(tmp_path / "e.csv", [["P29", "B1X", "P29_004", "a", "b", ""]]))
+
+
 def test_district_school_with_other_city_code_keeps_name_and_gets_local_id(tmp_path, capsys):
     # 古河市の形：学区データ（99101 にし小）の学校コードが、P29 では別の市区町村（99102）の学校のもの
     import zipfile
