@@ -709,6 +709,42 @@ def test_detect_fields_when_kindergartens_come_first():
     assert readers.detect_fields(feats).name == "P29_004"
 
 
+def _p29_like(counts):
+    """国土数値情報「学校」(P29) の形：学校分類コード順（幼稚園 16011・認定こども園 16013 が先頭）、名前は設置者つき。
+    counts: [(学校分類コード, 件数, 名前の作り方)]"""
+    feats, i = [], 0
+    for kind, n, name in counts:
+        for _ in range(n):
+            feats.append(readers.Feature({"P29_001": "99101", "P29_002": f"X{i:012d}", "P29_003": kind, "P29_004": name(i),
+                                          "P29_005": f"テスト県みほん市東区{i}丁目{i % 9 + 1}", "P29_006": "3", "P29_007": "1",
+                                          "P29_008": "00", "P29_009": ""}, [np.zeros((1, 2))]))
+            i += 1
+    return feats
+
+
+# 岩手県（763件）・青森県（874件）の P29 の学校分類ごとの件数。先頭に「〜園」が並ぶ
+P29_IWATE = [("16011", 64, lambda i: f"みほん市立みほん{i}幼稚園"), ("16013", 129, lambda i: f"認定こども園みほん{i}"),
+             ("16001", 271, lambda i: f"みほん市立みほん{i}小学校"), ("16002", 149, lambda i: f"みほん市立みほん{i}中学校"),
+             ("16004", 79, lambda i: f"テスト県立みほん{i}高等学校"), ("16012", 17, lambda i: f"テスト県立みほん{i}特別支援学校"),
+             ("16007", 9, lambda i: f"みほん{i}大学"), ("16015", 7, lambda i: f"みほん{i}学院"), ("16016", 32, lambda i: f"みほん{i}専門学校"),
+             ("16006", 4, lambda i: f"みほん{i}短期大学部"), ("16005", 1, lambda i: "みほん工業高等専門学校"),
+             ("16014", 1, lambda i: "みほん市立みほん義務教育学校")]
+P29_AOMORI = [("16011", 85, lambda i: f"みほん{i}幼稚園"), ("16013", 247, lambda i: f"認定こども園みほん{i}幼稚園"),
+              ("16001", 249, lambda i: f"みほん市立みほん{i}小学校"), ("16002", 153, lambda i: f"みほん市立みほん{i}中学校"),
+              ("16004", 64, lambda i: f"テスト県立みほん{i}高等学校"), ("16012", 21, lambda i: f"テスト県立みほん{i}特別支援学校"),
+              ("16007", 14, lambda i: f"みほん{i}大学"), ("16015", 10, lambda i: f"みほん{i}学院"), ("16016", 25, lambda i: f"みほん{i}専門学校"),
+              ("16006", 5, lambda i: f"みほん{i}短期大学部"), ("16005", 1, lambda i: "みほん工業高等専門学校")]
+
+
+@pytest.mark.parametrize("counts,n", [(P29_IWATE, 763), (P29_AOMORI, 874)])
+def test_detect_fields_on_p29_with_many_kindergartens(counts, n):
+    # 岩手県（400〜799件）は、以前は先頭の400件だけを見ていた。青森県（800件以上）は「〜園」が3割を超え、学校名の割合が 0.6 を下回った
+    feats = _p29_like(counts)
+    assert len(feats) == n
+    f = readers.detect_fields(feats)
+    assert f.name == "P29_004" and f.city_code == "P29_001" and f.address == "P29_005"
+
+
 def test_strip_owner():
     from school2050.export import strip_owner
     assert strip_owner("北九州市立大積小学校") == "大積小学校"

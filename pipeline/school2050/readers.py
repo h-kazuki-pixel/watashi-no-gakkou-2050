@@ -78,9 +78,10 @@ def detect_fields(features: list[Feature]) -> DistrictFields:
     if not features:
         raise ValueError("地物が1件もありません")
     keys = list(features[0].props.keys())
-    # 先頭だけだと、学校種の順に並んだデータ（国土数値情報「学校」は幼稚園が先）で判定を誤るので、全体から等間隔に取る
-    step = max(1, len(features) // 400)
-    sample = features[::step][:400]
+    # 先頭だけだと、学校種の順に並んだデータ（国土数値情報「学校」は幼稚園が先）で判定を誤るので、全体から等間隔に取る。
+    # 件数が 400〜799 件のとき、間隔を len // 400（＝1）にすると先頭の400件だけになるので、位置を i × 件数 / 400 で決める
+    n = len(features)
+    sample = features if n <= 400 else [features[i * n // 400] for i in range(400)]
 
     def share(key, pred):
         vals = [f.props.get(key, "") for f in sample]
@@ -89,8 +90,8 @@ def detect_fields(features: list[Feature]) -> DistrictFields:
 
     out = DistrictFields()
     best = 0.0
-    for k in keys:  # 学校名：「学校」「分校」で終わる
-        s = share(k, lambda v: v.endswith(("学校", "分校", "学園", "校")) and not v[-1].isdigit() and len(v) <= 40)
+    for k in keys:  # 学校名：「学校」「分校」などで終わる。国土数値情報「学校」には幼稚園・認定こども園（「〜園」）も入っている
+        s = share(k, lambda v: v.endswith(("学校", "分校", "学園", "校", "園")) and not v[-1].isdigit() and len(v) <= 40)
         if s > best and s >= 0.6:
             best, out.name = s, k
     for k in keys:  # 行政区域コード：5桁（先頭の0が落ちた4桁も許す）
