@@ -394,6 +394,12 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
     return out
 
 
+def _no_point_entry(city, props, fields, how) -> dict:
+    """割り当たる点が無かった学校の記録（report の schools_without_points）。"""
+    return {"city": city, "name": props.get(fields.name, ""),
+            "code": props.get(fields.school_code, "") if fields.school_code else "", "how": how}
+
+
 COVERAGE_FILL = 0.9  # 学区データのある市区町村で、配分率がこれ未満のときだけ、学区データに無い学校を補う
 
 
@@ -437,6 +443,7 @@ def _fill_missing(args, mt, values, alloc, feats, fields, sums, gaps, taken=None
     extra, rows, info = [], [], {}
     for (city, x, y, props), hull, row in zip(miss, near.hulls, near.sums):
         if hull is None:
+            args._no_points.append(_no_point_entry(city, props, fields, "学区データに無い学校"))
             continue
         pr = dict(props)
         pr.update({"_city": city, "_approx": "1", "_fill": "1", "_lng": x, "_lat": y})
@@ -457,6 +464,7 @@ def cmd_build(args) -> int:
         args.schools = args.fill_schools
     _resolve(args)
     args._owner_mismatch = []
+    args._no_points = []  # 割り当たる点が1つも無く、出力しなかった学校（docs/DATA_METHOD.md）
     if not args.pref and not args.pref_guess:
         raise SystemExit("都道府県コードを中身から判定できませんでした。--pref で指定してください")
     pref = str(args.pref or args.pref_guess).zfill(2)
@@ -544,6 +552,7 @@ def cmd_build(args) -> int:
             extra = []
             for (city, x, y, props), hull in zip(sch, near.hulls):
                 if hull is None:
+                    args._no_points.append(_no_point_entry(city, props, fields, "おおよその区域"))
                     continue
                 pr = dict(props)
                 pr.update({"_city": city, "_approx": "1", "_lng": x, "_lat": y})
@@ -700,6 +709,8 @@ def cmd_build(args) -> int:
         "district_code_other_city": code_other,
         # 設置者の名前が市区町村と合わないので、学校の位置データから選ぶ候補に使わなかった学校
         "owner_mismatch_excluded": args._owner_mismatch,
+        # 割り当たる点が1つも無く、出力しなかった学校（おおよその区域・学区データに無い学校）。黙って抜かない
+        "schools_without_points": args._no_points,
         # 学区データのある学校のうち、学校の位置データに見つからず学区の重心にした学校と、位置が学区の外にある学校
         "location_fallback": obj["_no_location"],
         "location_outside_district": obj["_location_outside_district"],

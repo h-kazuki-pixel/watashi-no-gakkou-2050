@@ -540,6 +540,32 @@ def test_gap_city_name_is_majority_of_addresses(tmp_path, capsys):
     capsys.readouterr()
 
 
+def test_school_without_points_is_listed(tmp_path, capsys):
+    # 実物の形：防府市の野島小（島の学校）は、まわりに推計のメッシュが無く、どの点もほかの学校のほうが近い。
+    # 区域が作れないので出力しないが、黙って抜かずに report の schools_without_points に出す
+    import zipfile
+    _make_gap_downloads(tmp_path / "dl")
+    zp = tmp_path / "dl" / "P29-23_99.zip"
+    with zipfile.ZipFile(zp) as z:
+        doc = json.loads(z.read("P29-23_99.geojson"))
+    island = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 40.0 * DLNG, LAT0 + 40.0 * DLAT]},
+              "properties": {"P29_001": "99102", "P29_002": "B199210000042", "P29_003": "16001", "P29_004": "しま小学校",
+                             "P29_005": "テスト県みほん市西区しま158-1"}}
+    doc["features"].append(island)
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps(doc, ensure_ascii=False))
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["schools_without_points"] == [{"city": "99102", "name": "しま小学校", "code": "B199210000042", "how": "おおよその区域"}]
+    assert "しま小学校" not in report["dropped_small"]
+    assert report["allocated_2025"] == 640.0 and report["conservation_error"] < 1e-6
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    west = next(c for c in pref["cities"] if c["code"] == "99102")
+    assert sorted(s["name"] for s in west["schools"]) == ["うみ小学校", "やま小学校"]
+    capsys.readouterr()
+
+
 def test_inspect_accepts_points_only_school_zip(tmp_path, capsys):
     # 国土数値情報「学校」(P29) の zip には学区のポリゴンが無い。inspect --schools に渡しても止まらない
     _make_gap_downloads(tmp_path / "dl")

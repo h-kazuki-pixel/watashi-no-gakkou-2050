@@ -237,11 +237,16 @@ def main():
                     help="距離の経度の縮め方。point＝点ごとの緯度（パイプラインと同じ）、mean＝対象の点の緯度の平均で1つ（以前の方法）")
     ap.add_argument("--no-fill-missing", action="store_true",
                     help="学区データのある市区町村で、学区データに無い学校を補わない（以前のパイプラインと比べるとき）")
+    ap.add_argument("--report", help="report_XX.json。割り当たる点が無い学校の一覧（schools_without_points）を比べる")
     ap.add_argument("--strict", action="store_true")
     args = ap.parse_args()
     exclude = {c for c in args.exclude.split(",") if c}
 
     codes, mcity, V = parse_mesh(args.mesh)
+    # 子どものいないメッシュ（6〜11歳がすべての年で0、2025年の0〜11歳も0）には点を置かない（DATA_METHOD.md）
+    k611 = V[:, 1, :] * 4 / 5 + V[:, 2, :] * 2 / 5
+    use = (k611.sum(axis=1) + V[:, 0, 0] + V[:, 1, 0] + V[:, 2, 0] * 2 / 5) > 0
+    codes, mcity, V = [c for c, u in zip(codes, use) if u], [c for c, u in zip(mcity, use) if u], V[use]
     n = len(codes)
     kids = V[:, 1, :] * 4 / 5 + V[:, 2, :] * 2 / 5  # 6〜11歳
     sw = np.array([mesh_sw(c) for c in codes])
@@ -379,6 +384,7 @@ def main():
     scity = np.array([s[2] for s in S])
     sx, sy = np.array([s[3] for s in S], float), np.array([s[4] for s in S], float)
     near, neara = np.zeros((len(S), len(YEARS))), np.zeros((len(S), 3))
+    near_n = np.zeros(len(S), int)  # 学校ごとに当たった点の数
     touches = np.array([any(c in gap for c in m.split("_")) for m in mcity])
     kx = math.cos(math.radians(float(py[np.repeat(touches, K * K)].mean()))) if touches.any() else 1.0
     groups = defaultdict(list)
@@ -396,6 +402,7 @@ def main():
         o = cand[np.argmin(d2, axis=1)]
         np.add.at(near, o, kids[pm[js]] * w0)
         np.add.at(neara, o, V[pm[js], :, 0] * w0)
+        np.add.at(near_n, o, 1)
     for i, s in enumerate(S):
         est[f"{s[0]}@{s[2]}"] = dict(name=s[1], city=s[2], approx=True, e=near[i], a=neara[i])
 
@@ -412,6 +419,7 @@ def main():
     tcity = np.array([s[2] for s in T])
     tx, ty = np.array([s[3] for s in T], float), np.array([s[4] for s in T], float)
     fill, filla = np.zeros((len(T), len(YEARS))), np.zeros((len(T), 3))
+    fill_n = np.zeros(len(T), int)
     unassigned = 0.0
     for js in left:
         combo = mcity[pm[js[0]]]
@@ -424,12 +432,23 @@ def main():
         o = cand[np.argmin(d2, axis=1)]  # 補う学校の中でいちばん近い学校
         np.add.at(fill, o, kids[pm[js]] * w0)
         np.add.at(filla, o, V[pm[js], :, 0] * w0)
+        np.add.at(fill_n, o, 1)
     for i in sorted(miss):
         s = T[i]
         est[f"{s[0]}@{s[2]}"] = dict(name=s[1], city=s[2], approx=True, e=fill[i], a=filla[i])
     filled = defaultdict(list)
     for i in sorted(miss):
         filled[T[i][2]].append((T[i][1], round(float(fill[i, 0]), 1)))
+
+    # 割り当たる点が1つも無い学校（DATA_METHOD.md「割り当たる点が無い学校」）。出力されない
+    no_pts = sorted([(s[2], s[1], "おおよその区域") for i, s in enumerate(S) if near_n[i] == 0]
+                    + [(T[i][2], T[i][1], "学区データに無い学校") for i in sorted(miss) if fill_n[i] == 0])
+    print(f"割り当たる点が無い学校: {no_pts}")
+    no_pts_bad = False
+    if args.report:
+        rep_np = sorted((e["city"], e["name"], e["how"]) for e in json.load(open(args.report, encoding="utf-8")).get("schools_without_points", []))
+        no_pts_bad = rep_np != no_pts
+        print(f"report の schools_without_points と: {'違う ' + str(rep_np) if no_pts_bad else '同じ'}")
 
     total = kids[:, 0].sum()
     allocated = sum(v["e"][0] for v in est.values())
@@ -483,7 +502,7 @@ def main():
     print(f"0.06人を超えて違う学校：学区のある学校 {len(bad_d)}、おおよその区域の学校 {len(bad_a)}（最大 {worst:.2f}人）")
     for row in sorted(bad_d + bad_a, reverse=True)[:20]:
         print("  ", row)
-    fail = bool(only_app or only_mine or bad_meta or bad_d or foreign_id or (args.strict and bad_a))
+    fail = bool(only_app or only_mine or bad_meta or bad_d or foreign_id or no_pts_bad or (args.strict and bad_a))
     print("結果:", "不一致あり" if fail else "一致")
     return 1 if fail else 0
 

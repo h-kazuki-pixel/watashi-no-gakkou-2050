@@ -363,6 +363,8 @@ def do_pref(pref: str, work: pathlib.Path, args) -> dict:
             cmd = [py, INDEP, "--mesh", mx, "--districts", dx, "--schools", px, "--pref-js", js]
             if ex:
                 cmd += ["--exclude", ex]
+            if report is not None:
+                cmd += ["--report", d / "od" / f"report_{pref}.json"]
             st["steps"]["independent_check"] = run(cmd, L / "4_independent.log", args.timeout)
             st["steps"]["independent_check"].update(indep_result((L / "4_independent.log").read_text(encoding="utf-8")))
         finally:
