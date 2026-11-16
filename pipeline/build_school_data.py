@@ -135,23 +135,24 @@ def _shape_label(fields):
 
 
 def _school_points(path, pref_code, to_city=None) -> dict:
-    """学校の位置を、学校コードと（行政区域コード, 学校名）の両方で引けるようにする。
-    to_city：区のコードを市のコードに読み替える関数（学区データが市のコードで入っている政令市）。"""
+    """学校の位置を、学校コードと（行政区域コード, 学校名）の両方で引けるようにする（export.locate で引く）。
+    学校コードの鍵には市区町村も持たせる（学区データの学校コードが別の市区町村のものなことがある。古河市）。
+    to_city：区のコードを市のコードに読み替える関数（学区データが市のコードで入っている政令市）。
+    属性を判定できなければ止める（黙って学区の重心で代えない）。"""
     feats = readers.read_features(path)
     try:
         f = readers.detect_fields(feats)
     except ValueError as e:
-        log(f"学校の位置データを使えません（{e}）。学区の重心を使います")
-        return {}
+        raise SystemExit(f"学校の位置データの属性を判定できません（{e}）: {path}")
     out = {}
     for ft in feats:
         xy = (float(ft.rings[0][0][0]), float(ft.rings[0][0][1]))
-        if f.school_code and ft.props.get(f.school_code):
-            out[ft.props[f.school_code]] = xy
         city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else pref_code + "000"
         if to_city:
             city = to_city(city)
-        out[(city, export.strip_owner(ft.props.get(f.name, "")))] = xy
+        if f.school_code and ft.props.get(f.school_code):
+            out[("code", ft.props[f.school_code])] = (city, xy)
+        out[("name", city, export.strip_owner(ft.props.get(f.name, "")))] = xy
     return out
 
 
@@ -505,6 +506,9 @@ def cmd_build(args) -> int:
         "closed_schools_excluded": closed_out,
         # 学区の図形の乱れ（同じ輪の重複・外に出た穴・部分の重なり）と、その扱い
         "geometry_issues": geometry_issues,
+        # 学区データのある学校のうち、学校の位置データに見つからず学区の重心にした学校と、位置が学区の外にある学校
+        "location_fallback": obj["_no_location"],
+        "location_outside_district": obj["_location_outside_district"],
         "seconds": round(time.time() - t0, 1),
     }
     if report["obsolete_ward_cities"]:
@@ -573,7 +577,9 @@ def cmd_build_all(args) -> int:
             missing[pref] = "学区がありません" if "districts" not in got else "メッシュがありません"
             continue
         sub = argparse.Namespace(**vars(args))
-        sub.districts, sub.mesh, sub.pref, sub.schools = str(got["districts"]), str(got["mesh"]), pref, None
+        # 学校の位置（学区データのある学校のピン）にも国土数値情報「学校」を使う
+        sub.districts, sub.mesh, sub.pref = str(got["districts"]), str(got["mesh"]), pref
+        sub.schools = str(got["schools"]) if "schools" in got else None
         sub.fill_schools = None if args.no_fill else (str(got["schools"]) if "schools" in got else None)
         try:
             cmd_build(sub)
@@ -618,7 +624,7 @@ def _validate_pref(pref, got, args) -> dict:
     xy, fallback = [], 0
     for f in feats:
         code = f.props.get(fields.school_code, "") if fields.school_code else ""
-        loc = pts.get(code) or pts.get((f.props["_city"], f.props.get(fields.name, "")))
+        loc = export.locate(pts, code, f.props["_city"], f.props.get(fields.name, ""))
         if not loc:
             loc, fallback = geo.centroid(f.rings), fallback + 1
         xy.append(loc)

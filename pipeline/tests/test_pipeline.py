@@ -1078,3 +1078,39 @@ def test_shapefile_rings_grouped_by_orientation(tmp_path):
     assert [len(p) for p in f.polys] == [2, 1]
     assert _alloc_2025([f])[0] == pytest.approx(160.0)             # 16 − 1 ＋ 1
 
+
+# ---------------------------------------------------------------- 学区データのある学校のピン（学校の位置データから）
+
+def test_locate_uses_code_only_when_city_matches():
+    pts = {("code", "B108210000010"): ("08201", (140.4, 36.4)),            # 水戸市の学校コード
+           ("name", "08204", "上大野小学校"): (139.7, 36.2)}               # 古河市の上大野小
+    # 古河市（08204）の学区データの上大野小には、水戸市の学校コードが入っている → 名前で引く
+    assert export.locate(pts, "B108210000010", "08204", "上大野小学校") == (139.7, 36.2)
+    assert export.locate(pts, "B108210000010", "08201", "上大野小学校") == (140.4, 36.4)
+    assert export.locate(pts, "", "08204", "古河市立上大野小学校") == (139.7, 36.2)
+    assert export.locate(pts, "B100000000000", "08204", "下大野小学校") is None
+
+
+def test_build_all_pins_district_schools_from_school_points(tmp_path, capsys):
+    # みなみ小は学校の位置データにある（学校コードは違うので名前で引く）。にし小の学校コードは、別の市区町村（99102）の学校に
+    # 付いているので使わない。にし小・かさなり小は位置データに無いので、学区の重心にして report に出す
+    _missing_school_downloads(tmp_path / "dl")
+    import zipfile
+    zp = tmp_path / "dl" / "P29-23_99.zip"
+    doc = json.loads(zipfile.ZipFile(zp).read("P29-23_99.geojson"))
+    doc["features"].append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 7.9 * DLNG, LAT0 + 0.1 * DLAT]},
+                            "properties": {"P29_001": "99102", "P29_002": "B199110000019", "P29_003": "16001",
+                                           "P29_004": "みほん市立べつ小学校", "P29_005": "テスト県みほん市西区"}})
+    zp.unlink()
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps(doc, ensure_ascii=False))
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    by = {s["name"]: s for c in pref["cities"] for s in c["schools"]}
+    assert (by["みなみ小学校"]["lng"], by["みなみ小学校"]["lat"]) == (round(LNG0 + 6 * DLNG, 5), round(LAT0 + 3 * DLAT, 5))
+    assert by["にし小学校"]["lng"] != round(LNG0 + 7.9 * DLNG, 5)
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert sorted(e["name"] for e in report["location_fallback"]) == ["かさなり小学校", "にし小学校"]
+    assert report["location_outside_district"] == []
+    capsys.readouterr()

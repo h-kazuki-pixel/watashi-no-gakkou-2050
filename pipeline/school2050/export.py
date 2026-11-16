@@ -45,6 +45,16 @@ def merge_same_school(features: list[Feature], fields: DistrictFields, pref_code
     return [groups[k] for k in order]
 
 
+def locate(points: dict | None, code: str, city: str, name: str):
+    """学校の位置。学校コードで引くのは市区町村も合うときだけ。合わなければ（市区町村, 設置者を外した学校名）で引く。無ければ None。"""
+    if not points:
+        return None
+    hit = points.get(("code", code)) if code else None
+    if hit and hit[0] == city:
+        return hit[1]
+    return points.get(("name", city, strip_owner(name)))
+
+
 def strip_owner(name: str) -> str:
     """学校名の先頭の設置者（「北九州市立」「〇〇町立」「〇〇組合立」など）を取り、学区データの形（「大積小学校」）にそろえる。
     国土数値情報「学校」は設置者つき、「小学校区」は設置者なしで収録されているため。「立花小学校」のように
@@ -117,6 +127,7 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
     names = _city_names(features, fields, city_overrides)
     cities: dict = {}
     rows, dropped, used_ids = [], [], set()
+    no_loc, outside = [], []  # 学校の位置が見つからず学区の重心にした学校、学校の位置が学区の外にある学校
     for i, f in enumerate(features):
         est = sums[i, :n_years]
         ages = sums[i, n_years:n_years + 12]
@@ -133,11 +144,15 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
         if f.props.get("_lng"):
             loc, loc_src = (float(f.props["_lng"]), float(f.props["_lat"])), "学校の位置データ"
         if not loc and school_points:
-            loc = school_points.get(sid) or school_points.get((city, name))
+            code = f.props.get(fields.school_code, "") if fields.school_code else ""
+            loc = locate(school_points, code, city, name)
             if loc:
                 loc_src = "学校の位置データ"
+                if not geo.points_in_polys([loc[0]], [loc[1]], f.polys or geo.polys_from_rings(f.rings))[0]:
+                    outside.append({"city": city, "name": name})
         if not loc:
             loc = geo.centroid(f.rings)
+            no_loc.append({"city": city, "name": name})
         school = {
             "id": sid, "name": name,
             "lng": round(float(loc[0]), 5), "lat": round(float(loc[1]), 5),
@@ -170,6 +185,8 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
         "cities": [cities[k] for k in sorted(cities)],
         "missing": [],
         "_dropped": dropped,
+        "_no_location": no_loc,
+        "_location_outside_district": outside,
     }
     return obj, rows
 
