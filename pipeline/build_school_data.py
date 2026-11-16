@@ -260,8 +260,11 @@ def _city_coded(feats, mt, schools_path, table=None):
     return found, (wards.mapper(found, table) if found else None)
 
 
-# 国土数値情報「学校」の休校区分（コード表「休校コード」：0 調査なし、1 開校中、2 休校中）
-CLOSED_CODES = {"0", "1", "2"}
+# 国土数値情報「学校」の休校区分。資料によって「休校中」のコードが違う：
+#   製品仕様書（第2.0版・第2.1版）では 9＝休校中、コードリストのページ（ClosedSchoolCode.html）では 2＝休校中（0 調査なし、1 開校中）。
+# どちらも休校中として外す。使うのは 0 と 1 だけ。それ以外の値（空欄を除く）も、意味が分からないので外す
+OPEN_CODES = {"0", "1"}
+CLOSED_CODES = {"2", "9"}
 
 
 def closed_field(feats) -> str | None:
@@ -277,8 +280,8 @@ def closed_field(feats) -> str | None:
 
 
 def is_closed(value: str) -> bool:
-    """休校中（2）か、コード表に無い値（9 など）なら True。空欄・0・1 は False。"""
-    return bool(value) and (value == "2" or value not in CLOSED_CODES)
+    """休校中（2 か 9）か、意味の分からない値なら True。空欄・0・1 は False。"""
+    return bool(value) and value not in OPEN_CODES
 
 
 def _public_elementary(code: str, name: str) -> bool:
@@ -341,7 +344,7 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
     src = inputs.find_schools(path)
     feats = readers.read_features(src.points)
     f = readers.detect_fields(feats)
-    cf = closed_field(feats)  # 休校区分。休校中・コード表に無い値の学校は使わない（docs/DATA_METHOD.md）
+    cf = closed_field(feats)  # 休校区分。休校中（2・9）と意味の分からない値の学校は使わない（docs/DATA_METHOD.md）
     owners = city_owners(feats, f, to_city)
     _gap_schools.mismatch = []
     out, names = [], {}
@@ -669,7 +672,7 @@ def cmd_build(args) -> int:
         "city_coded_districts": {c: cc.to_report() for c, cc in city_coded.items()},
         # 区で分けて出した市区町村のうち、欠番（再編前など）の区のコード。今の区と名前が合わない
         "obsolete_ward_cities": wards.obsolete_split([c["code"] for c in obj["cities"]], wt),
-        # 休校区分が休校中（2）かコード表に無い値の公立小学校。学校の位置データから選ぶ候補には使わない
+        # 休校区分が休校中（2・9）か意味の分からない値の公立小学校。学校の位置データから選ぶ候補には使わない
         "closed_schools_excluded": closed_out,
         # 休校区分の属性名。null なら見つからず、休校の学校も候補に使った
         "closed_field": closed_cf,

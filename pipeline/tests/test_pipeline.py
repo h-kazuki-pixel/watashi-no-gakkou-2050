@@ -800,7 +800,7 @@ def test_closed_field_and_values():
 
 
 def test_closed_schools_are_not_candidates(tmp_path, capsys):
-    # 学区データなしの区（99102）：やま小が休校区分 9（コード表に無い値）→ おおよその区域の候補にしない。
+    # 学区データなしの区（99102）：やま小が休校区分 9（製品仕様書で休校中）→ おおよその区域の候補にしない。
     # 学区のある区（99101）：にし小が休校中（2）でも、学区データにあるので学区の学校として使う（学校コードが違うので名前で突き合わせる）
     _make_gap_downloads(tmp_path / "dl")
     east = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 0.3 * DLNG, LAT0 + 0.3 * DLAT]},
