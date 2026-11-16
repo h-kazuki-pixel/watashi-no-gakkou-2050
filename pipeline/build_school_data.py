@@ -201,9 +201,10 @@ def is_closed(value: str) -> bool:
 
 
 def _public_elementary(code: str, name: str) -> bool:
-    """公立小学校か。学校コードがあれば先頭2文字が B1（小学校）で5文字目が 2（公立）。無ければ名前で決める。"""
+    """公立の小学校か義務教育学校か。学校コードがあれば先頭2文字が B1（小学校）か C2（義務教育学校）で、5文字目が 2（公立）。
+    無ければ名前で決める。"""
     if code:
-        return code.startswith("B1") and code[4:5] == "2"
+        return code[:2] in ("B1", "C2") and code[4:5] == "2"
     return name.endswith("小学校") and not re.search(r"附属|私立", name)
 
 
@@ -276,7 +277,7 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
             continue
         code = ft.props.get(f.school_code, "") if f.school_code else ""
         name = export.strip_owner(ft.props.get(f.name, ""))
-        # 文部科学省の学校コード：先頭2文字が学校種（B1＝小学校）、5文字目が設置者（2＝公立）
+        # 文部科学省の学校コード：先頭2文字が学校種（B1＝小学校、C2＝義務教育学校）、5文字目が設置者（2＝公立）
         if not _public_elementary(code, name):
             continue
         if cf and is_closed(ft.props.get(cf, "")):

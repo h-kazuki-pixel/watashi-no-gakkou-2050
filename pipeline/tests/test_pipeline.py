@@ -1197,3 +1197,27 @@ def test_same_school_with_wrong_p29_city_keeps_code_as_id(tmp_path, capsys):
     by = {(c["code"], s["name"]): s for c in pref["cities"] for s in c["schools"]}
     assert by[("99101", "にし小学校")]["id"] == "B199110000019"
     capsys.readouterr()
+
+
+# ---------------------------------------------------------------- 義務教育学校
+
+def test_public_compulsory_school_is_a_candidate(tmp_path, capsys):
+    # 京都市東山区の形：公立の学校が義務教育学校（学校コードの先頭 C2）だけ。おおよその区域の候補に入れ、名前はそのまま出す
+    import zipfile
+    _make_gap_downloads(tmp_path / "dl")
+    zp = tmp_path / "dl" / "P29-23_99.zip"
+    doc = json.loads(zipfile.ZipFile(zp).read("P29-23_99.geojson"))
+    doc["features"] = [f for f in doc["features"] if f["properties"]["P29_004"] != "やま小学校"]
+    doc["features"].append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 7 * DLNG, LAT0 + 7 * DLAT]},
+                            "properties": {"P29_001": "99102", "P29_002": "C299210000011", "P29_003": "16014",
+                                           "P29_004": "みほん市立やま小中学校", "P29_005": "テスト県みほん市西区"}})
+    zp.unlink()
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps(doc, ensure_ascii=False))
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    west = next(c for c in pref["cities"] if c["code"] == "99102")
+    assert sorted(s["name"] for s in west["schools"]) == ["うみ小学校", "やま小中学校"]
+    assert export.strip_owner("大熊町立学び舎ゆめの森") == "学び舎ゆめの森"
+    capsys.readouterr()

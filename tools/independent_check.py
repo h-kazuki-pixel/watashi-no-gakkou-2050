@@ -77,7 +77,7 @@ def parse_mesh(path):
 
 def strip_owner(name):
     """学校名の先頭の設置者（「岡垣町立」など）を外す。「立花小学校」のように「立」で始まる名前はそのまま。"""
-    m = re.match(r"^.{1,12}?(?:市|町|村|区|組合)立(.+(?:学校|学園|分校))$", name or "")
+    m = re.match(r"^.{1,12}?(?:市|町|村|区|組合)立(.+(?:学校|学園|分校|森))$", name or "")
     return m.group(1) if m else (name or "")
 
 
@@ -306,13 +306,14 @@ def main():
     gap = {c for c in tot if tot[c] > 0 and got[c] / tot[c] < 0.05}
     low = {c: round(float(got[c] / tot[c]), 3) for c in sorted(tot) if tot[c] > 0 and c not in gap and got[c] / tot[c] < 0.9}
 
-    # おおよその区域：公立小学校（学校コードの先頭2文字が B1、5文字目が 2）のうち、いちばん近い学校。
+    # おおよその区域：公立の小学校・義務教育学校（学校コードの先頭2文字が B1 か C2、5文字目が 2）のうち、いちばん近い学校。
     # 休校区分が 2（休校中）か、コード表（0・1・2）に無い値の学校は使わない
     ck = closed_key([f["properties"] for f in pts])
     def closed(f):
         v = str(f["properties"].get(ck) or "") if ck else ""
         return v != "" and v not in ("0", "1")
-    pub_all = [f for f in pts if f["properties"]["P29_002"][:2] == "B1" and f["properties"]["P29_002"][4] == "2"]
+    # 公立の小学校（学校コードの先頭 B1）と義務教育学校（先頭 C2）。5文字目が 2（公立）
+    pub_all = [f for f in pts if f["properties"]["P29_002"][:2] in ("B1", "C2") and f["properties"]["P29_002"][4] == "2"]
     # 設置者の名前（「○○市立」など。郡名は外す。組合立は見ない）が、その市区町村の公立学校の設置者でいちばん多いものと違う学校は使わない
     def owner(name):
         if re.match(r"^.{0,12}組合立", name or ""):
