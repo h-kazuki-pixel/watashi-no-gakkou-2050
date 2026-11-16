@@ -26,6 +26,7 @@ import pathlib
 import re
 import sys
 import time
+from collections import Counter
 
 import numpy as np
 
@@ -348,6 +349,7 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
     owners = city_owners(feats, f, to_city)
     _gap_schools.mismatch = []
     out, names = [], {}
+    from_addr: dict = {}  # 行政区域コード → 住所から取った市区町村名の数
     for ft in feats:
         city = ft.props.get(f.city_code, "").zfill(5) if f.city_code else ""
         if to_city and city:
@@ -355,8 +357,10 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
         addr = ft.props.get(f.address, "") if f.address else ""
         if city and city_names and city in city_names:
             names[city] = city_names[city]
-        elif city and addr and city not in names:
-            names[city] = export.city_from_address(addr)
+        elif city and addr:
+            nm = export.city_from_address(addr)
+            if nm:
+                from_addr.setdefault(city, Counter())[nm] += 1
         if city not in gap_cities:
             continue
         code = ft.props.get(f.school_code, "") if f.school_code else ""
@@ -379,6 +383,11 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
         if dfields.school_code and code:
             props[dfields.school_code] = code
         out.append((city, x, y, props))
+    # 名前は、住所から取った名前のうちいちばん多いもの。最初の1校で決めると、コードの誤った1校で名前が変わる
+    # （岐阜県：長野県下諏訪町の日進学園が 21201 で、岐阜市が「下諏訪町」になっていた）。同数なら名前の順で先のもの
+    for c, cnt in from_addr.items():
+        if c not in names:
+            names[c] = min(cnt.items(), key=lambda kv: (-kv[1], kv[0]))[0]
     for c, _x, _y, pr in out:
         pr["_city_name"] = names.get(c, "")
     _gap_schools.names = names

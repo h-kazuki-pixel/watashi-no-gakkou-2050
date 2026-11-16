@@ -515,6 +515,31 @@ def test_gap_city_filled_from_school_points(tmp_path, capsys):
     capsys.readouterr()
 
 
+def test_gap_city_name_is_majority_of_addresses(tmp_path, capsys):
+    # 実物の形：岐阜県の P29 で、長野県下諏訪町の各種学校（日進学園、学校コード H2…）が岐阜市のコード 21201 で
+    # 最初に入っていた。名前を最初の1校で決めると、岐阜市が「下諏訪町」になる。住所から取った名前の多いほうにする
+    import zipfile
+    _make_gap_downloads(tmp_path / "dl")
+    zp = tmp_path / "dl" / "P29-23_99.zip"
+    with zipfile.ZipFile(zp) as z:
+        doc = json.loads(z.read("P29-23_99.geojson"))
+    other = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + 6.0 * DLNG, LAT0 + 6.0 * DLAT]},
+             "properties": {"P29_001": "99102", "P29_002": "H299336100013", "P29_003": "16001", "P29_004": "べつ県学園",
+                            "P29_005": "べつ県すわ郡しも町3310"}}
+    doc["features"] = [other] + doc["features"]
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps(doc, ensure_ascii=False))
+    from school2050.export import city_from_address
+    assert city_from_address("べつ県すわ郡しも町3310") == "しも町"
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    west = next(c for c in pref["cities"] if c["code"] == "99102")
+    assert west["name"] == "みほん市西区"
+    assert sorted(s["name"] for s in west["schools"]) == ["うみ小学校", "やま小学校"]   # 各種学校は候補にしない
+    capsys.readouterr()
+
+
 def test_inspect_accepts_points_only_school_zip(tmp_path, capsys):
     # 国土数値情報「学校」(P29) の zip には学区のポリゴンが無い。inspect --schools に渡しても止まらない
     _make_gap_downloads(tmp_path / "dl")
