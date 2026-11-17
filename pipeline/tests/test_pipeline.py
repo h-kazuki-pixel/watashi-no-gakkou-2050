@@ -557,7 +557,10 @@ def test_school_without_points_is_listed(tmp_path, capsys):
     rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
     assert rc == 0
     report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
-    assert report["schools_without_points"] == [{"city": "99102", "name": "しま小学校", "code": "B199210000042", "how": "おおよその区域"}]
+    # 東区（99101）は学区で全部覆われていて、学区データに無い「にし区外小」は補う学校（B）になるが、当たる点が無い
+    assert report["schools_without_points"] == [
+        {"city": "99102", "name": "しま小学校", "code": "B199210000042", "how": "おおよその区域"},
+        {"city": "99101", "name": "にし区外小学校", "code": "B199210000033", "how": "学区データに無い学校"}]
     assert "しま小学校" not in report["dropped_small"]
     assert report["allocated_2025"] == 640.0 and report["conservation_error"] < 1e-6
     pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
@@ -687,9 +690,10 @@ def test_validate_approx_cli_writes_city_summaries(tmp_path, capsys):
     v = report["validate_approx"]
     assert v["year"] == 2025 and set(v["cities"]) == {"99101", "99102"}
     assert v["pref"]["schools"] == sum(c["schools"] for c in v["cities"].values()) == 4
-    # build の結果は残っている。99102 は学区データに無い公立小（うみ・やま）があるが、配分率が 0.97（穴の1セルだけ未配分）で
-    # 0.9 以上なので補わない（すき間の点が1校に集まるのを避ける）
-    assert report["schools"] == 4 and report["filled_missing_schools"] == {}
+    # build の結果は残っている。99102 は学区データに無い公立小（うみ・やま）があり、配分率が 0.97（穴の1セルだけ未配分）なので B で補う。
+    # 穴のセル（列 5〜6、行 5〜6）の点はどれも、うみ小（5, 2）よりやま小（7, 7）が近いので、10人すべてがやま小に入る
+    assert report["schools"] == 5 and report["filled_missing_schools"] == {"99102": 1}
+    assert {e["name"] for e in report["schools_without_points"]} == {"うみ小学校", "にし区外小学校"}
     text = json.dumps(v, ensure_ascii=False)
     assert "小学校" not in text                                   # 学校名は出さない
     capsys.readouterr()
@@ -1061,6 +1065,70 @@ def test_missing_school_filled_without_changing_district_schools(tmp_path, capsy
     assert set(by0) == {"にし小学校", "かさなり小学校", "みなみ小学校"}
     for n, s0 in by0.items():
         assert by[n]["est"] == s0["est"] and by[n]["ages"] == s0["ages"]
+    capsys.readouterr()
+
+
+def _high_coverage_downloads(folder, rival=True):
+    """学区データは全部ある（西区の配分率 310 / 320 ＝ 0.97。きた小の学区の穴 1セル＝10人だけ未配分）。
+    学校の位置データには、学区データに無い「もり小」（穴の左の辺、列 5・行 5.5）と、学区データにあるきた小（穴の右の辺、列 6・行 5.5）。"""
+    import zipfile
+    folder.mkdir(parents=True, exist_ok=True)
+    feats = [{"type": "Feature", "properties": p, "geometry": {"type": "MultiPolygon", "coordinates": g}}
+             for p, g in district_features()]
+    with zipfile.ZipFile(folder / "A27-23_99_GML.zip", "w") as z:
+        z.writestr("A27-23_99.geojson", json.dumps({"type": "FeatureCollection", "features": feats}, ensure_ascii=False))
+
+    def school(code, name, c, r):
+        return {"type": "Feature", "geometry": {"type": "Point", "coordinates": [LNG0 + c * DLNG, LAT0 + r * DLAT]},
+                "properties": {"P29_001": "99102", "P29_002": code, "P29_003": "16001", "P29_004": name,
+                               "P29_005": "テスト県みほん市西区2丁目3番4号", "P29_007": "1"}}
+    pts = [school("B199210000078", "みほん市立もり小学校", 5.0, 5.5),       # 学区データに無い → B で補う
+           school("B199210000037", "みほん市立みなみ小学校", 6.0, 2.0),     # 学区データにある（学校コードが違うので名前で突き合わせる）
+           school("B199210000087", "みほん市立いけ小学校", 9.0, 9.0)]       # 学区データに無いが、穴から遠い
+    if rival:
+        pts.append(school("B199210000046", "みほん市立きた小学校", 6.0, 5.5))  # 学区データにある（候補として競う）
+    with zipfile.ZipFile(folder / "P29-23_99.zip", "w") as z:
+        z.writestr("P29-23_99.geojson", json.dumps({"type": "FeatureCollection", "features": pts}, ensure_ascii=False))
+    make_mesh_csv(folder / "m.csv")
+    with zipfile.ZipFile(folder / "500m_mesh_2024_99.zip", "w") as z:
+        z.write(folder / "m.csv", "500m_mesh_2024_99.csv")
+    (folder / "m.csv").unlink()
+
+
+def test_high_coverage_fill_takes_only_points_nearest_to_missing_school(tmp_path, capsys):
+    # 配分率 0.9 以上の市区町村（B）：どの学区にも入らなかった穴の 16 点（10人）のうち、学区データの学校も含めた公立小で
+    # いちばん近い学校がもり小になる点（列 5〜5.5 の 8 点＝5人）だけをもり小に当てる。きた小のほうが近い 8 点は未配分のまま
+    _high_coverage_downloads(tmp_path / "dl")
+    rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")])
+    assert rc == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["city_coverage_2025"]["99102"] == pytest.approx(0.969, abs=1e-3)
+    assert report["filled_missing_schools"] == {"99102": 1}
+    assert report["unassigned_2025"] == pytest.approx(5.0) and report["conservation_error"] < 1e-6
+    assert report["schools_without_points"] == [{"city": "99102", "name": "いけ小学校", "code": "B199210000087", "how": "学区データに無い学校"}]
+    pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
+    by = {s["name"]: s for c in pref["cities"] for s in c["schools"]}
+    assert by["もり小学校"]["approx"] is True and by["もり小学校"]["est"][0] == pytest.approx(5.0, abs=0.05)
+    assert "approx" not in next(c for c in pref["cities"] if c["code"] == "99102")
+    for n in EXPECT_2025:
+        assert "approx" not in by[n] and by[n]["est"][0] == pytest.approx(EXPECT_2025[n])
+    # 補わない場合と比べて、学区のある学校の値は1つも変わらない
+    assert cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d0"), "--no-fill"]) == 0
+    by0 = {s["name"]: s for c in load_registered(tmp_path / "d0" / "pref_99.js", "registerPref")["cities"] for s in c["schools"]}
+    assert set(by0) == set(EXPECT_2025)
+    for n, s0 in by0.items():
+        assert by[n]["est"] == s0["est"] and by[n]["ages"] == s0["ages"]
+    capsys.readouterr()
+
+
+def test_high_coverage_fill_without_rival_takes_whole_gap(tmp_path, capsys):
+    # 学区データのきた小が学校の位置データに無ければ競う学校が無いので、穴の 10人すべてがもり小に入る（A と違い、候補は位置データの学校）
+    _high_coverage_downloads(tmp_path / "dl", rival=False)
+    assert cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od")]) == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["unassigned_2025"] == pytest.approx(0.0) and report["conservation_error"] < 1e-6
+    by = {s["name"]: s for c in load_registered(tmp_path / "d" / "pref_99.js", "registerPref")["cities"] for s in c["schools"]}
+    assert by["もり小学校"]["est"][0] == pytest.approx(10.0, abs=0.05)
     capsys.readouterr()
 
 

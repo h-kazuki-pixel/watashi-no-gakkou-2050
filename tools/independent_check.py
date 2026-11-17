@@ -14,8 +14,10 @@ zip はあらかじめ展開しておく。必要なのは numpy だけ。
 同じ輪の重複は除き、外側の輪の外にはみ出した穴は、はみ出した部分がほかの学区に半分以上入っていなければ飛び地として入れる
 （DATA_METHOD.md「学区の図形」）。
 おおよその区域は2種類：学区データの無い市区町村の学校と、学区データのある市区町村で学区データに入っていない公立小学校。
-後者は、配分率が 0.9 未満の市区町村だけで、名前が「分校」で終わる学校は除く。どの学区にも入らなかった点を、
+後者は、名前が「分校」で終わる学校は除く。配分率が 0.9 未満の市区町村（A）では、どの学区にも入らなかった点を、
 「補う学校の中で」いちばん近い学校に当てる（学区のある学校は候補にしない。学区のある学校の線引きは正しいとみなす）。
+配分率が 0.9 以上の市区町村（B）では、A のあとに残った点のうち、その市区町村の公立の小学校・義務教育学校（P29。休校を除き、
+学区データの学校・分校・設置者の名前が合わない学校も含む）でいちばん近い学校が補う学校になる点だけを、その学校に当てる。
 距離は、経度の差に点ごとの緯度の cos を掛ける（--lat-scale point。mean は以前のパイプラインの、県全体で1つの値）。
 学校の位置データ（P29）から学校を選ぶときは、休校区分（P29_007 か名前に「休校」を含む属性）が 0（調査なし）・1（開校中）
 以外の学校（2・9＝休校中。製品仕様書では 9、コードリストのページでは 2）を使わない。学区データの学校は休校区分に関係なく使う。
@@ -360,6 +362,7 @@ def main():
     wrong = [f for f in pub_all if owner(f["properties"]["P29_004"]) and f["properties"]["P29_001"] in major
              and owner(f["properties"]["P29_004"]) != major[f["properties"]["P29_001"]]]
     print(f"設置者の名前が市区町村と合わないので使わない学校: {[(f['properties']['P29_001'], f['properties']['P29_004']) for f in wrong]}")
+    pub_any = list(pub_all)  # B の「いちばん近い学校」の候補には、設置者の判定をしない
     pub_all = [f for f in pub_all if f not in wrong]
     print(f"休校区分の属性: {ck}。使わない公立小学校: {[(f['properties']['P29_001'], strip_owner(f['properties']['P29_004']), f['properties'][ck]) for f in pub_all if closed(f)]}")
     public = [(f["properties"]["P29_002"], strip_owner(f["properties"]["P29_004"]), f["properties"]["P29_001"],
@@ -425,12 +428,14 @@ def main():
     for i, s in enumerate(S):
         est[f"{s[0]}@{s[2]}"] = dict(name=s[1], city=s[2], approx=True, e=near[i], a=neara[i])
 
-    # 学区データのある市区町村（配分率 0.9 未満）で、学区データに入っていない公立小学校
+    # 学区データのある市区町村で、学区データに入っていない公立小学校
     # （学校コード、無ければ（市区町村, 設置者を外した名前）で突き合わせる。「分校」で終わる学校は除く）
-    dcity = ({f["properties"]["A27_001"] for f in feats} - gap) & set(low)
+    dall = {c for c in {f["properties"]["A27_001"] for f in feats} - gap if tot.get(c, 0) > 0}
+    dcity = dall & set(low)       # A：配分率 0.9 未満
+    hcity = dall - set(low)       # B：配分率 0.9 以上
     have_code = {f["properties"]["A27_003"] for f in feats}
     have_name = {(f["properties"]["A27_001"], strip_owner(f["properties"]["A27_004"])) for f in feats}
-    T = [s for s in public if s[2] in dcity and s[0] not in have_code and (s[2], s[1]) not in have_name
+    T = [s for s in public if s[2] in dall and s[0] not in have_code and (s[2], s[1]) not in have_name
          and not s[1].endswith("分校")]
     if args.no_fill_missing:
         T = []
@@ -440,11 +445,12 @@ def main():
     fill, filla = np.zeros((len(T), len(YEARS))), np.zeros((len(T), 3))
     fill_n = np.zeros(len(T), int)
     unassigned = 0.0
+    left_b = []  # A の補いに当たらなかった点
     for js in left:
         combo = mcity[pm[js[0]]]
         cand = np.nonzero(np.isin(tcity, [c for c in combo.split("_") if c in dcity]))[0] if T else np.zeros(0, int)
         if cand.size == 0:
-            unassigned += (kids[pm[js], 0] * w0).sum()
+            left_b.append(js)
             continue
         k = np.cos(np.radians(py[js, None])) if args.lat_scale == "point" else kx
         d2 = ((px[js, None] - tx[None, cand]) * k) ** 2 + (py[js, None] - ty[None, cand]) ** 2
@@ -452,6 +458,32 @@ def main():
         np.add.at(fill, o, kids[pm[js]] * w0)
         np.add.at(filla, o, V[pm[js], :, 0] * w0)
         np.add.at(fill_n, o, 1)
+    # B：補う学校（T のうち B の市区町村のもの）と、B の市区町村の公立小・義務教育学校（休校を除く）を並べ、
+    # いちばん近いのが補う学校である点だけを当てる。同じ学校（学校コードが同じ）は1回だけ並べる
+    tb = [i for i, s in enumerate(T) if s[2] in hcity]
+    tb_codes = {(T[i][0], T[i][2]) for i in tb}
+    riv = [(f["properties"]["P29_002"], f["properties"]["P29_001"], *f["geometry"]["coordinates"][:2]) for f in pub_any
+           if not closed(f) and f["properties"]["P29_001"] in hcity
+           and not (f["properties"]["P29_002"] and (f["properties"]["P29_002"], f["properties"]["P29_001"]) in tb_codes)]
+    # 学校コードの無い補う学校は、同じ位置の候補と並ぶが、argmin は先に並べた補う学校を選ぶ
+    bcity = np.array([T[i][2] for i in tb] + [r[1] for r in riv])
+    bx = np.array([T[i][3] for i in tb] + [r[2] for r in riv], float)
+    by_ = np.array([T[i][4] for i in tb] + [r[3] for r in riv], float)
+    for js in left_b:
+        combo = mcity[pm[js[0]]]
+        cand = np.nonzero(np.isin(bcity, [c for c in combo.split("_") if c in hcity]))[0] if tb else np.zeros(0, int)
+        if cand.size == 0:
+            unassigned += (kids[pm[js], 0] * w0).sum()
+            continue
+        k = np.cos(np.radians(py[js, None])) if args.lat_scale == "point" else kx
+        d2 = ((px[js, None] - bx[None, cand]) * k) ** 2 + (py[js, None] - by_[None, cand]) ** 2
+        o = cand[np.argmin(d2, axis=1)]  # 学区データの学校も含めて、いちばん近い学校
+        hit = o < len(tb)
+        unassigned += (kids[pm[js[~hit]], 0] * w0).sum()
+        oi = np.array(tb, int)[o[hit]]
+        np.add.at(fill, oi, kids[pm[js[hit]]] * w0)
+        np.add.at(filla, oi, V[pm[js[hit]], :, 0] * w0)
+        np.add.at(fill_n, oi, 1)
     for i in sorted(miss):
         s = T[i]
         est[f"{s[0]}@{s[2]}"] = dict(name=s[1], city=s[2], approx=True, e=fill[i], a=filla[i])
@@ -474,7 +506,7 @@ def main():
     print(f"メッシュ {n}件、6〜11歳の合計（2025年）{total:.1f}、配分 {allocated:.1f}、未配分 {unassigned:.1f}（{unassigned / total:.4f}）、"
           f"扱わない区域 {not_handled:.1f}、保存則の誤差 {total - allocated - unassigned - not_handled:.4f}")
     print(f"学区のある学校 {sum(not v['approx'] for v in est.values())}、学区データなしの市区町村 {len(gap)}（学校 {len(S)}）")
-    print(f"学区データがあるのに配分率が0.9未満の市区町村: {low}")
+    print(f"学区データがあるのに配分率が0.9未満の市区町村（A）: {low}")
     print(f"学区データに無いので補った学校（2025年の推計）: {dict(filled)}")
 
     # アプリのデータと比べる
