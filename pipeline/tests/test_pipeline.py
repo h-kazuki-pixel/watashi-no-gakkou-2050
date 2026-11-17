@@ -1121,6 +1121,18 @@ def test_high_coverage_fill_takes_only_points_nearest_to_missing_school(tmp_path
     capsys.readouterr()
 
 
+def test_high_coverage_fill_below_min_children_is_listed(tmp_path, capsys):
+    # 補った学校の2025年の推計が --min-children（ここでは 6人）未満なら出さず、report に市区町村と学校名だけを出す
+    _high_coverage_downloads(tmp_path / "dl")
+    assert cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(tmp_path / "d"), "--opendata", str(tmp_path / "od"),
+                     "--min-children", "6"]) == 0
+    report = json.loads((tmp_path / "od" / "report_99.json").read_text(encoding="utf-8"))
+    assert report["filled_missing_schools"] == {} and report["filled_missing_dropped_small"] == {"99102": 1}
+    assert report["filled_missing_dropped_small_schools"] == [{"city": "99102", "name": "もり小学校"}]
+    assert "もり小学校" in report["dropped_small"]
+    capsys.readouterr()
+
+
 def test_high_coverage_fill_without_rival_takes_whole_gap(tmp_path, capsys):
     # 学区データのきた小が学校の位置データに無ければ競う学校が無いので、穴の 10人すべてがもり小に入る（A と違い、候補は位置データの学校）
     _high_coverage_downloads(tmp_path / "dl", rival=False)

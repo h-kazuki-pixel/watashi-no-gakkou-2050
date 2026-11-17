@@ -708,6 +708,7 @@ def cmd_build(args) -> int:
             log("休校の公立小学校（学校の位置データの候補に使わない）: "
                 + ", ".join(f"{s['city']} {s['name']}（{s['value']}、{s['how']}）" for s in closed_out))
 
+    fill_names = {(f.props["_city"], f.props.get(fields.name, "")) for f in feats if f.props.get("_fill")}
     filled_out: dict = {}
     for c in obj["cities"]:
         if not c.get("approx"):
@@ -735,6 +736,8 @@ def cmd_build(args) -> int:
         # 学区データに無いので補った学校（出力した学校だけ）。2025年の推計が min_children 未満で出力しなかった学校は別に数える
         "filled_missing_schools": filled_out,
         "filled_missing_dropped_small": {c: n - filled_out.get(c, 0) for c, n in filled_info.items() if n > filled_out.get(c, 0)},
+        # その学校（市区町村コードと学校名）。推計の値は出さない
+        "filled_missing_dropped_small_schools": [{"city": c, "name": nm} for c, nm in obj["_dropped_where"] if (c, nm) in fill_names],
         "excluded_by_terms": excluded_by_terms,
         "note_cities": sorted(c["code"] for c in obj["cities"] if c.get("note")),
         "missing_cities": obj["missing"],
