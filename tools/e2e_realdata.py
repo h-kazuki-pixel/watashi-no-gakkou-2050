@@ -7,6 +7,8 @@
            「県コード」か「県コード:市区町村名」をカンマ区切りで（市区町村名が無ければ最初の市区町村）。
            例：python3 tools/e2e_realdata.py --prefs 01,13,14:横浜市,26:京都市東山区,07:いわき市,47
            福島県（07）では、浜通りの扱わない7町村が選べない（disabled）ことと、出す市町村の注意書きも確かめる。
+  --kana ：ひらがなで学校をさがす（龍王小・竜王北小・西新小・三入小・横浜市）。引数なしのときも最後に回す。
+           読み（kana）がまだ app/data に無ければ「飛ばした」と出す。
 """
 import argparse
 import os
@@ -101,6 +103,93 @@ def run_real(cases) -> int:
     return 1 if errors else 0
 
 
+# ひらがなで さがす（リポジトリの app/data の実データ）。県, 市区町村, 打つ ひらがな, 出るはずの学校
+KANA_CASES = [
+    ("34", "東広島市", "りゅうおう", "龍王小学校"),
+    ("19", "甲斐市", "りゅうおうきた", "竜王北小学校"),
+    ("40", "福岡市早良区", "にしじん", "西新小学校"),
+    ("34", "広島市", "みいり", "三入小学校"),
+]
+KANA_TYPING = ("14", "横浜市")  # 平仮名を1文字ずつ打って、一覧が絞れていくこと
+
+
+def _school_in_data(pref, city_name, school_name=None):
+    """app/data から学校を探す（読みが付いているかを、ブラウザを開く前に見る）。"""
+    import json
+    text = (ROOT / "app" / "data" / f"pref_{pref}.js").read_text(encoding="utf-8")
+    obj = json.loads(text[text.index("UG.registerPref(") + len("UG.registerPref("):text.rindex(");")])
+    city = next((c for c in obj["cities"] if c["name"] == city_name), None)
+    assert city, f"{pref}: 市区町村「{city_name}」が app/data に無い"
+    if school_name is None:
+        return city, None
+    school = next((s for s in city["schools"] if s["name"] == school_name), None)
+    assert school, f"{city_name}: 「{school_name}」が app/data に無い"
+    return city, school
+
+
+def run_kana() -> int:
+    """ひらがなで学校をさがす（実データ）。読み（kana）がまだ無い学校は「飛ばした」と出す。"""
+    todo = []
+    for pref, cname, q, target in KANA_CASES:
+        city, school = _school_in_data(pref, cname, target)
+        if not school.get("kana"):
+            print(f"  飛ばした（読みがまだ無い）：{cname}で「{q}」→ {target}")
+        else:
+            todo.append((pref, city, q, target))
+    ycity, _ = _school_in_data(*KANA_TYPING)
+    ytarget = next((s for s in ycity["schools"] if s.get("kana") and len(s["kana"][0]) >= 6), None)
+    if not ytarget:
+        print(f"  飛ばした（読みがまだ無い）：{KANA_TYPING[1]}で 平仮名を1文字ずつ打って 一覧が絞れていくこと")
+    if not todo and not ytarget:
+        return 0
+    errors = []
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        shutil.copytree(ROOT / "app", td / "app")
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(**LAUNCH)
+            page = browser.new_page(viewport={"width": 1180, "height": 820})
+            page.on("pageerror", lambda e: errors.append(str(e)))
+
+            def open_city(pref, code):
+                page.goto((td / "app" / "index.html").as_uri())
+                page.evaluate("UG.resetState()")
+                page.reload()
+                page.wait_for_selector("#sel-pref")
+                page.select_option("#sel-pref", pref)
+                page.wait_for_function(f"UG.state.prefCode === '{pref}'")
+                page.select_option("#sel-city", code)
+                page.wait_for_function(f"UG.state.cityCode === '{code}'")
+
+            def names():
+                return [t.strip() for t in page.locator("#school-list .school-btn .nm").all_inner_texts()]
+
+            for pref, city, q, target in todo:
+                open_city(pref, city["code"])
+                page.fill("#q-school", q)
+                got = names()
+                assert target in got, f"{city['name']}で「{q}」→ {target} が出ない: {got}"
+                assert q not in page.inner_text("#school-list"), "読みが画面に出ている"
+                print(f"  {city['name']}で「{q}」→ {got}")
+                page.screenshot(path=str(OUT / f"r-kana-{pref}-{city['code']}.png"), full_page=True)
+            if ytarget:
+                open_city(KANA_TYPING[0], ycity["code"])
+                total = len(names())
+                counts, typed = [], ""
+                for ch in ytarget["kana"][0][:6]:
+                    typed += ch
+                    page.fill("#q-school", typed)
+                    counts.append(len(names()))
+                    assert ytarget["name"] in names(), f"横浜市「{typed}」で {ytarget['name']} が消えた"
+                assert all(a >= b for a, b in zip([total] + counts, counts)), counts  # 打つほど 絞れる（増えない）
+                assert counts[-1] < total, (total, counts)
+                print(f"  横浜市で「{typed}」を1文字ずつ：{total} → {counts}（{ytarget['name']}）")
+                page.screenshot(path=str(OUT / "r-kana-yokohama.png"), full_page=True)
+            browser.close()
+    print("errors:", errors)
+    return 1 if errors else 0
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
@@ -181,8 +270,15 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("out", nargs="?", help="画面の保存先（省略すると tools/_shots）")
     ap.add_argument("--prefs", help="実データで確かめる県（「県コード」か「県コード:市区町村名」、カンマ区切り）")
+    ap.add_argument("--kana", action="store_true", help="ひらがなで学校をさがす（実データ）だけを確かめる。読みが無ければ飛ばす")
     a = ap.parse_args()
     if a.out:
         OUT = pathlib.Path(a.out)
     OUT.mkdir(parents=True, exist_ok=True)
-    sys.exit(run_real(a.prefs.split(",")) if a.prefs else main())
+    if a.kana:
+        sys.exit(run_kana())
+    if a.prefs:
+        sys.exit(run_real(a.prefs.split(",")))
+    rc = main()
+    print("ひらがなで さがす（app/data の実データ）")
+    sys.exit(rc or run_kana())

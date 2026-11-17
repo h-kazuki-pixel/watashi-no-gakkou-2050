@@ -13,6 +13,10 @@
   python3 pipeline/build_school_data.py inspect --districts <学区.zip> --mesh <メッシュ.zip>
   python3 pipeline/build_school_data.py build --districts <学区.zip> --mesh <メッシュ.zip> --out app/data
 
+学校名の読み（ひらがなで さがす。docs/DATA_METHOD.md「学校名の読み」）
+  python3 pipeline/build_school_data.py make-kana --town <町字データ.csv.zip>   # 町字データと辞書が要るのはここだけ
+  python3 pipeline/build_school_data.py add-kana                               # app/data の各校に kana を足す（build-all の最後でも呼ぶ）
+
 自動判定が合わないとき
   --name-field / --city-field / --code-field / --owner-field / --address-field で学区の属性を、
   --age-columns 'PT01_{Y},PT02_{Y},PT03_{Y}'（0〜4歳,5〜9歳,10〜14歳）でメッシュの列を明示できる。
@@ -31,7 +35,7 @@ from collections import Counter
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from school2050 import combined, corrections, estimate, export, geo, inputs, readers, shapes, terms, wards  # noqa: E402
+from school2050 import combined, corrections, estimate, export, geo, inputs, kana, readers, shapes, terms, wards  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -865,8 +869,29 @@ def cmd_build_all(args) -> int:
         except (ValueError, SystemExit) as e:
             results[pref] = f"失敗: {e}"
             log(f"{pref} 失敗: {e}")
-    print(json.dumps({"built": results, "missing": missing}, ensure_ascii=False, indent=1))
+    # 学校名の読み（kana）を足し直す。作り直した県のファイルには kana が無いため
+    k = kana.add_kana(args.out, args.kana_auto, args.kana_manual)
+    log(f"読み（kana）: {k.get('schools_with_kana', 0)}校に付けた")
+    print(json.dumps({"built": results, "missing": missing, "kana": k}, ensure_ascii=False, indent=1))
     return 0 if results and all(v == "ok" for v in results.values()) else 1
+
+
+def cmd_make_kana(args) -> int:
+    """町字データと辞書から、学校名の読み（school_kana_auto.csv）と docs/KANA.md を作る。"""
+    if args.check_columns:
+        files = kana.check_columns(args.town)
+        print(json.dumps({"town_columns": "ok", "files": files, "columns": kana.TOWN_COLUMNS}, ensure_ascii=False, indent=1))
+        return 0
+    res = kana.make_kana(args.data, args.town, args.out, args.doc)
+    log(f"書き出し: {args.out}" + (f"、{args.doc}" if args.doc else ""))
+    print(json.dumps({k: v for k, v in res.items() if k not in ("differ", "unreadable")}, ensure_ascii=False, indent=1))
+    return 0
+
+
+def cmd_add_kana(args) -> int:
+    """school_kana_auto.csv と school_kana.csv から、app/data の各校に kana を足す。"""
+    print(json.dumps(kana.add_kana(args.data, args.auto, args.manual), ensure_ascii=False, indent=1))
+    return 0
 
 
 def _validate_pref(pref, got, args) -> dict:
@@ -1020,9 +1045,25 @@ def main(argv=None) -> int:
     pa.add_argument("--generated", type=_date, help="生成日（YYYY-MM-DD）。省略すると今日。作り直して前と比べるときに指定する")
     pa.add_argument("--retrieved", help="元データの取得日。YYYY-MM-DD（全県同じ）か、「都道府県コード,取得日」の CSV。"
                                          "省略すると --input の中の retrieved.csv を使う")
+    pa.add_argument("--kana-auto", default=str(kana.AUTO_CSV), help="学校名の読み（make-kana の出力）")
+    pa.add_argument("--kana-manual", default=str(kana.MANUAL_CSV), help="学校名の読みの手直しの表")
     for opt in ("name_field", "city_field", "code_field", "owner_field", "address_field", "age_columns"):
         pa.set_defaults(**{opt: None})
     pa.set_defaults(fn=cmd_build_all)
+
+    pm = sub.add_parser("make-kana", help="学校名の読みを作る（町字データと辞書から school_kana_auto.csv と docs/KANA.md）")
+    pm.add_argument("--town", required=True, help="アドレス・ベース・レジストリの町字データ（.csv か .zip）")
+    pm.add_argument("--data", default="app/data", help="学校名を読むアプリ用データのフォルダ")
+    pm.add_argument("--out", default=str(kana.AUTO_CSV))
+    pm.add_argument("--doc", default="docs/KANA.md", help="結果の一覧（空にすると書かない）")
+    pm.add_argument("--check-columns", action="store_true", help="町字データの列があるかだけ確かめる（足りなければ列名を出して止まる）")
+    pm.set_defaults(fn=cmd_make_kana)
+
+    pk = sub.add_parser("add-kana", help="app/data の各校に学校名の読み（kana）を足す")
+    pk.add_argument("--data", default="app/data")
+    pk.add_argument("--auto", default=str(kana.AUTO_CSV))
+    pk.add_argument("--manual", default=str(kana.MANUAL_CSV))
+    pk.set_defaults(fn=cmd_add_kana)
 
     args = ap.parse_args(argv)
     if args.cmd == "build" and not (args.districts and args.mesh):

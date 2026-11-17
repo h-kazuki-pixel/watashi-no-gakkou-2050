@@ -403,6 +403,9 @@
     root.innerHTML = tpl ? tpl.innerHTML : "";
     var src = UG.$("#src-prefs", root);
     if (src) src.innerHTML = UG.sourceList();
+    // 学校名の読み（kana）を付けた県があるときだけ、町字データの出典を出す（add-kana が data/index.js に kana: true を書く）
+    var kanaSrc = UG.$("#src-kana", root);
+    if (kanaSrc) kanaSrc.hidden = !UG.index.some(function (p) { return p.kana; });
     var back = UG.$("[data-go]", root);
     if (back && !UG.state.schoolId) back.setAttribute("data-go", "home");
   };

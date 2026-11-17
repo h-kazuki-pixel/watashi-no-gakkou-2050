@@ -420,10 +420,12 @@ def test_build_all_from_download_folder(tmp_path, capsys):
     rc = cli.main(["build-all", "--input", str(tmp_path / "dl"), "--out", str(out), "--opendata", str(tmp_path / "od")])
     text = capsys.readouterr().out
     result = json.loads(text[text.index('{\n "built"'):])
-    assert rc == 0 and result == {"built": {"99": "ok"}, "missing": {}}
+    assert rc == 0 and result["built"] == {"99": "ok"} and result["missing"] == {}
+    assert result["kana"]["schools_with_kana"] == 0  # 読みの表が見出しだけなので、kana は付かない
     pref = load_registered(out / "pref_99.js", "registerPref")
     schools = {s["name"]: s for c in pref["cities"] for s in c["schools"]}
     assert {n: s["est"][0] for n, s in schools.items()} == EXPECT_2025
+    assert not any("kana" in s for s in schools.values())
     # 学校の位置は、同じ zip のポイント層から取られる（学区の重心ではない）
     assert schools["にし小学校"]["lng"] == round(LNG0 + 0.3 * DLNG, 5)
     rows = (tmp_path / "od" / "school_district_children_99.csv").read_text(encoding="utf-8-sig").splitlines()

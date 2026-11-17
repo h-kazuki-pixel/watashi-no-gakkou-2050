@@ -72,6 +72,19 @@ python3 pipeline/build_school_data.py build   --districts data_raw/<学区>.zip 
 
 `opendata/report_XX.json` の `approx_cities`（おおよその区域で補った市区町村）、`missing_cities`（補えなかった市区町村）、`unassigned_share_2025`（学区に入らなかった子どもの割合）と `city_coverage_2025`（市区町村ごとの配分率）を確かめてから公開してください。生成後にアプリを開くと、はじめの画面に都道府県と市区町村の選択が現れます。
 
+### 学校名の読み（ひらがなで さがす）
+
+学校名の読み（`kana`）は、アドレス・ベース・レジストリ（デジタル庁）の町字データと辞書（SudachiPy）から作ります。町字データはリポジトリに入れず、`~/work/abr` などに置きます。
+
+```bash
+python3 -m pip install -r pipeline/requirements-kana.txt
+python3 pipeline/build_school_data.py make-kana --town ~/work/abr/mt_town_all.csv.zip --check-columns
+python3 pipeline/build_school_data.py make-kana --town ~/work/abr/mt_town_all.csv.zip
+python3 pipeline/build_school_data.py add-kana
+```
+
+取りに行く URL、列名の確かめ方、決まりは `docs/DATA_METHOD.md`「学校名の読み」、結果は `docs/KANA.md`。`build-all` は最後に `add-kana` を呼ぶので、作り直しても読みは付き直ります（学校コードの無い学校は、作り直したら `make-kana` もかけ直す）。
+
 作り直して前と比べるときは、生成日を決めて（`--generated 2026-11-16`）作り、`tools/compare_builds.py` で前の出力と比べます（生成日・実行時間・`validate_approx` 以外の違いを学校単位で出します）。
 
 ## 構成
@@ -85,8 +98,8 @@ app/                 アプリ本体（ビルド不要の HTML/CSS/JS）
   data/sample.js       架空のまち「みらい市」
   data/index.js, pref_XX.js  実データ（パイプラインが生成）
 pipeline/            学区 × メッシュ → 学区別の将来児童数
-  build_school_data.py   コマンド（inspect / build / build-all）
-  school2050/            zip の中身判定、メッシュコード、幾何、読み込み、配分、書き出し
+  build_school_data.py   コマンド（inspect / build / build-all / make-kana / add-kana）
+  school2050/            zip の中身判定、メッシュコード、幾何、読み込み、配分、書き出し、学校名の読み（kana.py）
   tests/                 手計算できる合成データでの検算
 tools/               ブラウザ通しテスト（e2e_check, e2e_realdata）、別の実装での検算（independent_check）、
                      実際の児童数との照合（compare_actual。pdfplumber が必要。入力は data_raw/actual/ に置き、リポジトリには入れない）
@@ -104,6 +117,7 @@ docs/                応募文、入賞戦略、授業案、データと方法�
 - 県ごとの出典は `pref_XX.js` の `source`（`datasets`：データの名前・ページ・取得日、`processor`：加工者、`credit`：表示の文）にあり、アプリの先生向けページに県ごとに出ます。
 - 取得日は、ダウンロードしたときに記録して `build --retrieved YYYY-MM-DD`（`build-all` は `--retrieved` か、`data_raw/retrieved.csv`「都道府県コード,取得日」）で渡します。生成のたびには変わりません。
 - 文部科学省「令和6年度 廃校施設等活用状況実態調査」（5 ていあん のヒント）
+- 学校名の読み（ひらがなで学校をさがす機能。画面には出さない）：「アドレス・ベース・レジストリ（町字データ）」（デジタル庁）を加工して作成（町字の読みが無い部分は SudachiDict で補う）。読みを付けた県があるときだけ、先生向けページに出します（まだ読みは付けていません。`docs/KANA.md`）。
 
 ## データの利用条件
 

@@ -7,6 +7,8 @@
 | `pending_confirmation.csv` | 確認が取れるまで学区データを使わない市区町村（行政区域コード,自治体名,理由,出典）。いまは小田原市（14206）だけ | `school_district_terms_R5.csv` の特記条件「利用開始前に利用内容について市の確認を受けること。」 | 手で書いた。確認が取れたら行を消す。使い方は `school2050/terms.py` |
 | `source_corrections.csv` | 元データの誤記の訂正（データ名,学校コード,項目,元の値,直した値,根拠）。いまは石川県 P29 の珠洲市 若山小学校（「珠州市立」→「珠洲市立」）の1件 | 元データ（国土数値情報「学校」）の同じ地物の所在地・行政区域コード | 手で書いた（2026-11-17）。根拠のあるものだけ足す。使い方は `school2050/corrections.py` |
 | `designated_city_wards.csv` | 政令指定都市の区と市の対応（区のコード,区の名称,市のコード,市の名称,状態,改正年月日,改正後のコード,改正後の名称,改正事由）。20市・178区（うち欠番7＝浜松市の再編前の区） | 国土数値情報「行政区域コード」（令和6年1月1日現在）<https://nlftp.mlit.go.jp/ksj/gml/codelist/AdminiBoundary_CD.xlsx>。総務省「全国地方公共団体コード」に改正情報を加えたもの | `python3 tools/make_ward_table.py AdminiBoundary_CD.xlsx > pipeline/terms/designated_city_wards.csv`。使い方は `school2050/wards.py` |
+| `school_kana_auto.csv` | 学校名の読み（学校コード,学校名,読み,元）。1行に読み1つ（1校に2行まで）。元は town（町字）/ dict（辞書）/ name（名前のかな）。いまは見出しだけ | アドレス・ベース・レジストリ（デジタル庁）の町字データと SudachiDict full | `make-kana` が書く（手で編集しない）。使い方は `school2050/kana.py`、決まりは `docs/DATA_METHOD.md`「学校名の読み」 |
+| `school_kana.csv` | 学校名の読みの手直し（学校コード,読み,理由）。ここにある学校は自動の読みを使わない。読みを空にした行は「読みを付けない」。いまは見出しだけ | 手直しの根拠（学校のページなど）を理由に書く | 手で書く。`add-kana` が使う |
 
 `designated_city_wards.csv` の「状態」が「欠番」の区は、再編などで今は使われていないコードです。
 国土数値情報のメッシュや「学校」は、作られた時点のコードで入っているので、再編前の区のコードが出てくることがあります。

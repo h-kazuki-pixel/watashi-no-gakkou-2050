@@ -1,0 +1,5 @@
+# make-kana（学校名の読みを作る）にだけ要るもの。アプリの生成（build / build-all）とテストには要らない。
+# SudachiDict full は、入れるときに辞書を d2ej7fkh96fzlu.cloudfront.net から取る。
+# 入らないときは: python3 -m pip install --use-pep517 -r pipeline/requirements-kana.txt
+sudachipy>=0.6
+sudachidict_full

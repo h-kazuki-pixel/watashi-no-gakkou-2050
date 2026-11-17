@@ -40,6 +40,7 @@ python3 tools/e2e_realdata.py           # パイプライン出力 → アプリ
     note:   true | 無し,   // 学区データの利用条件が「条件公開」か特記条件つき。画面に「学区は めやす」と出す
     combined: true | 無し, // 国の推計が複数の市町村をまとめた区域（福島県浜通り 07999）。画面に「まとめて 計算」の注意書きを出す
     schools: [{ id, name, lng, lat,
+      kana: ["りゅうおうしょうがっこう"] | 無し, // 学校名全体の読み（平仮名、1〜2個）。ひらがなで さがすときだけ使い、画面には出さない（add-kana が足す）
       approx: true | 無し, // おおよその区域の学校（geom は割り当てた点の凸包）
       est:  [2025, 2030, …, 2070 の 6〜11歳推計],   // 10個
       ages: [0〜11歳の各歳（2025年）],              // 12個。無ければアプリが est から近似
@@ -51,4 +52,4 @@ python3 tools/e2e_realdata.py           # パイプライン出力 → アプリ
 
 ## 実データ
 
-ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。全国47都道府県が実データで動作（1,808市区町村・18,681校、うち3,601校は学校の位置から補ったおおよその区域。福島県の7町村は扱わない）。全国をまとめて作り直すのは `tools/national_dryrun.py`、扱いの一覧は `tools/coverage_doc.py` → `docs/COVERAGE.md`。元データの誤記は `pipeline/terms/source_corrections.csv` で直す。作り直すときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。
+ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。全国47都道府県が実データで動作（1,808市区町村・18,681校、うち3,601校は学校の位置から補ったおおよその区域。福島県の7町村は扱わない）。全国をまとめて作り直すのは `tools/national_dryrun.py`、扱いの一覧は `tools/coverage_doc.py` → `docs/COVERAGE.md`。元データの誤記は `pipeline/terms/source_corrections.csv` で直す。学校名の読み（`kana`）は `make-kana`（町字データと辞書。Mac で）→ `add-kana`（`build-all` の最後でも呼ぶ）で足す。決まりと手順は `docs/DATA_METHOD.md`「学校名の読み」、読みのある県は `data/index.js` に `kana: true`。作り直すときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。

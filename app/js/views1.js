@@ -102,12 +102,12 @@
       return '<div class="picker">' +
         '<label for="sel-pref">都道府県</label><select id="sel-pref">' + opts + "</select>" +
         '<label for="sel-city">市区町村</label><select id="sel-city">' + cities + "</select>" +
-        '<label for="q-school">学校の 名前で さがす</label><input id="q-school" type="search" autocomplete="off" placeholder="れい：みなと">' +
+        '<label for="q-school">学校の 名前で さがす（ひらがなでも いいよ）</label><input id="q-school" type="search" autocomplete="off" placeholder="れい：みなと">' +
         "</div>";
     }
     function listHtml() {
-      var items = city.schools.filter(function (s) { return M.matchSchool(s.name, filter); });
-      if (!items.length) return '<p class="empty">その 名前の 学校は 見つからなかったよ。</p>';
+      var items = city.schools.filter(function (s) { return M.matchSchool(s, filter); }); // ひらがなは 読み（kana）でも さがす。読みは 画面に 出さない
+      if (!items.length) return '<p class="empty">見つからなかったよ。もう 少し みじかく 入れるか、けして 一覧から えらんでね。</p>';
       return items.map(function (s) {
         return '<button type="button" class="school-btn' + (s.id === st.schoolId ? " on" : "") + '" data-school="' + esc(s.id) + '" aria-pressed="' + (s.id === st.schoolId) + '">' +
           '<span class="nm">' + nr(s.name) + "</span>" +

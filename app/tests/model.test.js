@@ -125,6 +125,61 @@ test("学校をさがす：先頭の設置者を外して比べる", () => {
   assert.equal(M.matchSchool("西新小学校", "福岡市立百道小学校"), false);
 });
 
+test("学校をさがす：ひらがな・カタカナ・異体字・「ヶ」でも見つかる", () => {
+  const ryuo = { name: "龍王小学校", kana: ["りゅうおうしょうがっこう"] };
+  const kita = { name: "竜王北小学校", kana: ["りゅうおうきたしょうがっこう"] };
+  const mii = { name: "三入小学校", kana: ["みいりしょうがっこう", "さんにゅうしょうがっこう"] };
+  const nokana = { name: "龍王小学校" };
+  // 平仮名：読みのどれかに含まれれば合う（途中から打っても出る）
+  assert.equal(M.matchSchool(ryuo, "りゅうおう"), true);
+  assert.equal(M.matchSchool(ryuo, "おう"), true);
+  assert.equal(M.matchSchool(ryuo, "りゅうおうきた"), false);
+  assert.equal(M.matchSchool(kita, "りゅうおうきた"), true);
+  assert.equal(M.matchSchool(mii, "みいり"), true);
+  assert.equal(M.matchSchool(mii, "さんにゅう"), true);   // 読みは2つまで
+  // 片仮名・半角片仮名は平仮名にそろえる
+  assert.equal(M.matchSchool(ryuo, "リュウオウ"), true);
+  assert.equal(M.matchSchool(ryuo, "ﾘｭｳｵｳ"), true);
+  assert.equal(M.schoolQuery("ﾘｭｳｵｳｷﾀ"), "りゅうおうきた");
+  assert.equal(M.matchSchool({ name: "あずま小中学校" }, "アズマ"), true); // 名前の かな は読みが無くても合う
+  // 「ー」を含む平仮名
+  assert.equal(M.matchSchool({ name: "ルーテル学院小学校", kana: ["るーてるがくいんしょうがっこう"] }, "るーてる"), true);
+  // 異体字：学校名と入力の両方を寄せる
+  assert.equal(M.matchSchool(ryuo, "竜王"), true);
+  assert.equal(M.matchSchool(kita, "龍王北"), true);
+  assert.equal(M.matchSchool({ name: "髙島小学校" }, "高島"), true);
+  assert.equal(M.matchSchool({ name: "山﨑小学校" }, "山崎"), true);
+  assert.equal(M.matchSchool({ name: "長嶋小学校" }, "長島小"), true);
+  // 「ヶ・ケ・が」
+  assert.equal(M.matchSchool({ name: "霞ヶ丘小学校" }, "霞ケ丘"), true);
+  assert.equal(M.matchSchool({ name: "霞ケ丘小学校" }, "霞が丘"), true);
+  assert.equal(M.matchSchool({ name: "霞が丘小学校" }, "霞ヶ丘"), true);
+  assert.equal(M.foldText("ケヤキ"), "けやき"); // 漢字の後でない「ケ」は寄せない
+  // 全角英数・空白
+  assert.equal(M.matchSchool({ name: "第1小学校" }, "第１"), true);
+  assert.equal(M.matchSchool({ name: "第1小学校" }, " 第 1 "), true);
+  // 設置者つきの入力
+  assert.equal(M.matchSchool(ryuo, "東広島市立龍王"), true);
+  assert.equal(M.matchSchool(kita, "甲斐市立 竜王北小学校"), true);
+  // 漢字とかなが混ざった入力は、学校名とだけ比べる（読みとは比べない）
+  assert.equal(M.matchSchool(ryuo, "龍おう"), false);
+  assert.equal(M.matchSchool({ name: "さくら台小学校", kana: ["さくらだいしょうがっこう"] }, "さくら台"), true);
+  assert.equal(M.matchSchool({ name: "さくら台小学校", kana: ["さくらだいしょうがっこう"] }, "さくらだい"), true);
+  // 空の入力は全部
+  assert.equal(M.matchSchool(ryuo, ""), true);
+  assert.equal(M.matchSchool(ryuo, "　"), true);
+  assert.equal(M.matchSchool(nokana, ""), true);
+  // 読み（kana）が無い学校は、平仮名の入力では出ない（漢字の入力では出る）
+  assert.equal(M.matchSchool(nokana, "りゅうおう"), false);
+  assert.equal(M.matchSchool(nokana, "龍王"), true);
+  assert.equal(M.matchSchool({ name: "龍王小学校", kana: [] }, "りゅうおう"), false);
+  // 学校名の文字列だけを渡したとき（前の呼び方）も動く
+  assert.equal(M.matchSchool("龍王小学校", "竜王"), true);
+  assert.equal(M.matchSchool("龍王小学校", "りゅうおう"), false);
+  assert.equal(M.isKanaQuery("りゅうおー"), true);
+  assert.equal(M.isKanaQuery("りゅう王"), false);
+});
+
 test("年齢の階段：整数の小学生の合計が、ステップ1の人数とそろう（いわき市 三阪小）", () => {
   const s = { est: [12.5, 15.1, 17.6, 18.5, 18.3, 14.2, 10.4, 8.2, 7.4, 7.8],
               ages: [2.9, 2.9, 2.9, 2.9, 2.9, 1.8, 1.8, 1.8, 1.8, 1.8, 2.6, 2.6] };

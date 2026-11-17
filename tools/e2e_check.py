@@ -111,6 +111,33 @@ def main() -> int:
         assert page.evaluate("UG.ruby('計算を それに 合わせるよ。つぎ')").count("<wbr>") == 1  # ルビの語の後でも1つだけ
         shot("0-home-empty")
         bare("home")
+
+        # 学校を さがす（ひらがなでも）。サンプルには読み（kana）が無いので、ここで一時的に付ける。読みは画面に出さない
+        NO_RT = "sel => { const e = document.querySelector(sel).cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent; }"
+        label = page.evaluate(f"({NO_RT})('label[for=q-school]')")
+        assert label == "学校の 名前で さがす（ひらがなでも いいよ）", label
+        page.evaluate("""() => UG.prefs['00'].cities[0].schools.forEach(s => {
+          if (s.id === 'S3') s.kana = ['ちゅうおうしょうがっこう'];
+          if (s.id === 'S5') s.kana = ['やまのうえしょうがっこう']; })""")
+
+        def found(q):
+            page.fill("#q-school", q)
+            return [t.strip() for t in page.locator("#school-list .school-btn .nm").all_inner_texts()]
+        assert found("ちゅうおう") == ["中央小学校"], found("ちゅうおう")
+        assert found("ﾔﾏﾉ") == ["山の上小学校"], found("ﾔﾏﾉ")          # 半角カナ → 平仮名。読みの途中からでも出る
+        assert found("みなと") == ["みなと小学校"], found("みなと")      # 名前の かな
+        assert found("山の") == ["山の上小学校"], found("山の")
+        assert "しょうがっこう" not in page.inner_text("#school-list"), "読みが画面に出ている"
+        found("ちゅうおう")
+        shot("0-home-search-kana")
+        bare("home-search")
+        assert found("ぞぞぞ") == []
+        msg = page.evaluate(f"({NO_RT})('#school-list .empty')")
+        assert msg == "見つからなかったよ。もう 少し みじかく 入れるか、けして 一覧から えらんでね。", msg
+        shot("0-home-search-none")
+        bare("home-search-none")
+        found("")
+        page.evaluate("() => UG.prefs['00'].cities[0].schools.forEach(s => { delete s.kana; })")
         page.click('[data-school="S2"]')
         page.click('[data-grade="e5"]')
         assert "35さい" in page.inner_text("#age-out"), page.inner_text("#age-out")
@@ -360,6 +387,14 @@ def main() -> int:
         page.click('[data-go="teachers"]')
         page.wait_for_selector(".teachers")
         shot("9-teachers")
+        # 町字データ（学校名の読み）の出典は、読みを付けた県（data/index.js の kana: true）があるときだけ出す
+        assert page.locator("#src-kana").is_hidden(), "読みが無いのに町字データの出典が出ている"
+        page.evaluate("UG.index[0].kana = true; UG.render()")
+        page.wait_for_selector("#src-kana", state="visible")
+        assert "アドレス・ベース・レジストリ" in page.inner_text("#src-kana")
+        page.locator("#src-kana").screenshot(path=str(OUT / "9-teachers-kana-credit.png"))
+        page.evaluate("delete UG.index[0].kana; UG.render()")
+        assert page.locator("#src-kana").is_hidden()
 
         # スマートフォン幅
         page.set_viewport_size({"width": 390, "height": 800})

@@ -255,13 +255,52 @@
    * 学校名のデータは設置者を外してあるので、「福岡市立西新小学校」と入れても「西新小学校」と比べられる。
    */
   var OWNER_HEAD = /^[^\s]{0,15}?(?:組合立|市立|町立|村立|区立)/;
-  function schoolQuery(q) {
-    return String(q == null ? "" : q).replace(/[\s\u3000]+/g, "").replace(OWNER_HEAD, "");
+
+  /** 学校名によく出る異体字 → 寄せる先の字。学校名と入力の両方を同じように寄せてから比べる */
+  var VARIANTS = {
+    "龍": "竜", "﨑": "崎", "嵜": "崎", "碕": "崎", "髙": "高", "邊": "辺", "邉": "辺", "齋": "斎", "齊": "斉",
+    "澤": "沢", "濱": "浜", "廣": "広", "國": "国", "櫻": "桜", "瀨": "瀬", "曾": "曽", "德": "徳", "槇": "槙",
+    "冨": "富", "嶋": "島", "嶌": "島", "舘": "館", "栁": "柳", "淵": "渕", "萬": "万", "會": "会", "惠": "恵",
+    "眞": "真", "黑": "黒", "檜": "桧", "藪": "薮", "鷗": "鴎", "條": "条", "壽": "寿", "實": "実", "峯": "峰"
+  };
+  var VARIANT_RE = new RegExp("[" + Object.keys(VARIANTS).join("") + "]", "g");
+  var KE_AFTER_KANJI = /([㐀-鿿豈-﫿々〆])[ケヶ]/g;
+
+  /** 比べる前にそろえる：NFKC（半角カナ・全角英数）→ 空白を除く →「ヶ」と（漢字の後の）「ケ」を「が」に → 片仮名を平仮名に → 異体字を寄せる */
+  function foldText(s) {
+    s = String(s == null ? "" : s);
+    if (s.normalize) s = s.normalize("NFKC");
+    s = s.replace(/[\s　]+/g, "").replace(KE_AFTER_KANJI, "$1が").replace(/ヶ/g, "が");
+    s = s.replace(/[ァ-ヶ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); });
+    return s.replace(VARIANT_RE, function (c) { return VARIANTS[c]; });
   }
-  /** 学校名が入力に合うか。設置者を外した結果が空なら、どの学校も合う */
-  function matchSchool(name, q) {
+
+  /** 平仮名と「ー」だけの入力か（このときは読みでも さがす） */
+  function isKanaQuery(k) {
+    return /^[ぁ-ゖー]+$/.test(k);
+  }
+
+  /** 入力をそろえる：NFKC・空白を除く・先頭の設置者を外す・片仮名を平仮名に・異体字と「ヶ」を寄せる */
+  function schoolQuery(q) {
+    var s = String(q == null ? "" : q);
+    if (s.normalize) s = s.normalize("NFKC");
+    return foldText(s.replace(/[\s　]+/g, "").replace(OWNER_HEAD, ""));
+  }
+  /**
+   * 学校が入力に合うか。school は { name, kana } か学校名の文字列。
+   *  - そろえた学校名に、そろえた入力が含まれれば合う（漢字とかなが混ざった入力は、これだけ）
+   *  - 入力が平仮名と「ー」だけなら、読み（kana）のどれかに含まれても合う（途中から打っても出る）
+   *  設置者を外した結果が空なら、どの学校も合う
+   */
+  function matchSchool(school, q) {
     var k = schoolQuery(q);
-    return !k || String(name).indexOf(k) >= 0;
+    if (!k) return true;
+    var name = typeof school === "string" ? school : (school && school.name) || "";
+    if (foldText(name).indexOf(k) >= 0) return true;
+    if (!isKanaQuery(k) || typeof school === "string") return false;
+    var kana = (school && school.kana) || [];
+    for (var i = 0; i < kana.length; i++) if (foldText(kana[i]).indexOf(k) >= 0) return true;
+    return false;
   }
 
   return {
@@ -271,6 +310,6 @@
     pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan,
     simValue: simValue, simPoints: simPoints, agesFor: agesFor, ageStep: ageStep,
     elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
-    schoolQuery: schoolQuery, matchSchool: matchSchool
+    schoolQuery: schoolQuery, matchSchool: matchSchool, foldText: foldText, isKanaQuery: isKanaQuery
   };
 });
