@@ -304,7 +304,7 @@ def test_dict_ke_after_kanji_and_small_ke_discarded():
         seen.append(t)
         return {"草が江": "くさがえ", "妙": "みょゖ"}.get(t)
     assert kana.school_readings("草ヶ江小学校", {}, d) == [("くさがえしょうがっこう", "dict")]
-    assert "草が江" in seen and "草ヶ江" not in seen  # 辞書には「が」に置き換えてから渡す
+    assert "草ヶ江" in seen and "草が江" in seen  # 辞書には、学校名のままと「が」に置き換えたものの両方を渡す
     assert kana.school_readings("妙小学校", {}, d) == []  # 「ゖ」が残る読みは捨てる
     # 町字の読みに「ゖ」があっても使わない
     idx = kana.TownIndex()
@@ -315,14 +315,61 @@ def test_dict_ke_after_kanji_and_small_ke_discarded():
 def test_dict_oka_at_end():
     d = {"霧丘": "きりきゅう", "霧": "きり", "香住丘": "かすみたかし", "香住": "かすみ", "旭丘": "あさひがおか",
          "緑の丘": "みどりのきゅう", "緑の": "みどりの", "希望丘": "きぼうきゅう", "希望": "きぼう"}.get
-    assert kana.school_readings("霧丘小学校", {}, d) == [("きりがおかしょうがっこう", "dict")]
-    assert kana.school_readings("香住丘小学校", {}, d) == [("かすみがおかしょうがっこう", "dict")]
+    # 「がおか」と「おか」の両方を候補にする（「がおか」が先）
+    assert kana.school_readings("霧丘小学校", {}, d) == [("きりがおかしょうがっこう", "dict"), ("きりおかしょうがっこう", "dict")]
+    assert kana.school_readings("香住丘小学校", {}, d) == [("かすみがおかしょうがっこう", "dict"), ("かすみおかしょうがっこう", "dict")]
     assert kana.school_readings("旭丘小学校", {}, d) == [("あさひがおかしょうがっこう", "dict")]   # もとから「おか」
     assert kana.school_readings("緑の丘小学校", {}, d) == [("みどりのおかしょうがっこう", "dict")]  # 「の」の後は「おか」
     # 町字の読みには置き換えをかけない（町字「希望丘」の読みはそのまま。辞書の読みは「がおか」にして、違えば両方残す）
     towns = _towns([("希望丘", "キボウキユウ")])
     assert kana.school_readings("希望丘小学校", towns, d) == [("きぼうきゆうしょうがっこう", "town"),
                                                             ("きぼうがおかしょうがっこう", "dict")]
+
+
+# SudachiDict full の実際の読み（2026-11-18、make-kana で使ったもの）。辞書は「ゖ」の残る読みを返さない（SudachiReader が None にする）
+REAL_DICT = {
+    "金ケ崎": "かねがさき", "金が崎": "きんがさき",
+    "三ヶ日東": "みっかびひがし", "三が日東": "さんがにちひがし",
+    "鈴ケ森": "すずけもり", "鈴が森": "すずがもり",
+    "草ヶ江": None, "草が江": "くさがこう",
+    "つつじケ丘": "つつじけきゅう", "つつじケ": "つつじけ", "つつじが丘": "つつじがおか",
+    "りんどうヶ丘": None, "りんどうが丘": "りんどうがおか",
+    "高丘": "こうきゅう", "高": "こう", "鷹丘": "たかきゅう", "鷹": "たか",
+}
+
+
+def test_dict_ke_both_asis_and_replaced():
+    d = REAL_DICT.get
+    # 学校名のままで読める学校は、その読みが先（ed465d9 で きんがさき だけになっていた）
+    assert kana.school_readings("金ケ崎小学校", {}, d) == [("かねがさきしょうがっこう", "dict"), ("きんがさきしょうがっこう", "dict")]
+    assert kana.school_readings("三ヶ日東小学校", {}, d)[0] == ("みっかびひがししょうがっこう", "dict")
+    # 置き換えないと「け」と読む学校も、置き換えた読みが残る
+    assert ("すずがもりしょうがっこう", "dict") in kana.school_readings("鈴ケ森小学校", {}, d)
+    # そのままだと「ゖ」が残る学校は、置き換えた読みだけ
+    assert kana.school_readings("草ヶ江小学校", {}, d) == [("くさがこうしょうがっこう", "dict")]
+    assert kana.school_readings("りんどうヶ丘小学校", {}, d) == [("りんどうがおかしょうがっこう", "dict")]
+    # 「ケ」は前が平仮名でも置き換える。そのままの1つ目、置き換えの1つ目の順（2つまで）
+    assert kana.school_readings("つつじケ丘小学校", {}, d) == [("つつじけがおかしょうがっこう", "dict"),
+                                                            ("つつじがおかしょうがっこう", "dict")]
+
+
+def test_ke_replacement_targets():
+    sub = lambda s: kana._KE_FOR_DICT.sub("が", s)
+    assert sub("草ヶ江") == "草が江" and sub("りんどうヶ丘") == "りんどうが丘" and sub("ヶ丘") == "が丘"  # 「ヶ」は前を問わない
+    assert sub("つつじケ丘") == "つつじが丘" and sub("金ケ崎") == "金が崎"
+    assert sub("ケ丘") == "ケ丘"          # 前に字が無い「ケ」は置き換えない
+    assert sub("アケ丘") == "アケ丘"      # 前が片仮名
+    assert sub("金ケ") == "金ケ"          # 後ろが無い
+    assert sub("金ケの") == "金ケの"      # 後ろが漢字でない
+
+
+def test_oka_keeps_oka_reading_with_town_first():
+    d = REAL_DICT.get
+    # 高丘（中野市）：町字「高丘」＝タカオカ。辞書は こうがおか・こうおか。町字が先で2つまで
+    towns = _towns([("高丘", "タカオカ")])
+    assert kana.school_readings("高丘小学校", towns, d) == [("たかおかしょうがっこう", "town"), ("こうがおかしょうがっこう", "dict")]
+    # 鷹丘（豊橋市）：町字が無くても「たかおか」が候補に残る
+    assert kana.school_readings("鷹丘小学校", {}, d) == [("たかがおかしょうがっこう", "dict"), ("たかおかしょうがっこう", "dict")]
 
 
 def test_add_kana_accepts_old_small_ke_rows_and_counts_them(tmp_path):

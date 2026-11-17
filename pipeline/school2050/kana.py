@@ -315,18 +315,41 @@ def _longest(s: str, towns: dict):
     return None
 
 
-def dict_read(text: str, dict_reader) -> str | None:
-    """辞書で読む。読む前に漢字のあとの「ヶ」「ケ」を「が」に（辞書が「草ヶ江」を「くさゖこう」と読むため）。
-    語末の「丘」が「おか」以外に読まれたら、「丘」の前までを辞書で読み「がおか」を付ける（前が「が」「の」なら「おか」）。
-    読みに「ゕ」「ゖ」など平仮名と「ー」以外が残れば None。"""
+# 辞書で読むときに「が」に置き換える字：「ヶ」は前の字を問わず、「ケ」は前が漢字か平仮名で後ろが漢字のとき（草ヶ江、つつじケ丘、りんどうヶ丘）
+_KE_FOR_DICT = re.compile(r"ヶ|(?<=[㐀-鿿豈-﫿々〆ぁ-ゖ])ケ(?=[㐀-鿿豈-﫿々〆])")
+
+
+def _read_oka(text: str, dict_reader) -> list[str]:
+    """辞書で読む。語末の「丘」が「おか」以外に読まれたら、「丘」の前までを読み「がおか」と「おか」の両方に（前が「が」「の」なら「おか」だけ）。"""
+    r = dict_reader(text)
+    if r and len(text) >= 2 and text.endswith("丘") and not r.endswith("おか"):
+        head = dict_reader(text[:-1])
+        if not head:
+            return []
+        return [head + "おか"] if head.endswith(("が", "の")) else [head + "がおか", head + "おか"]
+    return [r] if r else []
+
+
+def dict_reads(text: str, dict_reader) -> list[str]:
+    """辞書の読みの候補（同じ読みは1つに）。学校名のままの読みと、「ヶ」「ケ」を「が」に置き換えた読みの両方を候補にする。
+    並べ方：そのままの1つ目、置き換えの1つ目、そのままの2つ目、置き換えの2つ目。「ゕ」「ゖ」など平仮名と「ー」以外が残る読みは捨てる。"""
     if not dict_reader or not text:
-        return None
-    t = _KE_AFTER_KANJI.sub(r"\1が", text)
-    r = dict_reader(t)
-    if r and len(t) >= 2 and t.endswith("丘") and not r.endswith("おか"):
-        head = dict_reader(t[:-1])
-        r = head + ("おか" if head.endswith(("が", "の")) else "がおか") if head else None
-    return r if r and HIRA_ONLY.match(r) else None
+        return []
+    asis = _read_oka(text, dict_reader)
+    sub = _KE_FOR_DICT.sub("が", text)
+    repl = _read_oka(sub, dict_reader) if sub != text else []
+    out = []
+    for i in range(2):
+        for c in (asis, repl):
+            if len(c) > i and HIRA_ONLY.match(c[i]) and c[i] not in out:
+                out.append(c[i])
+    return out
+
+
+def dict_read(text: str, dict_reader) -> str | None:
+    """辞書の読みの1つ目（町字の後に残った部分を読むとき）。"""
+    c = dict_reads(text, dict_reader)
+    return c[0] if c else None
 
 
 def read_town(seg: str, towns: dict, dict_reader) -> str | None:
@@ -359,9 +382,9 @@ def school_readings(name: str, towns: dict, dict_reader) -> list[tuple[str, str]
         t = p[1]
         if KANA_ONLY.match(t):
             h = hira(t)
-            segs.append((h, h, True))
+            segs.append((h, [h], True))
         else:
-            segs.append((read_town(t, towns, dict_reader), dict_read(t, dict_reader), False))
+            segs.append((read_town(t, towns, dict_reader), dict_reads(t, dict_reader), False))
     if not segs:
         return []
 
@@ -382,14 +405,18 @@ def school_readings(name: str, towns: dict, dict_reader) -> list[tuple[str, str]
     if all(s[2] for s in segs):
         r = join(lambda s: s[0])
         return [(r, "name")] if r else []
+    def nth(s, i):  # 辞書の読みの i 番目の候補（候補が1つしかなければその1つ。無ければ None）
+        return s[1][min(i, len(s[1]) - 1)] if s[1] else None
+
     res = []
     if any(s[0] is not None and not s[2] for s in segs):
-        t = join(lambda s: s[0] if s[0] is not None else s[1])
+        t = join(lambda s: s[0] if s[0] is not None else nth(s, 0))
         if t:
             res.append((t, "town"))
-    d = join(lambda s: s[1])
-    if d and all(d != r for r, _ in res):
-        res.append((d, "dict"))
+    for i in range(MAX_READINGS):
+        d = join(lambda s: nth(s, i))
+        if d and all(d != r for r, _ in res):
+            res.append((d, "dict"))
     return res[:MAX_READINGS]
 
 
