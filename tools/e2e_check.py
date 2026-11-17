@@ -399,7 +399,10 @@ def main() -> int:
         page.click('[data-go="teachers"]')
         page.wait_for_selector(".teachers")
         shot("9-teachers")
-        # 町字データ（学校名の読み）の出典は、読みを付けた県（data/index.js の kana: true）があるときだけ出す
+        # 町字データ（学校名の読み）の出典は、読みを付けた県（data/index.js の kana: true）があるときだけ出す。
+        # app/data の実物に読みがあってもなくても確かめられるよう、いったん全県の kana を外してから付け直す。
+        kana_codes = page.evaluate("UG.index.filter(p => p.kana).map(p => p.code)")
+        page.evaluate("UG.index.forEach(p => { delete p.kana; }); UG.render()")
         assert page.locator("#src-kana").is_hidden(), "読みが無いのに町字データの出典が出ている"
         page.evaluate("UG.index[0].kana = true; UG.render()")
         page.wait_for_selector("#src-kana", state="visible")
@@ -407,6 +410,8 @@ def main() -> int:
         page.locator("#src-kana").screenshot(path=str(OUT / "9-teachers-kana-credit.png"))
         page.evaluate("delete UG.index[0].kana; UG.render()")
         assert page.locator("#src-kana").is_hidden()
+        page.evaluate("codes => { UG.index.forEach(p => { if (codes.includes(p.code)) p.kana = true; }); UG.render(); }", kana_codes)
+        assert page.locator("#src-kana").is_hidden() == (not kana_codes), "data/index.js の kana: true と出典の出る・出ないが合わない"
 
         # スマートフォン幅
         page.set_viewport_size({"width": 390, "height": 800})

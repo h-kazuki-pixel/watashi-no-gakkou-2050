@@ -22,7 +22,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "02",
@@ -46,7 +47,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "03",
@@ -70,7 +72,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "04",
@@ -94,7 +97,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "05",
@@ -118,7 +122,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "06",
@@ -142,7 +147,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "07",
@@ -166,7 +172,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "08",
@@ -190,7 +197,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "09",
@@ -214,7 +222,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "10",
@@ -238,7 +247,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "11",
@@ -262,7 +272,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "12",
@@ -286,7 +297,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "13",
@@ -310,7 +322,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "14",
@@ -334,7 +347,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "15",
@@ -358,7 +372,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "16",
@@ -382,7 +397,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "17",
@@ -406,7 +422,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "18",
@@ -430,7 +447,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "19",
@@ -454,7 +472,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "20",
@@ -478,7 +497,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "21",
@@ -502,7 +522,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "22",
@@ -526,7 +547,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "23",
@@ -550,7 +572,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "24",
@@ -574,7 +597,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "25",
@@ -598,7 +622,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "26",
@@ -622,7 +647,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "27",
@@ -646,7 +672,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "28",
@@ -670,7 +697,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "29",
@@ -694,7 +722,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "30",
@@ -718,7 +747,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "31",
@@ -742,7 +772,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "32",
@@ -766,7 +797,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "33",
@@ -790,7 +822,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "34",
@@ -814,7 +847,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "35",
@@ -838,7 +872,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "36",
@@ -862,7 +897,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "37",
@@ -886,7 +922,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "38",
@@ -910,7 +947,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "39",
@@ -934,7 +972,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "40",
@@ -958,7 +997,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-14"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "41",
@@ -982,7 +1022,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "42",
@@ -1006,7 +1047,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "43",
@@ -1030,7 +1072,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "44",
@@ -1054,7 +1097,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "45",
@@ -1078,7 +1122,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "46",
@@ -1102,7 +1147,8 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  },
  {
   "code": "47",
@@ -1126,6 +1172,7 @@ UG.registerIndex([
     "url": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P29-2023.html",
     "retrieved": "2026-11-16"
    }
-  ]
+  ],
+  "kana": true
  }
 ]);

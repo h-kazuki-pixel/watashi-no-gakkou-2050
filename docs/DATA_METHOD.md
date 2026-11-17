@@ -8,7 +8,7 @@
 | 小学校区データ | 国土数値情報（国土交通省） | 公立小学校の通学区域のポリゴン、学校名、所在地など |
 | 学校（令和5年度） | 国土数値情報（国土交通省） | 学校の位置・学校コード・行政区域コード・休校区分。学区データの無い市区町村の「おおよその区域」と、地図のピンに使う |
 | 廃校施設等活用状況実態調査（令和6年度） | 文部科学省 | ステップ5のヒント（活用用途の割合） |
-| アドレス・ベース・レジストリ 町字データ（全国） | デジタル庁 | 大字・町名と小字の名前と読み（カナ）。学校名の読み（ひらがなで さがす）だけに使う。下の「学校名の読み」 |
+| アドレス・ベース・レジストリ 全国 町字マスター | デジタル庁 | 大字・町名と小字の名前と読み（カナ）。学校名の読み（ひらがなで さがす）だけに使う。下の「学校名の読み」 |
 
 ## 計算
 
@@ -325,7 +325,7 @@
 - B で補う学校にしたが出さなかった学校は43校（当たる点が無い36校、2025年の推計が1人未満の7校）。一覧は COVERAGE.md。
 - 全国の未配分（2025年）は 47,594人（0.84%）から 44,469人（0.78%）になった。
 - 1,808市区町村・18,681校。うち3,601校がおおよその区域（学区データの無い214市区町村の3,537校と、補った64校）。
-- `app/data/` の合計は約22MB。いちばん大きいのは愛知県（`pref_23.js` 約1.1MB、gzip で約0.29MB）。
+- `app/data/` の合計は約23.7MB（gzip で約6.2MB。読み `kana` を足して約0.9MB 増えた）。いちばん大きいのは愛知県（`pref_23.js` 約1.14MB、gzip で約0.29MB）。
 - 市区町村ごとの扱い（おおよその区域、利用条件で使わなかった学区、補った学校、休校の学校、点が無くて出なかった学校、乱れた図形、訂正した誤記）は `tools/coverage_doc.py` で [COVERAGE.md](COVERAGE.md) に出す。
 
 ## 学校名の読み（ひらがなで さがす）
@@ -374,9 +374,9 @@
 ### 町字データ
 
 - 列名は `pipeline/school2050/kana.py` の先頭（`TOWN_COLUMNS`）の1か所にまとめてある。
-  実物に無い列があれば、足りない列名を出して止まる（別の列で代わりに進めない）。いまの列名は **まだ実物で確かめていない**（下の表）。
+  実物に無い列があれば、足りない列名を出して止まる（別の列で代わりに進めない）。下の列名は実物（2026-11-18 取得）で確かめた（`make-kana --check-columns` で不足なし）。
 
-| 役割 | 列名（予定。実物で確かめる） |
+| 役割 | 列名（実物で確認済み） |
 |---|---|
 | 全国地方公共団体コード（6桁。先頭5桁を市区町村コードとして使う。政令市は区のコード） | `lg_code` |
 | 市区町村名 | `city` |
@@ -384,30 +384,36 @@
 | 大字・町名 / その読み（カナ） | `oaza_cho` / `oaza_cho_kana` |
 | 小字 / その読み（カナ） | `koaza` / `koaza_kana` |
 
-- 2027年1月下旬に CSV の形式が変わる予告がある。使ったファイル名・URL・列名・取得日を下に書いておく。
+- 実物では丁目は別の列（`chome` / `chome_kana`）で、`oaza_cho` には入っていない（使わない列。丁目を外す決まりは、名前に丁目が入っていても読めるように残してある）。
+- 2027年1月下旬に CSV の形式が変わる予告がある（デジタル庁「アドレス・ベース・レジストリ」のページの事前案内、2026年11月13日）。使ったファイル名・URL・列名・取得日を下に書いておく。
 
 | 項目 | 値 |
 |---|---|
-| ファイル名 | `mt_town_all.csv.zip`（予定。未取得） |
-| 取りに行った URL | `https://catalog.registries.digital.go.jp/rsc/address/mt_town_all.csv.zip`（2026-11-17、クラウドから。下のとおり断られた） |
-| 列名 | 未確認（上の表は予定） |
-| 取得日 | 未取得 |
-| 利用条件・出典の書き方 | 未確認（取得するときに、データカタログのページで確かめて、ここと先生向けページの出典に書く） |
+| データ名 | 全国 町字マスター（アドレス・ベース・レジストリ、デジタル庁） |
+| ファイル名 | `mt_town_all.csv.zip`（中身は `mt_town_all.csv` 1つ、UTF-8、727,533行。zip 11,549,958 バイト、SHA-256 `34ef6e8b6964b3b542f99b9b70a259b0e5c955ec7970485f11a3ccd6e46c4907`。カタログの最終更新日 2026-11-15） |
+| 取った URL | `https://data.address-br.digital.go.jp/mt_town/mt_town_all.csv.zip` |
+| データのページ | <https://dataset.address-br.digital.go.jp/documents/b80e77a0e2d24e5692be4af885eb3de7/about> |
+| 列名（全38列） | `lg_code, machiaza_id, machiaza_type, pref, pref_kana, pref_roma, county, county_kana, county_roma, city, city_kana, city_roma, ward, ward_kana, ward_roma, oaza_cho, oaza_cho_kana, oaza_cho_roma, chome, chome_kana, chome_number, koaza, koaza_kana, koaza_roma, machiaza_dist, rsdt_addr_flg, rsdt_addr_mtd_code, oaza_cho_aka_flg, koaza_aka_code, oaza_cho_gsi_uncmn, koaza_gsi_uncmn, status_flg, wake_num_flg, efct_date, ablt_date, src_code, post_code, remarks` |
+| 取得日 | 2026-11-18（Mac から） |
+| 利用条件 | データのページのライセンス欄は CC BY 4.0（<https://creativecommons.org/licenses/by/4.0/deed.ja>）。同じページの「クレジット」は利用規約 <https://www.digital.go.jp/policies/base_registry_address_tos>（最終更新日 2026年5月29日）を指し、そこでは「公共データ利用規約（第1.0版）」（PDL1.0。CC BY 4.0 と互換）。町字は、別の規約がかかる例外（地番マスター・地番マスター位置参照）に入っていない。どちらも出典の記載が要る |
+| 出典の書き方 | 利用規約の例「出典：「○○動向調査」（デジタル庁）（当該ページのURL）」、加工したときは「「○○動向調査」（デジタル庁）（当該ページのURL）を加工して作成」と、加工した主体を書く。先生向けページ（`app/index.html` の `#src-kana`）は「出典：「アドレス・ベース・レジストリ 全国 町字マスター」（デジタル庁）（データのページの URL）（2026年11月18日取得）を加工して作成。…加工：わたしの学校2050（h-kazuki-pixel）」 |
 
-- 2026-11-17、クラウド（claude.ai/code）から上の URL を取りに行ったところ、エージェントのプロキシが `CONNECT tunnel failed, response 502`
-  （`catalog.registries.digital.go.jp:443 — connect_unreachable`：許可されたホストだが、プロキシから相手につながらない）で断った。
-  CLAUDE.md の決まりどおり、別の経路は試していない。
+- 2026-11-17、クラウド（claude.ai/code）から `https://catalog.registries.digital.go.jp/rsc/address/mt_town_all.csv.zip` を取りに行ったところ、エージェントのプロキシが `CONNECT tunnel failed, response 502`
+  （`catalog.registries.digital.go.jp:443 — connect_unreachable`）で断った。2026-11-18 に Mac から引くと、このホストは名前が引けなかった（NXDOMAIN）。
+  ダウンロードの場所は、デジタル庁「アドレス・ベース・レジストリ」のページ（<https://www.digital.go.jp/policies/base_registry_address>）の「データダウンロードサイト」
+  （`https://dataset.address-br.digital.go.jp/`）に移っていた。
 
 ### あとで make-kana を回す手順（Mac か、つながるクラウド）
 
 1. 入れるもの：`python3 -m pip install -r pipeline/requirements-kana.txt`（SudachiPy と SudachiDict full。辞書は入れるときに
    `d2ej7fkh96fzlu.cloudfront.net` から取るので、クラウドではそのホストを許可しておく。うまく入らないときは `--use-pep517` を付ける）。
-2. 町字データを取る：デジタル庁のデータカタログ（`catalog.registries.digital.go.jp`）から町字データ（全国、CSV）を、リポジトリの外に置く。
+2. 町字データを取る：アドレス・ベース・レジストリのデータダウンロードサイト（`dataset.address-br.digital.go.jp`）から「全国 町字マスター」（CSV）を、リポジトリの外に置く。
    ```bash
    mkdir -p ~/work/abr && cd ~/work/abr
-   curl -fLO https://catalog.registries.digital.go.jp/rsc/address/mt_town_all.csv.zip
+   curl -fLO https://data.address-br.digital.go.jp/mt_town/mt_town_all.csv.zip
    ```
-   URL が変わっていたら、データカタログのページで「町字マスター（全国）」の CSV を探す。zip のままでよい。
+   URL が変わっていたら、デジタル庁「アドレス・ベース・レジストリ」のページからデータダウンロードサイトに入り、「全国 町字マスター」の CSV を探す
+   （「（フルセット）」ではないほう）。zip のままでよい。
 3. 列を確かめる（足りない列があれば、名前を出して止まる）：
    ```bash
    python3 pipeline/build_school_data.py make-kana --town ~/work/abr/mt_town_all.csv.zip --check-columns
