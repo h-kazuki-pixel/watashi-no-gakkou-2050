@@ -45,4 +45,4 @@ python3 tools/e2e_realdata.py           # パイプライン出力 → アプリ
 
 ## 実データ
 
-ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。全国47都道府県が実データで動作（1,808市区町村・18,657校、うち3,577校は学校の位置から補ったおおよその区域。福島県の7町村は扱わない）。全国をまとめて作り直すのは `tools/national_dryrun.py`、扱いの一覧は `tools/coverage_doc.py` → `docs/COVERAGE.md`。元データの誤記は `pipeline/terms/source_corrections.csv` で直す。作り直すときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。
+ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。全国47都道府県が実データで動作（1,808市区町村・18,681校、うち3,601校は学校の位置から補ったおおよその区域。福島県の7町村は扱わない）。全国をまとめて作り直すのは `tools/national_dryrun.py`、扱いの一覧は `tools/coverage_doc.py` → `docs/COVERAGE.md`。元データの誤記は `pipeline/terms/source_corrections.csv` で直す。作り直すときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。

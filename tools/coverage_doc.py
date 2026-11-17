@@ -30,6 +30,7 @@ def main() -> int:
     app, od = pathlib.Path(a.app), pathlib.Path(a.od)
     prefs = sorted(p.stem.split("_")[1] for p in app.glob("pref_[0-9][0-9].js"))
     rows, approx_c, nothandled, excluded, filled, closed, nopts, geom, fixes, notes = [], [], [], [], [], [], [], [], [], []
+    small = []  # 学区データに無く、補っても2025年の推計が1人未満で出ない学校
     tot = collections.Counter()
     left = []  # (県コード, 県名, どの学校にも入らなかった子ども, メッシュの子ども)
     gen = set()
@@ -65,6 +66,11 @@ def main() -> int:
         for e in rep.get("closed_schools_excluded", []):
             if e["how"].startswith("学区データにある"):
                 closed.append(f"| {pname} | {names.get(e['city'], e['city'])} | {e['name']} | {e['value']} |")
+        for e in rep.get("filled_missing_dropped_small_schools", []):
+            small.append((p, e["city"], f"| {pname} | {names.get(e['city'], e['city'])} | {e['name']} | 1人未満 |"))
+        for e in rep.get("schools_without_points", []):
+            if e["how"] == "学区データに無い学校":
+                small.append((p, e["city"], f"| {pname} | {names.get(e['city'], e['city'])} | {e['name']} | 当たる点が無い（0人） |"))
         for e in rep.get("schools_without_points", []):
             nopts.append(f"| {pname} | {names.get(e['city'], e['city'])} | {e['name']} | {e['how']} |")
         for kind, lst in (rep.get("geometry_issues") or {}).items():
@@ -136,10 +142,23 @@ def main() -> int:
     w("## 学区データに入っていなかったので補った学校")
     w("")
     w("学区データのある市区町村で、学区データに無い公立小学校を、学校の位置から補った学校（おおよその区域）。")
+    w("配分率0.9未満の市区町村では、どの学区にも入らなかった点を補う学校の中でいちばん近い学校に当てる。")
+    w("0.9以上の市区町村では、学区データの学校も含めた公立小学校でいちばん近い学校が補う学校になる点だけを当てる（DATA_METHOD.md）。")
     w("")
     w("| 都道府県 | 学校数 | 市区町村 学校 |")
     w("|---|---|---|")
     L.extend(filled)
+    w("")
+    w("## 学区データに無く、補っても1人未満で出ない学校")
+    w("")
+    w("学区データに無いので補う学校にしたが、当たった点の2025年の推計が1人未満だった（当たる点が1つも無かったものを含む）ので出していない学校。")
+    w("当たる点が無かった学校は、下の「割り当たる点が無くて出なかった学校」にも出ています。")
+    w("")
+    w("| 都道府県 | 市区町村 | 学校 | 理由 |")
+    w("|---|---|---|---|")
+    small = sorted(set(small), key=lambda t: (t[0], t[1], t[2]))  # 学校の位置データに同じ学校が2つあるもの（大町市 八坂小中）は1回
+    L.extend(r for *_k, r in small)
+    w(f"\n計 {len(small)} 校（1人未満 {sum('1人未満' in r for *_k, r in small)}、当たる点が無い {sum('0人' in r for *_k, r in small)}）。")
     w("")
     w("## 学区データにあるが、休校区分が休校の学校")
     w("")
@@ -161,7 +180,8 @@ def main() -> int:
     ua, mc = sum(x[2] for x in left), sum(x[3] for x in left)
     w(f"2025年の6〜11歳の推計 {mc:,.0f}人のうち、{ua:,.0f}人（{ua / mc * 100:.2f}%）は、どの学校の数字にも入っていません（`report_XX.json` の `unassigned_2025`）。")
     w("メッシュに 4×4 の点を置き、点が入る学区に人口を配る（DATA_METHOD.md「計算」）ので、学区の外に落ちた点の子どもはどこにも足していません。")
-    w("学区のある学校の数字は変えない、という決まりのためです（学区データに無い学校を補うのは、配分率が0.9未満の市区町村だけ）。")
+    w("学区のある学校の数字は変えない、という決まりのためです（配分率0.9以上の市区町村で学区データに無い学校を補うときも、")
+    w("学区データの学校のほうが近い点は、どの学校にも当てません）。")
     w("")
     w("| 都道府県 | 人数（2025年） | 割合 |")
     w("|---|---|---|")
