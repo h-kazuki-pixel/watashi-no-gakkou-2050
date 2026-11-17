@@ -266,12 +266,17 @@
   var VARIANT_RE = new RegExp("[" + Object.keys(VARIANTS).join("") + "]", "g");
   var KE_AFTER_KANJI = /([㐀-鿿豈-﫿々〆])[ケヶ]/g;
 
-  /** 比べる前にそろえる：NFKC（半角カナ・全角英数）→ 空白を除く →「ヶ」と（漢字の後の）「ケ」を「が」に → 片仮名を平仮名に → 異体字を寄せる */
+  /** 小さい平仮名 → 大きい字。町字データの読みは「じゆうもんじ」「ちゆうおう」のように小さい字を大きく書いているので、入力・学校名・読みの全部をそろえる */
+  var SMALL = { "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お", "っ": "つ", "ゃ": "や", "ゅ": "ゆ", "ょ": "よ", "ゎ": "わ", "ゕ": "か", "ゖ": "け" };
+  var SMALL_RE = /[ぁぃぅぇぉっゃゅょゎゕゖ]/g;
+
+  /** 比べる前にそろえる：NFKC（半角カナ・全角英数）→ 空白を除く →「ヶ」と（漢字の後の）「ケ」を「が」に → 片仮名を平仮名に → 小さい字を大きく → 異体字を寄せる */
   function foldText(s) {
     s = String(s == null ? "" : s);
     if (s.normalize) s = s.normalize("NFKC");
     s = s.replace(/[\s　]+/g, "").replace(KE_AFTER_KANJI, "$1が").replace(/ヶ/g, "が");
     s = s.replace(/[ァ-ヶ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); });
+    s = s.replace(SMALL_RE, function (c) { return SMALL[c]; });
     return s.replace(VARIANT_RE, function (c) { return VARIANTS[c]; });
   }
 

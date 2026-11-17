@@ -140,7 +140,7 @@ test("学校をさがす：ひらがな・カタカナ・異体字・「ヶ」�
   // 片仮名・半角片仮名は平仮名にそろえる
   assert.equal(M.matchSchool(ryuo, "リュウオウ"), true);
   assert.equal(M.matchSchool(ryuo, "ﾘｭｳｵｳ"), true);
-  assert.equal(M.schoolQuery("ﾘｭｳｵｳｷﾀ"), "りゅうおうきた");
+  assert.equal(M.schoolQuery("ﾘｭｳｵｳｷﾀ"), "りゆうおうきた"); // 小さい字も大きくそろえる
   assert.equal(M.matchSchool({ name: "あずま小中学校" }, "アズマ"), true); // 名前の かな は読みが無くても合う
   // 「ー」を含む平仮名
   assert.equal(M.matchSchool({ name: "ルーテル学院小学校", kana: ["るーてるがくいんしょうがっこう"] }, "るーてる"), true);
@@ -176,6 +176,13 @@ test("学校をさがす：ひらがな・カタカナ・異体字・「ヶ」�
   // 学校名の文字列だけを渡したとき（前の呼び方）も動く
   assert.equal(M.matchSchool("龍王小学校", "竜王"), true);
   assert.equal(M.matchSchool("龍王小学校", "りゅうおう"), false);
+  // 小さい字は大きい字にそろえる（町字データの読みは「じゆうもんじ」のように大きく書いてある）
+  assert.equal(M.matchSchool({ name: "十文字小学校", kana: ["じゆうもんじしょうがつこう"] }, "じゅうもんじ"), true);
+  assert.equal(M.matchSchool({ name: "中央小学校", kana: ["ちゆうおうしようがつこう"] }, "ちゅうおう"), true);
+  assert.equal(M.matchSchool({ name: "中央小学校", kana: ["ちゆうおうしようがつこう"] }, "チュウオウ"), true);
+  assert.equal(M.matchSchool({ name: "中央小学校", kana: ["ちゅうおうしょうがっこう"] }, "ちゆうおう"), true); // 逆も
+  assert.equal(M.foldText("ぁぃぅぇぉっゃゅょゎゕゖ"), "あいうえおつやゆよわかけ");
+  assert.equal(M.schoolQuery("ジュウモンジ"), "じゆうもんじ");
   assert.equal(M.isKanaQuery("りゅうおー"), true);
   assert.equal(M.isKanaQuery("りゅう王"), false);
 });

@@ -268,3 +268,73 @@ def test_sudachi_reader():
     r = kana.SudachiReader()
     assert r("竜王") == "りゅうおう"
     assert r("第一") == "だいいち"  # 数詞は未知語でも読みが付く
+
+
+def _towns(rows):
+    """(名前, カナ) の並び → 1つの市区町村の 名前 → 読み"""
+    idx = kana.TownIndex()
+    for n, k in rows:
+        idx.add("989010", n, k)
+    return idx.lookup(["98901"])
+
+
+def test_town_tail_machi_mura_is_stripped():
+    # 町字データのカナは小さい字を大きく書く（チヨウ）
+    towns = _towns([("日比津町", "ヒビツチヨウ"), ("近見町", "チカミマチ"), ("上南摩町", "カミナンマチョウ"), ("大川村", "オオカワムラ"),
+                    ("東町", "ヒガシマチ"), ("大村", "オオムラ"), ("田中町", "タナカ")])
+    assert kana.school_readings("日比津小学校", towns, None) == [("ひびつしょうがっこう", "town")]
+    assert kana.school_readings("近見小学校", towns, None) == [("ちかみしょうがっこう", "town")]
+    assert kana.school_readings("上南摩小学校", towns, None) == [("かみなんましょうがっこう", "town")]
+    assert kana.school_readings("大川小学校", towns, None) == [("おおかわしょうがっこう", "town")]
+    # 外したあと1文字になるもの（東町・大村）は外さない
+    assert "東" not in towns and "大" not in towns
+    # 読みの末尾が「チョウ」「マチ」でなければ外さない
+    assert "田中" not in towns
+
+
+def test_chome_with_large_kana():
+    towns = _towns([("高取二丁目", "タカトリニチヨウメ"), ("西新一丁目", "ニシジンイツチヨウメ")])
+    assert towns["高取"] == "たかとり" and towns["西新"] == "にしじん"
+
+
+def test_dict_ke_after_kanji_and_small_ke_discarded():
+    seen = []
+
+    def d(t):
+        seen.append(t)
+        return {"草が江": "くさがえ", "妙": "みょゖ"}.get(t)
+    assert kana.school_readings("草ヶ江小学校", {}, d) == [("くさがえしょうがっこう", "dict")]
+    assert "草が江" in seen and "草ヶ江" not in seen  # 辞書には「が」に置き換えてから渡す
+    assert kana.school_readings("妙小学校", {}, d) == []  # 「ゖ」が残る読みは捨てる
+    # 町字の読みに「ゖ」があっても使わない
+    idx = kana.TownIndex()
+    idx.add("989010", "鬼ヶ島", "オニヶシマ")
+    assert idx.lookup(["98901"]) == {}
+
+
+def test_dict_oka_at_end():
+    d = {"霧丘": "きりきゅう", "霧": "きり", "香住丘": "かすみたかし", "香住": "かすみ", "旭丘": "あさひがおか",
+         "緑の丘": "みどりのきゅう", "緑の": "みどりの", "希望丘": "きぼうきゅう", "希望": "きぼう"}.get
+    assert kana.school_readings("霧丘小学校", {}, d) == [("きりがおかしょうがっこう", "dict")]
+    assert kana.school_readings("香住丘小学校", {}, d) == [("かすみがおかしょうがっこう", "dict")]
+    assert kana.school_readings("旭丘小学校", {}, d) == [("あさひがおかしょうがっこう", "dict")]   # もとから「おか」
+    assert kana.school_readings("緑の丘小学校", {}, d) == [("みどりのおかしょうがっこう", "dict")]  # 「の」の後は「おか」
+    # 町字の読みには置き換えをかけない（町字「希望丘」の読みはそのまま。辞書の読みは「がおか」にして、違えば両方残す）
+    towns = _towns([("希望丘", "キボウキユウ")])
+    assert kana.school_readings("希望丘小学校", towns, d) == [("きぼうきゆうしょうがっこう", "town"),
+                                                            ("きぼうがおかしょうがっこう", "dict")]
+
+
+def test_add_kana_accepts_old_small_ke_rows_and_counts_them(tmp_path):
+    data = write_data(tmp_path / "data")
+    auto = tmp_path / "a.csv"
+    auto.write_text("学校コード,学校名,読み,元\nA1,竜王北小学校,りゅうおうゖたしょうがっこう,dict\n", encoding="utf-8")
+    manual = tmp_path / "m.csv"
+    manual.write_text("学校コード,読み,理由\n", encoding="utf-8")
+    st = kana.add_kana(data, auto, manual)
+    assert st["auto"] == 1 and st["auto_small_ka_ke"] == 1  # 前の表との互換。make-kana をかけ直すと消える
+    manual.write_text("学校コード,読み,理由\nA1,りゅうおうきたしょうがっこう,手直し\n", encoding="utf-8")
+    assert kana.add_kana(data, auto, manual)["auto_small_ka_ke"] == 0
+    manual.write_text("学校コード,読み,理由\nA1,りゅうおうゖた,手直し\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        kana.add_kana(data, auto, manual)  # 手直しの表では受け付けない

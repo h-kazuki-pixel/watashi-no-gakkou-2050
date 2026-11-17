@@ -74,9 +74,18 @@ VARIANTS = {
 }
 _KE_AFTER_KANJI = re.compile(r"([㐀-鿿豈-﫿々〆])[ケヶ]")
 KANA_ONLY = re.compile(r"^[ぁ-ゖァ-ヺー]+$")
-HIRA_ONLY = re.compile(r"^[ぁ-ゖー]+$")
+HIRA_ONLY = re.compile(r"^[ぁ-ゔー]+$")  # 「ゕ」「ゖ」が残る読みは捨てる
+AUTO_KANA = re.compile(r"^[ぁ-ゖー]+$")  # add-kana が school_kana_auto.csv で受け付ける字（前の表との互換）
 _CHOME = re.compile(r"^(.+?)[0-9一二三四五六七八九十〇]+丁目$")
-_CHOME_KANA = re.compile(r"(?:いっ|いち|に|さん|よん|し|ご|ろく|ろっ|なな|しち|はち|はっ|きゅう|く|じゅう|じゅっ|じっ)+ちょうめ$")
+# 町字データの読みは小さい字を大きく書く（「イツチヨウメ」「チヨウ」）ので、読みの末尾は小さい字を大きくしてから比べる
+_SMALL = str.maketrans("ぁぃぅぇぉっゃゅょゎゕゖ", "あいうえおつやゆよわかけ")
+_CHOME_KANA = re.compile(r"(?:いつ|いち|に|さん|よん|し|ご|ろく|ろつ|なな|しち|はち|はつ|きゆう|く|じゆう|じゆつ|じつ)+ちようめ$")
+_TOWN_TAIL = (("町", ("ちょう", "まち")), ("村", ("むら", "そん")))
+
+
+def big(s: str) -> str:
+    """小さい平仮名を大きい字に（長さは変わらない）"""
+    return s.translate(_SMALL)
 
 
 def hira(s: str) -> str:
@@ -153,16 +162,22 @@ def check_columns(path) -> list[str]:
 
 
 def _variants(name: str, kana: str):
-    """比べる名前と読み：そのまま、先頭の「大字」「字」を外したもの、末尾の丁目を外したもの。"""
+    """比べる名前と読み：そのまま、先頭の「大字」「字」を外したもの、末尾の丁目を外したもの、末尾の「町」「村」を外したもの。"""
     out = [(name, kana)]
     for head, khead in (("大字", "おおあざ"), ("字", "あざ")):
         if name.startswith(head) and len(name) > len(head):
             out.append((name[len(head):], kana[len(khead):] if kana.startswith(khead) else kana))
             break
     for n, k in list(out):
-        m = _CHOME.match(n)
-        if m and _CHOME_KANA.search(k):
-            out.append((m.group(1), _CHOME_KANA.sub("", k)))
+        m, mk = _CHOME.match(n), _CHOME_KANA.search(big(k))
+        if m and mk:
+            out.append((m.group(1), k[:mk.start()]))
+    for n, k in list(out):  # 「日比津町」→ 日比津（読みの「チヨウ」「マチ」も外す）。外したあと2文字以上のときだけ
+        for tail, ktails in _TOWN_TAIL:
+            if n.endswith(tail) and len(n) - len(tail) >= 2:
+                kt = next((t for t in ktails if big(k).endswith(big(t)) and len(k) > len(t)), None)
+                if kt:
+                    out.append((n[:-len(tail)], k[:-len(kt)]))
     return [(n, k) for n, k in out if n and k]
 
 
@@ -300,12 +315,26 @@ def _longest(s: str, towns: dict):
     return None
 
 
+def dict_read(text: str, dict_reader) -> str | None:
+    """辞書で読む。読む前に漢字のあとの「ヶ」「ケ」を「が」に（辞書が「草ヶ江」を「くさゖこう」と読むため）。
+    語末の「丘」が「おか」以外に読まれたら、「丘」の前までを辞書で読み「がおか」を付ける（前が「が」「の」なら「おか」）。
+    読みに「ゕ」「ゖ」など平仮名と「ー」以外が残れば None。"""
+    if not dict_reader or not text:
+        return None
+    t = _KE_AFTER_KANJI.sub(r"\1が", text)
+    r = dict_reader(t)
+    if r and len(t) >= 2 and t.endswith("丘") and not r.endswith("おか"):
+        head = dict_reader(t[:-1])
+        r = head + ("おか" if head.endswith(("が", "の")) else "がおか") if head else None
+    return r if r and HIRA_ONLY.match(r) else None
+
+
 def read_town(seg: str, towns: dict, dict_reader) -> str | None:
     """語の頭から町字で読む。残りは方角と番号の表か辞書で。町字が当たらなければ None。"""
     def rest(r):
         if not r:
             return ""
-        return read_table(r) or (dict_reader(r) if dict_reader else None)
+        return read_table(r) or dict_read(r, dict_reader)
 
     hit = _longest(seg, towns)
     if hit:
@@ -332,7 +361,7 @@ def school_readings(name: str, towns: dict, dict_reader) -> list[tuple[str, str]
             h = hira(t)
             segs.append((h, h, True))
         else:
-            segs.append((read_town(t, towns, dict_reader), dict_reader(t) if dict_reader else None, False))
+            segs.append((read_town(t, towns, dict_reader), dict_read(t, dict_reader), False))
     if not segs:
         return []
 
@@ -481,7 +510,9 @@ def load_readings(auto_csv=AUTO_CSV, manual_csv=MANUAL_CSV) -> tuple[dict, dict]
     """(自動 {学校コード: (学校名, [読み])}, 手直し {学校コード: [読み]})"""
     auto: dict = {}
     for r in _read_table(auto_csv, AUTO_HEADER):
-        if r["元"] not in SOURCES or not HIRA_ONLY.match(r["読み"]):
+        # 前の make-kana が作った表には「ゕ」「ゖ」の残る読みがある（くさゖこう など）。add-kana ではそのまま受け付けて数だけ出し、
+        # make-kana をかけ直したときに消える（いまの make-kana は作らない）
+        if r["元"] not in SOURCES or not AUTO_KANA.match(r["読み"]):
             raise SystemExit(f"{auto_csv}: 読みは平仮名と「ー」、元は {'/'.join(SOURCES)}: {r}")
         name, ks = auto.setdefault(r["学校コード"], (r["学校名"], []))
         if name != r["学校名"]:
@@ -551,6 +582,7 @@ def add_kana(data_dir, auto_csv=AUTO_CSV, manual_csv=MANUAL_CSV) -> dict:
     if _update_index_flags(data_dir, with_kana_prefs):
         st["index_written"] = 1
     st["schools_with_kana"] = st["auto"] + st["manual"]
+    st["auto_small_ka_ke"] = sum(1 for k, (_, ks) in auto.items() if k not in manual and any(not HIRA_ONLY.match(x) for x in ks))
     return dict(st)
 
 
