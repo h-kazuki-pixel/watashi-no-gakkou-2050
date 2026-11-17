@@ -102,7 +102,7 @@
       return '<div class="picker">' +
         '<label for="sel-pref">都道府県</label><select id="sel-pref">' + opts + "</select>" +
         '<label for="sel-city">市区町村</label><select id="sel-city">' + cities + "</select>" +
-        '<label for="q-school">学校の 名前で さがす（ひらがなでも いいよ）</label><input id="q-school" type="search" autocomplete="off" placeholder="れい：みなと">' +
+        '<label for="q-school">学校の 名前で さがす</label><input id="q-school" type="search" autocomplete="off" placeholder="ひらがなでも いいよ">' +
         "</div>";
     }
     function listHtml() {

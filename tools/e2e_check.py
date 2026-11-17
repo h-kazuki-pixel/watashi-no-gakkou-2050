@@ -115,7 +115,19 @@ def main() -> int:
         # 学校を さがす（ひらがなでも）。サンプルには読み（kana）が無いので、ここで一時的に付ける。読みは画面に出さない
         NO_RT = "sel => { const e = document.querySelector(sel).cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent; }"
         label = page.evaluate(f"({NO_RT})('label[for=q-school]')")
-        assert label == "学校の 名前で さがす（ひらがなでも いいよ）", label
+        assert label == "学校の 名前で さがす", label  # 長いラベルは PC幅で左の列を広げ、選択欄を細くするので短く
+        assert page.get_attribute("#q-school", "placeholder") == "ひらがなでも いいよ"
+        # 選択欄の文字が切れていない（タブレット〜PC幅）：選んでいる項目の文字＋矢印のぶんが箱に収まる。
+        # 以前の長いラベル「…（ひらがなでも いいよ）」は 900px 幅で 29px はみ出していた
+        for width in (600, 768, 900, 1024, 1180):
+            page.set_viewport_size({"width": width, "height": 820})
+            for sel in ("#sel-pref", "#sel-city"):
+                cut = page.evaluate(f"""() => {{ const s = document.querySelector('{sel}'); const c = document.createElement('canvas').getContext('2d');
+                  c.font = getComputedStyle(s).font;
+                  return c.measureText(s.options[s.selectedIndex].text).width + 40 - s.clientWidth; }}""")
+                if cut > 0:
+                    problems.append(f"{width}px 幅で {sel} の文字が切れる（{cut:.0f}px）")
+        page.set_viewport_size({"width": 1180, "height": 820})
         page.evaluate("""() => UG.prefs['00'].cities[0].schools.forEach(s => {
           if (s.id === 'S3') s.kana = ['ちゅうおうしょうがっこう'];
           if (s.id === 'S5') s.kana = ['やまのうえしょうがっこう']; })""")
