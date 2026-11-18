@@ -393,7 +393,7 @@
    */
   UG.classChart = function (container, cfg) {
     var xMin = cfg.xMin, xMax = M.TARGET_YEAR, yMax = cfg.yMax;
-    var W = 720, H = 400, R = cfg.est ? 112 : 26;
+    var W = 720, H = 400, R = cfg.est ? 112 : 40;
     var sx = function (y) { return L + ((y - xMin) / (xMax - xMin)) * (W - L - R); };
     var sy = function (v) { return H - B - (M.clamp(v, 0, yMax) / yMax) * (H - T - B); };
     var s = [];
