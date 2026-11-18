@@ -36,7 +36,7 @@ FIND_BARE_KANJI = """
     let p = n.parentElement, skip = false;
     while (p) {
       const tag = p.tagName.toLowerCase();
-      if (tag === 'ruby' || tag === 'rt' || tag === 'svg' || p.hasAttribute('data-nr') || p.classList.contains('teachers')) { skip = true; break; }
+      if (tag === 'ruby' || tag === 'rt' || tag === 'svg' || tag === 'textarea' || p.hasAttribute('data-nr') || p.classList.contains('teachers')) { skip = true; break; }
       p = p.parentElement;
     }
     if (skip) continue;
@@ -421,6 +421,29 @@ def main() -> int:
         page.fill("#own-idea", "校庭で月に1回、朝市をひらく")
         page.fill("#proposal", "空いた教室を図書室にして、地域の人も入れるようにしてほしいです。子どもとお年よりがいっしょに本を読める場所にしたいです。")
 
+        # クラスモード 第2段階（子ども）：提案を 書いたら「先生に 提案を わたす」→ 提案つきの コード（名前・学年は 入らない）
+        assert page.is_visible("#handoff-btn") and not page.is_visible("#handoff-box")
+        page.click("#handoff-btn")
+        code5 = page.input_value("#handoff-code")
+        d5 = page.evaluate("c => UG.model.decodeGuess(c)", code5)
+        assert d5["ok"] and d5["prop"], d5
+        assert d5["prop"]["ideas"] == ["room_town", "online"] and d5["prop"]["to"] == "mayor", d5["prop"]
+        assert d5["prop"]["sort"] == {"c1": "good", "c2": "bad"} and d5["prop"]["ownIdea"] == "校庭で月に1回、朝市をひらく", d5["prop"]
+        assert d5["mark"] == mark and d5["seq"] > dec["seq"], (d5["mark"], d5["seq"], dec["seq"])
+        assert "そら" not in json.dumps(d5, ensure_ascii=False) and "e5" not in json.dumps(d5)
+        note5 = page.evaluate("(() => { const e = document.querySelector('#handoff-box .fine').cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent; })()")
+        assert "名前は 入って いないよ。書いた 文は 先生が 読むよ。" in note5, note5
+        hb5, sv5 = page.locator("#handoff-btn").bounding_box(), page.locator("#save-png").bounding_box()
+        assert hb5["width"] * hb5["height"] < sv5["width"] * sv5["height"], "「先生に 提案を わたす」が 目立ちすぎる"
+        page.locator(".out-card").screenshot(path=str(OUT / "5-teian-handoff.png"))
+        bare("step5-handoff")
+        # 提案を 消して アイデアも 外すと かくれる
+        page.evaluate("UG.state.proposal = ''; UG.state.ownIdea = ''; UG.state.ideas = []; UG.render()")
+        assert not page.is_visible("#handoff-btn"), "提案が 無いのに「先生に 提案を わたす」が出ている"
+        page.evaluate("UG.state.ideas = ['room_town', 'online']; UG.render()")
+        page.fill("#own-idea", "校庭で月に1回、朝市をひらく")
+        page.fill("#proposal", "空いた教室を図書室にして、地域の人も入れるようにしてほしいです。子どもとお年よりがいっしょに本を読める場所にしたいです。")
+
         page.click('[data-go="teachers"]')
         page.wait_for_selector(".teachers")
         shot("9-teachers")
@@ -469,6 +492,8 @@ def main() -> int:
         est50_raw = page.evaluate("Math.round(UG.model.interp(UG.model.estPoints(UG.findSchool('00', null, 'S2'), null), 2050))")
         assert f"{est50}人" not in page.inner_text("#view"), "見せる前に推計の数が出ている"
         assert page.locator("#class-reasons li").count() == 2  # 理由のある2人。名前は出ない
+        # 提案の 入った コードが 無ければ、「みんなの 提案」は 案内だけ
+        assert page.is_visible("#class-props-none") and page.locator("#class-props .sort-bars").count() == 0
         assert "山田" not in page.inner_text("#view") and "鈴木" not in page.inner_text("#view")
         bare("class")
         shot("c-1-class")
@@ -513,6 +538,17 @@ def main() -> int:
         page.click('[data-pick="1"]')
         page.wait_for_selector("#class-chart svg")
         assert page.locator("#class-chart .l-class").count() == 1
+        # ステップ5の コード：同じ 端末の ステップ2の コードと 入れかわり、提案が出る
+        page.fill("#class-text", f"山田 花子\n{handoff_code}\n山田 花子（ていあん）\n{code5}")
+        page.click("#class-load")
+        page.wait_for_selector("#class-props .sort-bars")
+        assert page.locator("#class-replaced").count() == 1
+        assert page.locator("#class-chart .l-class").count() == 1
+        assert page.locator("#class-props .prop-list").count() == 0, "提案の一覧が最初から開いている"
+        page.click("#class-props-open")
+        assert page.locator("#class-props .prop-list li").count() == 1
+        assert "空いた教室を図書室にして" in page.inner_text("#class-props .prop-list")
+        assert "そら" not in page.inner_text("#view")
         # 見本の クラス（みらい市だけ）
         page.click("#class-sample")
         page.wait_for_function("document.querySelectorAll('#class-chart .l-class').length >= 25")
@@ -527,6 +563,69 @@ def main() -> int:
         page.click("#class-reveal"); page.wait_for_selector("#class-vs")
         shot("c-4-sample-reveal-820")
         page.set_viewport_size({"width": 1180, "height": 820})
+
+        # みんなの 提案（見本の クラス）：いいね・しんぱい、アイデアの順位、じぶんの アイデア、宛先ごとの 提案（最初は 閉じている）
+        assert page.locator("#class-props .sort-bars li").count() == 8
+        assert page.locator("#class-props .idea-rank li").count() >= 5
+        assert page.locator("#class-own li").count() >= 2  # 同じ ものは「（○人）」で まとめる
+        assert page.locator("#class-props .prop-list").count() == 0, "提案の一覧が最初から開いている"
+        bare("class-props")
+        page.locator("#class-props").screenshot(path=str(OUT / "c-5-props-closed.png"))
+        page.click("#class-props-open")
+        groups = page.locator(".to-group h4").all_inner_texts()
+        assert len(groups) >= 4, groups
+        mayor_n = page.locator(".to-group").first.locator("li").count()
+        assert "みらい市長さんへ" in page.inner_text(".to-group h4 >> nth=0").replace("\n", ""), groups
+        first_prop = page.inner_text(".to-group >> nth=0 >> li >> nth=0 >> .tx")
+        mayor_texts = page.locator(".to-group >> nth=0 >> .tx").all_inner_texts()
+        page.check(".to-group >> nth=0 >> [data-noprint] >> nth=0")
+        assert "off" in page.get_attribute(".to-group >> nth=0 >> li >> nth=0", "class")
+        bare("class-props-open")
+        page.locator("#class-props").screenshot(path=str(OUT / "c-5-props-open.png"))
+        page.set_viewport_size({"width": 820, "height": 1180}); page.wait_for_timeout(300)
+        page.locator("#class-props").screenshot(path=str(OUT / "c-5-props-820.png"))
+        page.set_viewport_size({"width": 1180, "height": 820}); page.wait_for_timeout(300)
+        # 宛先ごとに 印刷する
+        assert page.is_disabled("#class-sheet-make")
+        page.click('[data-sheet-to="mayor"]')
+        page.fill("#class-name", "5年2組")
+        page.click("#class-sheet-make")
+        page.wait_for_selector("#class-sheet")
+        sheet = page.inner_text("#class-sheet")
+        sheet_plain = page.evaluate("(() => { const e = document.querySelector('#class-sheet').cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent; })()")
+        assert "みらい市長さんへ" in sheet_plain.replace(" ", ""), sheet_plain[:80]
+        assert "5年2組" in sheet_plain and "さくら台小学校" in sheet_plain
+        # 印刷に 入れない 1件を 除いた 人数。同じ 文は 1行に まとめて「（○人）」
+        rest = mayor_texts[1:]
+        rows = page.locator("#class-sheet .sh-props li").all_inner_texts()
+        assert len(rows) == len(set(rest)), (rows, rest)
+        tot = sum(int(_m.group(1)) if (_m := __import__("re").search(r"（(\d+)人）$", r)) else 1 for r in rows)
+        assert tot == len(rest) == mayor_n - 1, (tot, len(rest), mayor_n)
+        assert "出典" in sheet_plain and "わたしの学校2050" in sheet_plain
+        assert page.locator("#class-sheet .sort-bars li").count() == 8 and page.locator("#class-sheet .idea-rank li").count() >= 5
+        assert "5年2組" not in page.evaluate("JSON.stringify(Object.assign({}, localStorage))"), "クラスの名前が保存されている"
+        bare("class-sheet")
+        page.locator("#class-sheet").screenshot(path=str(OUT / "c-6-sheet.png"))
+        # 印刷の メディア：印刷用の 1枚だけが 出る。A4 縦
+        page.emulate_media(media="print")
+        hidden = page.evaluate("""() => ['.top', '.class-in', '.class-result', '.class-reasons', '#class-print', '.sheet-actions']
+          .map(s => [s, document.querySelector(s) && getComputedStyle(document.querySelector(s)).display])""")
+        assert all(d in (None, "none") for _, d in hidden), hidden
+        assert page.evaluate("getComputedStyle(document.querySelector('#class-sheet')).display") != "none"
+        page.screenshot(path=str(OUT / "c-7-print.png"), full_page=True)
+        pdf = page.pdf(prefer_css_page_size=True, print_background=True)
+        (OUT / "c-7-print.pdf").write_bytes(pdf)
+        import re as _re
+        pages = len(_re.findall(rb"/Type\s*/Page[^s]", pdf))
+        print("印刷用の 1枚：PDF", pages, "ページ")
+        if pages > 1:
+            problems.append(f"印刷用の 1枚が {pages}ページに なる")
+        page.emulate_media(media="screen")
+        # Claude の 画面の 中（印刷できない）では、ファイルで 保存する・文を コピーする
+        page.evaluate("window.claude = {}; UG.render()")
+        assert page.locator("#class-sheet-print").count() == 0 and page.locator("#class-sheet-save").count() == 1
+        page.evaluate("delete window.claude; UG.render()")
+        assert page.locator("#class-sheet-print").count() == 1
         # 読んだ コードは 保存しない
         assert "WG50" not in page.evaluate("JSON.stringify(Object.assign({}, localStorage))"), "コードが localStorage に入っている"
         # 実データの県では「見本の クラスで ためす」を出さない

@@ -240,6 +240,10 @@
   /* ====================== 5 ていあん ====================== */
   V.step5 = function (root) {
     var st = UG.state, c = UG.ctx();
+    /** 提案の 文を 書いたか、アイデアを えらんだら「先生に 提案を わたす」を 出す */
+    function hasProposal() {
+      return !!(String(st.proposal || "").trim() || String(st.ownIdea || "").trim() || st.ideas.length);
+    }
     var toName = function (id) { return UG.toLabel(id, c.city.name); };
     var evidence = nr(c.school.name) + "の 子どもは、2025年の " + num(c.now) + "人から 2050年には " + num(c.v50) + "人（" + UG.pctText(c.pct) + "）に なる 計算です。";
     var sortLead = c.pct != null && c.pct >= -5
@@ -301,6 +305,9 @@
           '<button type="button" class="btn" id="copy">文を コピーする</button>' +
         "</div>" +
         '<p class="fine">カードは 先生や おうちの 人と いっしょに、伝えたい 相手に とどけよう。</p>' +
+        // クラスモード：提案を 書いたら（アイデアを えらんだら）、先生に わたす コードを 出せる（小さく）
+        UG.handoffHtml("先生に 提案を わたす",
+          "この コードを コピーして、先生に 言われた ところに はりつけてね。名前は 入って いないよ。書いた 文は 先生が 読むよ。", hasProposal()) +
       "</section>" +
 
       '<section class="card done-card">' +
@@ -321,8 +328,10 @@
         ? "いいね <b>" + g + "</b>こ、しんぱい <b>" + b + "</b>こ、どちらとも <b>" + (n - g - b) + "</b>こ。人に よって 感じ方は ちがう。"
         : "");
     }
+    var handoffUpdate = UG.bindHandoff(root, function () { return UG.classCode(true); });
     function drawCard() {
       UG.$("#card", root).innerHTML = UG.cardSVG(UG.cardData());
+      handoffUpdate(hasProposal());
     }
     drawSort(); drawCard();
 
@@ -333,6 +342,7 @@
         var on = st.sort[id] === b.getAttribute("data-v"); b.classList.toggle("on", on); b.setAttribute("aria-pressed", on);
       });
       drawSort();
+      handoffUpdate(hasProposal());
     });
     UG.on(root, "click", "[data-idea]", function (ev, el) {
       var id = el.getAttribute("data-idea"), i = st.ideas.indexOf(id);

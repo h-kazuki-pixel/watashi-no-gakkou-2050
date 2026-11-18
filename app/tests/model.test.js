@@ -378,11 +378,127 @@ test("コード：途中で改行された貼り付け（Classroom 風）を つ
   // 後ろの行の頭だけを つなぐ（後ろに 名前などが 続いても読む）
   const r2 = M.extractGuesses(b.slice(0, 50) + "\n" + b.slice(50) + " 鈴木");
   assert.equal(r2.items.length, 1);
-  // 4行以上に分かれたものは読まない（読めなかった数に入る）
-  const split4 = [a.slice(0, 20), a.slice(20, 40), a.slice(40, 60), a.slice(60, 80), a.slice(80)].join("\n");
-  const r3 = M.extractGuesses(split4);
-  assert.deepEqual([r3.items.length, r3.bad.length], [0, 1]);
+  // 5行に分かれても読む（20行まで）
+  const split5 = [a.slice(0, 20), a.slice(20, 40), a.slice(40, 60), a.slice(60, 80), a.slice(80)].join("\n");
+  const r3 = M.extractGuesses(split5);
+  assert.deepEqual([r3.items.length, r3.bad.length], [1, 0]);
   // 改行の後ろが 別のコードなら つながない
   const r4 = M.extractGuesses(a.slice(0, 40) + "\n" + b);
   assert.deepEqual([r4.items.length, r4.bad.length], [1, 1]);
+});
+
+/* ---------------- クラスモード 第2段階：提案 ---------------- */
+const IDEA_IDS = ["room_study", "room_town", "room_kids", "online", "events", "bus", "family", "pr", "play"];
+const TO_IDS = ["mayor", "board", "principal", "town", "family"];
+const PROP = {
+  sort: { c1: "good", c2: "bad", c3: "mid", c5: "good", c8: "bad" },
+  ideas: ["room_study", "online", "family"], ownIdea: "校庭で 月に 1回、朝市を ひらく", to: "mayor",
+  proposal: "空いた 教室を 地域の 人も 使える 場所に して ほしいです。\n2行目も あります。"
+};
+const FULL = { ...G1, calib: 412, mark: "dev123", seq: 9, nick: "はなこ", grade: "e5", prop: { ...PROP, nick: "はなこ" } };
+
+test("提案：全部入りのコードを作る → 読むで元にもどる。名前・学年は入らない", () => {
+  const c = M.encodeGuess(FULL);
+  const d = M.decodeGuess(c);
+  assert.equal(d.ok, true);
+  assert.deepEqual([d.pref, d.school, d.guess, d.reason, d.calib, d.mark, d.seq], ["34", "B134210003686", "down", G1.reason, 412, "dev123", 9]);
+  assert.deepEqual(d.prop, {
+    sort: { c1: "good", c2: "bad", c3: "mid", c5: "good", c8: "bad" }, ideas: ["room_study", "online", "family"],
+    ownIdea: "校庭で 月に 1回、朝市を ひらく", to: "mayor", proposal: "空いた 教室を 地域の 人も 使える 場所に して ほしいです。 2行目も あります。"
+  });
+  const json = JSON.stringify(d);
+  assert.equal(json.indexOf("はなこ"), -1);
+  assert.equal(json.indexOf("e5"), -1);
+  // 空の提案（カードだけ・何も えらばない）も 読む
+  const e = M.decodeGuess(M.encodeGuess({ ...G1, prop: {} }));
+  assert.deepEqual(e.prop, { sort: {}, ideas: [], ownIdea: "", to: "", proposal: "" });
+  assert.equal(e.calib, null);
+  // 第1段階（提案なし）は prop が null
+  assert.equal(M.decodeGuess(M.encodeGuess(G1)).prop, null);
+  // 長さ（提案110字・自分のアイデア40字・理由60字）
+  const long = M.encodeGuess({ ...FULL, reason: "あ".repeat(60), prop: { ...PROP, ownIdea: "い".repeat(40), proposal: "う".repeat(110) } });
+  assert.ok(long.length > 900 && long.length < 1200, long.length);
+  assert.equal(M.decodeGuess(long).prop.proposal, "う".repeat(110));
+  // 形のおかしい 提案は 読まない
+  const bad = M.encodeGuess({ ...G1, prop: { ideas: ["<script>"] } });
+  assert.equal(M.decodeGuess(bad).prop.ideas.length, 0); // 作るときに 外す
+});
+
+test("提案：第1段階のコードとまぜて読む。同じ端末なら ステップ5のコードに入れかわる", () => {
+  const step2 = M.encodeGuess({ ...G1, mark: "devAAA", seq: 3 });
+  const step5 = M.encodeGuess({ ...G1, mark: "devAAA", seq: 4, prop: PROP });
+  const other = M.encodeGuess({ ...G1, mark: "devBBB", seq: 1 });
+  const v1 = "WG50-WzEsIjAwIiwiUzEiLCJ1IiwzMDAsMjgwLDI1MCwyMzAsMjEwXQA1vyjY";
+  const r = M.extractGuesses([step2, other, step5, v1].join("\n"));
+  assert.equal(r.items.length, 3);
+  assert.equal(r.replaced, 1);
+  const a = r.items.find((d) => d.mark === "devAAA");
+  assert.ok(a.prop && a.seq === 4);
+  assert.equal(r.items.find((d) => d.mark === "devBBB").prop, null);
+  // 古いほうが後に貼られても、番号の大きいほう
+  const r2 = M.extractGuesses([step5, step2].join("\n"));
+  assert.deepEqual([r2.items.length, r2.items[0].seq], [1, 4]);
+});
+
+test("提案：20行に折れた貼り付けを読む。21行以上・ほかのコードで始まる行は つながない", () => {
+  const c = M.encodeGuess(FULL);
+  const chunk = Math.ceil((c.length - 5) / 20);
+  const lines = [];
+  for (let i = 0; i < c.length; i += chunk) lines.push(c.slice(i, i + chunk));
+  assert.ok(lines.length >= 20 && lines.length <= 21, lines.length);
+  const ok = lines.length === 21 ? [lines[0] + lines[1]].concat(lines.slice(2)) : lines; // 1行目＋20行
+  const r = M.extractGuesses("山田 花子 11月20日\n" + ok.join("\n") + "\n鈴木 一郎");
+  assert.deepEqual([r.items.length, r.bad.length], [1, 0]);
+  assert.equal(r.items[0].prop.ownIdea, PROP.ownIdea);
+  // 22行に分かれたもの（1行目＋21行）は読まない
+  const many = [];
+  const ch2 = Math.ceil(c.length / 22);
+  for (let i = 0; i < c.length; i += ch2) many.push(c.slice(i, i + ch2));
+  assert.ok(many.length >= 22);
+  assert.deepEqual(M.extractGuesses(many.join("\n")).items.length, 0);
+  // 途中の行の後ろに 別のコードが 来たら そこで止める（別のコードは そのまま読む）
+  const g = M.encodeGuess({ ...G1, mark: "devZZZ", seq: 1 });
+  const cl = M.encodeGuess({ ...FULL, prop: { ...PROP, proposal: "う".repeat(110) } });
+  assert.ok(cl.length > 700);
+  const r3 = M.extractGuesses([cl.slice(0, 300), cl.slice(300, 600), g, cl.slice(600)].join("\n"));
+  assert.deepEqual([r3.items.length, r3.items[0].mark, r3.bad.length], [1, "devZZZ", 1]);
+  // 空白だけの行を はさんでも つなぐ（行の頭の空白は 除く）
+  const r4 = M.extractGuesses(c.slice(0, 500) + "\n   " + c.slice(500));
+  assert.equal(r4.items.length, 1);
+});
+
+test("提案：集計（カードごと・アイデアの順位・自分のアイデア・宛先ごと）", () => {
+  const mk = (p, extra) => M.decodeGuess(M.encodeGuess({ ...G1, ...extra, prop: p }));
+  const items = [
+    mk({ sort: { c1: "good", c2: "bad" }, ideas: ["online", "room_study"], to: "mayor", proposal: "A" }, { mark: "m00001" }),
+    mk({ sort: { c1: "good", c2: "mid" }, ideas: ["room_study"], to: "board", proposal: "B", ownIdea: "朝市" }, { mark: "m00002" }),
+    mk({ sort: { c1: "bad" }, ideas: ["online", "family"], to: "mayor", proposal: "C" }, { mark: "m00003" }),
+    mk({ sort: {}, ideas: ["bus"], to: "town", proposal: "" }, { mark: "m00004" }),          // 文なし → 宛先の一覧に入らない
+    M.decodeGuess(M.encodeGuess({ ...G1, mark: "m00005" }))                                   // 提案なし → 数えない
+  ];
+  const st = M.sortTally(items);
+  assert.deepEqual(st.c1, { good: 2, bad: 1, mid: 0 });
+  assert.deepEqual(st.c2, { good: 0, bad: 1, mid: 1 });
+  assert.deepEqual(st.c8, { good: 0, bad: 0, mid: 0 });
+  assert.deepEqual(Object.keys(st), M.SORT_IDS);
+  assert.deepEqual(M.ideaTally(items, IDEA_IDS), [
+    { id: "room_study", n: 2 }, { id: "online", n: 2 }, { id: "bus", n: 1 }, { id: "family", n: 1 }]); // 同じ数は order の順
+  assert.deepEqual(M.ownIdeas(items), ["朝市"]);
+  const by = M.proposalsByTo(items, TO_IDS);
+  assert.deepEqual(by.map((g) => [g.to, g.items.map((d) => d.prop.proposal)]), [["mayor", ["A", "C"]], ["board", ["B"]]]);
+  assert.deepEqual(M.proposalsByTo([], TO_IDS), []);
+});
+
+test("見本のクラス：架空の提案も入る。よそうの値は第1段階と同じ", () => {
+  const a = M.sampleClass("00", "S2", 306, 168, 30, 2050, IDEA_IDS);
+  assert.deepEqual(a, M.sampleClass("00", "S2", 306, 168, 30, 2050, IDEA_IDS)); // 毎回同じ
+  const plain = M.extractGuesses(M.sampleClass("00", "S2", 306, 168, 30, 2050).join("\n")).items;
+  const r = M.extractGuesses(a.join("\n")).items;
+  assert.deepEqual(r.map((d) => d.draw), plain.map((d) => d.draw));
+  const withP = r.filter((d) => d.prop);
+  assert.ok(withP.length >= 18 && withP.length < 30, withP.length);
+  const by = M.proposalsByTo(r, TO_IDS);
+  assert.ok(by.length >= 4, by.map((g) => g.to)); // 宛先が ばらける
+  assert.ok(M.ideaTally(r, IDEA_IDS).length >= 5);
+  assert.ok(M.ownIdeas(r).length >= 2);
 });

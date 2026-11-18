@@ -462,10 +462,23 @@ svg.mini { display: block; width: 100%; height: auto; }
 .foot { max-width: 1040px; margin: 0 auto; padding: 0 16px 40px; font-size: 13px; line-height: 1.8; color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: 4px 20px; justify-content: space-between; }
 
 /* ---------- 印刷：ていあんカードだけを A4 横に ---------- */
+@page sheet { size: A4 portrait; margin: 12mm; }
 @media print {
   @page { size: A4 landscape; margin: 10mm; }
   body { background: #fff; }
-  .top, .sample-bar, .foot, .toast, .view > *:not(.out-card) { display: none !important; }
+  .top, .sample-bar, .foot, .toast, .view > *:not(.out-card):not(.class-props) { display: none !important; }
+  /* クラスで 見る：印刷用の 1枚だけを A4 縦で */
+  .class-props { border: 0 !important; box-shadow: none !important; padding: 0 !important; background: none !important; }
+  .class-props > *:not(.class-sheet-wrap) { display: none !important; }
+  .class-sheet-wrap { border: 0 !important; padding: 0 !important; background: none !important; }
+  .class-sheet-wrap > *:not(.class-sheet) { display: none !important; }
+  /* 名前つきの ページは 本体ごと 切りかえる（.class-sheet に付けると、その前で 改ページされて 2枚に なる） */
+  body:has(.class-sheet) { page: sheet; }
+  .class-sheet { border: 0 !important; box-shadow: none !important; padding: 0 !important; max-width: none; font-size: 10.5pt; line-height: 1.55; }
+  .class-sheet h2 { margin: 8px 0 4px; font-size: 11.5pt; }
+  .class-sheet .sh-to { font-size: 18pt; }
+  .class-sheet .sh-props li { margin: 1px 0; }
+  .view-class { font-size: 1em; }
   .view { padding: 0; max-width: none; }
   .out-card { border: 0; box-shadow: none; padding: 0; }
   .out-card > *:not(.card-frame) { display: none !important; }
@@ -625,3 +638,51 @@ body[data-grade="adult"] ruby[data-g="6"] rt { display: none; }
 .class-calib .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .class-calib input { width: 7em; }
 .class-calib .btn.sub { margin-left: 0; }
+
+/* ---------- クラスで 見る：みんなの 提案（第2段階） ---------- */
+.class-h { margin-top: 0; }
+.class-props h3 { margin: 18px 0 6px; font-size: 1.05em; }
+.sort-legend { display: flex; flex-wrap: wrap; gap: 4px 18px; font-weight: 700; margin: 0 0 6px; }
+.sort-legend .k::before { content: ""; display: inline-block; width: 18px; height: 14px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid var(--ink); border-radius: 3px; }
+.sort-legend .k.good::before, .sort-bars .bar i.good { background: #c5f0e4; }
+.sort-legend .k.bad::before, .sort-bars .bar i.bad { background: #ffd8a8; }
+.sort-legend .k.mid::before, .sort-bars .bar i.mid { background: #e9eef2; }
+.sort-bars, .idea-rank { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.sort-bars li { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 2px 12px; align-items: center; }
+.sort-bars .lb { grid-row: span 2; }
+.sort-bars .bar, .idea-rank .bar { display: flex; height: 18px; border: 1.5px solid var(--ink); border-radius: 4px; overflow: hidden; background: var(--card); }
+.sort-bars .bar i { display: block; height: 100%; border-right: 1.5px solid var(--ink); }
+.sort-bars .ns { font-size: 0.85em; }
+.idea-rank { counter-reset: rk; }
+.idea-rank li { display: grid; grid-template-columns: 2em minmax(0, 1.3fr) minmax(0, 1fr) 3.2em; gap: 10px; align-items: center; counter-increment: rk; }
+.idea-rank .n { text-align: right; white-space: nowrap; }
+.idea-rank li::before { content: counter(rk) "."; font-weight: 700; text-align: right; }
+.idea-rank .bar i { display: block; height: 100%; background: var(--marker); }
+.own-ideas, .prop-list { padding-left: 1.3em; margin: 0; }
+.own-ideas li, .prop-list li { margin: 4px 0; }
+.prop-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 6px 0; border-bottom: 1px dashed var(--grid-strong); }
+.prop-list li.off .tx { color: var(--ink-soft); text-decoration: line-through; }
+.prop-list .np { font-size: 0.85em; white-space: nowrap; }
+.to-group h4 { margin: 14px 0 2px; }
+.class-print { margin-top: 18px; padding-top: 10px; border-top: 2px solid var(--grid-strong); }
+.class-print .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+.class-print input { max-width: 14em; }
+.class-sheet-wrap { margin-top: 16px; padding: 14px; border: 2px dashed var(--grid-strong); border-radius: 12px; background: #f3f6f8; }
+.class-sheet { background: #fff; color: var(--ink); max-width: 190mm; margin: 0 auto; padding: 14mm 14mm 10mm; box-shadow: 0 2px 10px rgba(0,0,0,.12); font-size: 15px; line-height: 1.7; }
+.class-sheet .sh-to { font-family: var(--font-display); font-size: 26px; margin: 0 0 4px; }
+.class-sheet .sh-from { margin: 0 0 6px; font-weight: 700; }
+.class-sheet h2 { font-size: 16px; margin: 12px 0 6px; padding-bottom: 2px; border-bottom: 2px solid var(--ink); }
+.class-sheet .sort-bars { gap: 3px; }
+.class-sheet .sort-bars li { grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.8fr) auto; font-size: 12.5px; line-height: 1.45; }
+.class-sheet .sort-bars .lb { grid-row: auto; }
+.class-sheet .sort-bars .ns { white-space: nowrap; }
+.class-sheet .sort-bars .bar, .class-sheet .idea-rank .bar { height: 12px; }
+.class-sheet .idea-rank { gap: 2px; font-size: 12.5px; line-height: 1.45; }
+.class-sheet .idea-rank li { grid-template-columns: 1.6em minmax(0, 1.5fr) minmax(0, 0.8fr) 3em; }
+.class-sheet .sh-props { padding-left: 1.2em; margin: 0; }
+.class-sheet .sh-props li { margin: 3px 0; }
+.class-sheet .sh-credit { margin-top: 12px; font-size: 11.5px; color: var(--ink-soft); }
+.sheet-actions { justify-content: flex-end; }
+@media print {
+  .class-sheet .bar i, .sort-legend .k::before { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

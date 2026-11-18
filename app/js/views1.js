@@ -77,6 +77,62 @@
   }
   UG.stepNav = nav;
 
+  /* ====================== クラスモード：先生に わたす コード ====================== */
+  /**
+   * いまの よそう（withProp なら ステップ5の 提案も）の コード。名前（nick）と 学年は 入れない。
+   * 中身が 変わったときだけ 番号を 1つ 進める（線を なぞる あいだや 文を 打つ あいだに 何度も 進めない）。
+   * 番号は ステップ2と ステップ5で 同じ 数え方なので、ステップ5の コードが ステップ2の コードと 入れかわる。
+   */
+  var lastCode = null, lastKey = null;
+  UG.classCode = function (withProp) {
+    var st = UG.state;
+    var g = { pref: st.prefCode, school: st.schoolId, guess: st.guess, reason: st.reason, calib: st.calib, draw: {} };
+    M.DRAW_YEARS.forEach(function (y) { g.draw[y] = st.draw[y] == null ? null : Math.round(st.draw[y]); });
+    if (withProp) g.prop = { sort: st.sort, ideas: st.ideas, ownIdea: st.ownIdea, to: st.to, proposal: st.proposal };
+    var key = JSON.stringify(g);
+    if (key === lastKey && lastCode) return lastCode;
+    if (!st.classMark) st.classMark = M.makeMark(UG.random);
+    st.classSeq = (st.classSeq || 0) + 1;
+    UG.save();
+    g.mark = st.classMark; g.seq = st.classSeq;
+    lastKey = key; lastCode = M.encodeGuess(g);
+    return lastCode;
+  };
+  /** 「先生に ○○を わたす」の 小さな ボタンと、コード・コピー・説明（ステップ2と5で 同じ 形）。show が false なら かくして おく */
+  UG.handoffHtml = function (label, note, show) {
+    return '<div class="handoff" id="handoff"' + (show ? "" : " hidden") + ">" +
+      '<button type="button" class="btn sub" id="handoff-btn" aria-expanded="false" aria-controls="handoff-box">' + label + "</button>" +
+      '<div class="handoff-box" id="handoff-box" hidden>' +
+        '<p class="fine">' + note + "</p>" +
+        '<div class="handoff-row"><textarea id="handoff-code" class="code" rows="3" readonly aria-label="先生に わたす コード" data-nr></textarea>' +
+        '<button type="button" class="btn small" id="handoff-copy">コピー</button></div>' +
+      "</div>" +
+    "</div>";
+  };
+  /** ボタンと コピーの 動きを 付ける。返り値 update(show)：出す・かくす、開いていれば コードを 作り直す */
+  UG.bindHandoff = function (root, makeCode) {
+    function update(show) {
+      UG.$("#handoff", root).hidden = !show;
+      var box = UG.$("#handoff-box", root);
+      if (!show) { box.hidden = true; UG.$("#handoff-btn", root).setAttribute("aria-expanded", "false"); }
+      if (!box.hidden) UG.$("#handoff-code", root).value = makeCode() || "";
+    }
+    UG.$("#handoff-btn", root).addEventListener("click", function (ev) {
+      var box = UG.$("#handoff-box", root), open = box.hidden;
+      box.hidden = !open;
+      ev.currentTarget.setAttribute("aria-expanded", String(open));
+      update(true);
+    });
+    UG.$("#handoff-copy", root).addEventListener("click", function () {
+      var ta = UG.$("#handoff-code", root);
+      UG.copyText(ta.value).then(function (ok) {
+        if (!ok) { ta.focus(); ta.select(); }
+        UG.toast(ok ? "コピーしました。先生に 言われた ところに はりつけてね" : "コピーできませんでした。えらんだ 文字を コピーしてね");
+      });
+    });
+    return update;
+  };
+
   /* ====================== ホーム ====================== */
   V.home = function (root) {
     var st = UG.state;
@@ -298,36 +354,10 @@
       "</section>" +
       '<aside class="tip"><b>ヒント</b>　まわりの ようすを 思い出そう。新しい 家は ふえている？ 赤ちゃんや 小さい 子を よく 見かける？ 空き家は ある？</aside>' +
       // クラスモード：線を かきおえたら、先生に よそうを わたす コードを 出せる（授業で 使わない 子には 小さく）
-      '<div class="handoff" id="handoff"' + (done ? "" : " hidden") + '>' +
-        '<button type="button" class="btn sub" id="handoff-btn" aria-expanded="false" aria-controls="handoff-box">先生に よそうを わたす</button>' +
-        '<div class="handoff-box" id="handoff-box" hidden>' +
-          '<p class="fine">この コードを コピーして、先生に 言われた ところに はりつけてね。名前は 入って いないよ。</p>' +
-          '<div class="handoff-row"><textarea id="handoff-code" class="code" rows="2" readonly aria-label="よそうの コード" data-nr></textarea>' +
-          '<button type="button" class="btn small" id="handoff-copy">コピー</button></div>' +
-        "</div>" +
-      "</div>" +
+      UG.handoffHtml("先生に よそうを わたす", "この コードを コピーして、先生に 言われた ところに はりつけてね。名前は 入って いないよ。", done) +
       nav("step1", "もどる", "step3", "データと くらべる", !done)
     );
-    /** いまの よそうの コード（名前は 入れない）。中身が 変わったときだけ 番号を 1つ 進める（線を なぞる あいだに 何度も 進めない） */
-    var lastCode = null, lastKey = null;
-    function handoffCode() {
-      var g = { pref: st.prefCode, school: st.schoolId, guess: st.guess, reason: st.reason, calib: st.calib, draw: {} };
-      M.DRAW_YEARS.forEach(function (y) { g.draw[y] = st.draw[y] == null ? null : Math.round(st.draw[y]); });
-      var key = JSON.stringify(g);
-      if (key === lastKey && lastCode) return lastCode;
-      if (!st.classMark) st.classMark = M.makeMark(UG.random);
-      st.classSeq = (st.classSeq || 0) + 1;
-      UG.save();
-      g.mark = st.classMark; g.seq = st.classSeq;
-      lastKey = key; lastCode = M.encodeGuess(g);
-      return lastCode;
-    }
-    function handoffUpdate(ok) {
-      UG.$("#handoff", root).hidden = !ok;
-      var box = UG.$("#handoff-box", root);
-      if (!ok) { box.hidden = true; UG.$("#handoff-btn", root).setAttribute("aria-expanded", "false"); }
-      if (!box.hidden) UG.$("#handoff-code", root).value = handoffCode() || "";
-    }
+    var handoffUpdate = UG.bindHandoff(root, function () { return UG.classCode(false); });
     function readout(vals, ok) {
       var el = UG.$("#readout", root);
       el.innerHTML = UG.ruby(ok
@@ -346,19 +376,6 @@
       }
     });
     readout(st.draw, done);
-    UG.$("#handoff-btn", root).addEventListener("click", function (ev) {
-      var box = UG.$("#handoff-box", root), open = box.hidden;
-      box.hidden = !open;
-      ev.currentTarget.setAttribute("aria-expanded", String(open));
-      handoffUpdate(true);
-    });
-    UG.$("#handoff-copy", root).addEventListener("click", function () {
-      var ta = UG.$("#handoff-code", root);
-      UG.copyText(ta.value).then(function (ok) {
-        if (!ok) { ta.focus(); ta.select(); }
-        UG.toast(ok ? "コピーしました。先生に 言われた ところに はりつけてね" : "コピーできませんでした。えらんだ 文字を コピーしてね");
-      });
-    });
     UG.$("#redo", root).addEventListener("click", function () { chart.reset(); });
   };
 

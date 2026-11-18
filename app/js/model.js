@@ -315,6 +315,8 @@
    *   版2：[2, 都道府県コード, 学校の id, guess(u/s/d), 2030, 2035, 2040, 2045, 2050, 端末の印, 番号, 理由?, 実際の人数?]
    *        端末の印は でたらめな6文字（同じ子が2回送ったら新しいほうだけ数える）。番号は その端末で作った順。
    *        理由と実際の人数（calib）は無ければ省く（calib だけあるときは 理由を "" にする）。
+   *   版3：版2の 理由・実際の人数（無ければ 0）の後ろに、提案 { s: カード8枚の いいね(g)/しんぱい(b)/どちらとも(m)/えらばない(-),
+   *        i: アイデアの id（3つまで）, o: 自分の アイデア, t: 宛先, p: 提案の 文 }（ステップ5）。空のものは省く
    *   版1：[1, 都道府県コード, 学校の id, guess, 2030…2050, 理由?]（読むだけ）
    * 線の値は整数に丸める。
    */
@@ -388,8 +390,47 @@
     return out;
   }
 
+  /** 1行の文にそろえる（空白をまとめ、前後を切り、長さを そろえる） */
+  function oneLine(v, max) {
+    return String(v || "").replace(/\s+/g, " ").trim().slice(0, max);
+  }
+  /** ステップ5の「いいこと？ しんぱいな こと？」の 8枚のカード（views2.js の UG.SORT_CARDS と同じ id・並び） */
+  var SORT_IDS = ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"];
+  var SORT_TO = { good: "g", bad: "b", mid: "m" };
+  var SORT_FROM = { g: "good", b: "bad", m: "mid" };
+  var PROPOSAL_MAX = 300, OWN_IDEA_MAX = 100; // 入力欄は 110字・40字。古い端末などで長いものが来ても、ここまでは読む
+  var ID_RE = /^[a-z][a-z0-9_]{0,23}$/;
+  /** 提案の中身 → コードに入れる形 { s: "gb-m----", i: [アイデアの id], o: 自分のアイデア, t: 宛先, p: 提案 }（空のものは省く） */
+  function propOut(pr) {
+    var out = {};
+    var sv = SORT_IDS.map(function (id) { return SORT_TO[pr.sort && pr.sort[id]] || "-"; }).join("");
+    if (sv !== "--------") out.s = sv;
+    var ideas = (pr.ideas || []).filter(function (x) { return typeof x === "string" && ID_RE.test(x); }).slice(0, 3);
+    if (ideas.length) out.i = ideas;
+    var own = oneLine(pr.ownIdea, OWN_IDEA_MAX);
+    if (own) out.o = own;
+    if (typeof pr.to === "string" && ID_RE.test(pr.to)) out.t = pr.to;
+    var text = oneLine(pr.proposal, PROPOSAL_MAX);
+    if (text) out.p = text;
+    return out;
+  }
+  /** コードの形 → 提案の中身 { sort, ideas, ownIdea, to, proposal }。形がおかしければ null */
+  function propIn(o) {
+    if (!o || typeof o !== "object" || Array.isArray(o)) return null;
+    var s = o.s == null ? "--------" : o.s, ideas = o.i == null ? [] : o.i;
+    if (typeof s !== "string" || !/^[gbm-]{8}$/.test(s) || !Array.isArray(ideas) || ideas.length > 3 ||
+        !ideas.every(function (x) { return typeof x === "string" && ID_RE.test(x); }) ||
+        (o.o != null && (typeof o.o !== "string" || o.o.length > OWN_IDEA_MAX)) ||
+        (o.t != null && (typeof o.t !== "string" || !ID_RE.test(o.t))) ||
+        (o.p != null && (typeof o.p !== "string" || o.p.length > PROPOSAL_MAX))) return null;
+    var sort = {};
+    SORT_IDS.forEach(function (id, i) { if (s[i] !== "-") sort[id] = SORT_FROM[s[i]]; });
+    return { sort: sort, ideas: ideas.slice(), ownIdea: o.o || "", to: o.t || "", proposal: o.p || "" };
+  }
+
   /**
-   * よそうをコードにする。g: { pref, school, guess: "up"|"same"|"down", draw: {2030:…, …, 2050:…}, reason, calib, mark, seq }
+   * よそうをコードにする。g: { pref, school, guess: "up"|"same"|"down", draw: {2030:…, …, 2050:…}, reason, calib, mark, seq,
+   *   prop: { sort: {c1: "good"|"bad"|"mid", …}, ideas: [id…], ownIdea, to, proposal } | 無し }（ステップ5は prop つき）
    * 線が2050年までそろっていなければ null。
    */
   function encodeGuess(g) {
@@ -400,10 +441,16 @@
     var seq = g.seq > 0 && isFinite(g.seq) ? Math.floor(g.seq) : 0;
     var arr = [CODE_VERSION, String(g.pref), String(g.school), GUESS_TO[g.guess]]
       .concat(vals.map(function (v) { return Math.max(0, Math.round(v)); }), [mark, seq]);
-    var reason = String(g.reason || "").replace(/\s+/g, " ").trim().slice(0, REASON_MAX);
+    var reason = oneLine(g.reason, REASON_MAX);
     var calib = g.calib > 0 && isFinite(g.calib) ? Math.round(g.calib) : null;
-    if (reason || calib) arr.push(reason);
-    if (calib) arr.push(calib);
+    if (g.prop) {
+      // 版3：提案つき（ステップ5）。理由と calib（無ければ 0）は いつも 置く
+      arr[0] = 3;
+      arr.push(reason, calib || 0, propOut(g.prop));
+    } else {
+      if (reason || calib) arr.push(reason);
+      if (calib) arr.push(calib);
+    }
     var bytes = utf8Bytes(JSON.stringify(arr));
     return CODE_HEAD + b64Encode(bytes) + checkChars(bytes);
   }
@@ -422,11 +469,17 @@
     if (!bytes || checkChars(bytes) !== rest.slice(-CHECK_LEN)) return fail("check"); // 途中で切れた・書きかえた
     var arr;
     try { arr = JSON.parse(utf8Text(bytes)); } catch (e) { return fail("format"); }
-    if (!Array.isArray(arr) || (arr[0] !== 1 && arr[0] !== 2)) return fail("version");
-    var v1 = arr[0] === 1, mark = "", seq = 0, reason = "", calib = null;
+    if (!Array.isArray(arr) || [1, 2, 3].indexOf(arr[0]) < 0) return fail("version");
+    var v1 = arr[0] === 1, mark = "", seq = 0, reason = "", calib = null, prop = null;
     if (v1) {
       if (arr.length < 9 || arr.length > 10) return fail("format");
       reason = arr.length > 9 ? arr[9] : "";
+    } else if (arr[0] === 3) {
+      if (arr.length !== 14) return fail("format");
+      mark = arr[9]; seq = arr[10]; reason = arr[11]; calib = arr[12] || null;
+      prop = propIn(arr[13]);
+      if (!prop || typeof mark !== "string" || (mark && !MARK_RE.test(mark)) || typeof seq !== "number" || !(seq >= 0 && seq <= 1e9) ||
+          (calib !== null && !(typeof calib === "number" && calib > 0 && calib <= 100000))) return fail("format");
     } else {
       if (arr.length < 11 || arr.length > 13) return fail("format");
       mark = arr[9]; seq = arr[10];
@@ -445,7 +498,7 @@
       draw[DRAW_YEARS[i]] = v;
     }
     return { ok: true, code: code, pref: pref, school: school, guess: guess, draw: draw, reason: reason,
-      calib: calib, mark: mark, seq: seq };
+      calib: calib, mark: mark, seq: seq, prop: prop };
   }
 
   /** 端末の印（でたらめな6文字）。rand は 0以上1未満を返す関数。名前や端末の情報からは作らない */
@@ -458,10 +511,12 @@
   /**
    * 貼りつけた文（名前や日時が まじっていてもよい）から、コードを全部取り出して読む。
    *  - すきまなく続けて貼られたコードは WG50- で分ける
-   *  - 読めなかったコードが行の終わりにあれば、すぐ後ろの行の頭の base64url の文字を1〜3行つないで読み直す（途中で改行されたとき）
+   *  - 読めなかったコードが行の終わりにあれば、すぐ後ろの行の頭の base64url の文字を、読めるまで つないで読み直す
+   *    （途中で改行されたとき。base64url の文字だけの行が続くあいだ、20行まで。ほかのコードで始まる行は つながない）
    *  - 同じコードは1回。同じ端末の印があれば、番号のいちばん大きいもの（新しいもの）だけを数える
    * 返り値: { items: [読めたもの], bad: [読めなかったコード], dup: 同じコードで除いた数, replaced: 同じ端末の古いもので除いた数 }
    */
+  var JOIN_LINES = 20;
   function extractGuesses(text) {
     var s = String(text == null ? "" : text);
     if (s.normalize) s = s.normalize("NFKC");
@@ -476,7 +531,7 @@
           var code = CODE_HEAD + pieces[pi];
           if (!decodeGuess(code).ok && pi === pieces.length - 1 && atEnd) {
             var joined = code;
-            for (var k = 1; k <= 3 && li + k < lines.length; k++) {
+            for (var k = 1; k <= JOIN_LINES && li + k < lines.length; k++) {
               var run = /^\s*([A-Za-z0-9_-]+)/.exec(lines[li + k]);
               if (!run || run[1].indexOf(CODE_HEAD) === 0) break;
               joined += run[1];
@@ -549,6 +604,45 @@
     };
   }
 
+
+  /* ---------- クラスモード 第2段階：提案の 集計 ---------- */
+  function withProp(items) {
+    return items.filter(function (d) { return d.prop; });
+  }
+  /** カードごとの いいね・しんぱい・どちらとも の数 { c1: {good, bad, mid}, … }（提案の入ったコードだけ） */
+  function sortTally(items) {
+    var out = {};
+    SORT_IDS.forEach(function (id) { out[id] = { good: 0, bad: 0, mid: 0 }; });
+    withProp(items).forEach(function (d) {
+      SORT_IDS.forEach(function (id) { var v = d.prop.sort[id]; if (v) out[id][v]++; });
+    });
+    return out;
+  }
+  /** アイデアごとの数（多い順。同じ数なら order の順、order に無いものは後ろ）[{ id, n }] */
+  function ideaTally(items, order) {
+    var cnt = {};
+    withProp(items).forEach(function (d) { d.prop.ideas.forEach(function (id) { cnt[id] = (cnt[id] || 0) + 1; }); });
+    var pos = function (id) { var i = (order || []).indexOf(id); return i < 0 ? 1e6 : i; };
+    return Object.keys(cnt).map(function (id) { return { id: id, n: cnt[id] }; })
+      .sort(function (a, b) { return b.n - a.n || pos(a.id) - pos(b.id) || (a.id < b.id ? -1 : 1); });
+  }
+  /** 自分の アイデア（書いてあるものだけ） */
+  function ownIdeas(items) {
+    return withProp(items).map(function (d) { return d.prop.ownIdea; }).filter(Boolean);
+  }
+  /** 宛先ごとの 提案（文の あるものだけ）。order の順、order に無い宛先は後ろ [{ to, items }] */
+  function proposalsByTo(items, order) {
+    var map = {}, out = [];
+    withProp(items).forEach(function (d) {
+      if (!d.prop.proposal) return;
+      var t = d.prop.to || "";
+      if (!map[t]) { map[t] = { to: t, items: [] }; out.push(map[t]); }
+      map[t].items.push(d);
+    });
+    var pos = function (t) { var i = (order || []).indexOf(t); return i < 0 ? 1e6 : i; };
+    return out.sort(function (a, b) { return pos(a.to) - pos(b.to); });
+  }
+
   /** 決まった種から同じ並びを出す乱数（見本のクラス用） */
   function seeded(seed) {
     var a = seed >>> 0;
@@ -566,13 +660,67 @@
     down: ["赤ちゃんを あまり 見ないから", "空き家が ふえているから", "人が へっていると ニュースで 見たから", "お店が へったから",
       "友だちが 引っこして いったから", "", ""]
   };
+  // 見本の 提案（架空。宛先ごと。実在の 地名や 学校は 入れない）
+  var SAMPLE_PROPOSALS = {
+    mayor: ["空いた 教室を 地域の 人も 使える 場所に して ほしいです。お年よりと 子どもが いっしょに すごせます。",
+      "子育てを しやすい まちに して、ひっこして くる 家族を ふやして ほしいです。",
+      "子どもが 遊べる 公園を ふやして ほしいです。外で 遊ぶ 子が ふえると、まちが にぎやかに なります。",
+      "通学の バスを 走らせて ほしいです。学校が 遠く なっても 通えます。",
+      "空き家を 安く かして、若い 家族が 住める ように して ほしいです。",
+      "まちの お祭りを 学校で ひらいて、人が あつまる 場所に して ほしいです。"],
+    board: ["近くの 学校と オンラインで いっしょに 授業を したいです。いろいろな 考えの 友だちと 話せます。",
+      "人数が へっても、大人数で やる 行事が できる ように、近くの 学校と いっしょに やる 工夫を 考えて ほしいです。",
+      "少人数でも クラスがえが できる ように、近くの 学校と 交流する 日を 作って ほしいです。"],
+    principal: ["空いた 教室を 図書室や 自習室に して ほしいです。",
+      "近くの 学校と 運動会を いっしょに やりたいです。",
+      "空いた 教室で、地域の 人に 昔の 遊びを 教えて もらいたいです。"],
+    town: ["まちの よい ところを 調べて、みんなに 発信したいです。手つだって ください。",
+      "地域の 人と いっしょに、校庭で 朝市を ひらきたいです。"],
+    family: ["家族で まちの みらいに ついて 話し合いたいです。",
+      "休みの 日に 家族で 学校の 畑の 手入れを したいです。"]
+  };
+
+  var SAMPLE_OWN = ["校庭で 月に 1回、朝市を ひらく", "学校の 畑で 地域の 人と 野菜を 作る", "空き家を 子どもの 遊び場に する"];
+  // カードごとの 感じ方の かたより（いいね, しんぱい, どちらとも）
+  var SAMPLE_SORT_W = { c1: [6, 1, 2], c2: [1, 6, 2], c3: [6, 1, 2], c4: [1, 5, 3], c5: [5, 2, 2], c6: [1, 5, 3], c7: [2, 4, 3], c8: [1, 6, 2] };
+  var SAMPLE_TO_W = [["mayor", 7], ["board", 4], ["principal", 4], ["town", 3], ["family", 2]];
+  function pickW(rnd, pairs) {
+    var sum = 0, i;
+    for (i = 0; i < pairs.length; i++) sum += pairs[i][1];
+    var r = rnd() * sum;
+    for (i = 0; i < pairs.length; i++) { r -= pairs[i][1]; if (r < 0) return pairs[i][0]; }
+    return pairs[pairs.length - 1][0];
+  }
+  /** 見本の 提案（架空）。ideaIds：えらべる アイデアの id */
+  function sampleProp(rnd, ideaIds) {
+    var sort = {};
+    SORT_IDS.forEach(function (id) {
+      if (rnd() < 0.12) return; // えらばない カードも ある
+      var w = SAMPLE_SORT_W[id];
+      sort[id] = pickW(rnd, [["good", w[0]], ["bad", w[1]], ["mid", w[2]]]);
+    });
+    var ideas = [], k = 1 + Math.floor(rnd() * 3);
+    // 前の ほうの アイデアが えらばれやすい（順位に ちがいが 出るように）
+    for (var t = 0; t < 20 && ideas.length < k && ideaIds.length; t++) {
+      var id = ideaIds[Math.min(ideaIds.length - 1, Math.floor(Math.pow(rnd(), 1.6) * ideaIds.length))];
+      if (ideas.indexOf(id) < 0) ideas.push(id);
+    }
+    var to = pickW(rnd, SAMPLE_TO_W);
+    var list = SAMPLE_PROPOSALS[to];
+    return { sort: sort, ideas: ideas, to: to,
+      ownIdea: rnd() < 0.25 ? SAMPLE_OWN[Math.floor(rnd() * SAMPLE_OWN.length)] : "",
+      proposal: rnd() < 0.9 ? list[Math.floor(rnd() * list.length)] : "" };
+  }
+
   /**
    * 見本のクラス（架空の n人分のコード）。練習用のまち（架空の学校）だけに使う。毎回同じ値になるように seed で決める。
    * now: いまの人数、est50: データの 2050年の推計（あれば「へる」の子の 2050年を そのまわりに広げ、データより少ない子も出す）。
-   * 子どもごとに ちがう 端末の印を付ける。
+   * 子どもごとに ちがう 端末の印を付ける。ideaIds を渡すと、多くの子に 架空の 提案（ステップ5）を 付ける。
    */
-  function sampleClass(pref, school, now, est50, n, seed) {
+  function sampleClass(pref, school, now, est50, n, seed, ideaIds) {
     var rnd = seeded(seed == null ? 2050 : seed), out = [];
+    // 提案は べつの 乱数で 作る（よそうの 値は 第1段階と 同じ まま）。4人に1人ほどは ステップ2の コードだけ
+    var rp = seeded((seed == null ? 2050 : seed) + 101);
     for (var i = 0; i < (n || 30); i++) {
       var r = rnd();
       var guess = r < 0.5 ? "down" : r < 0.75 ? "same" : "up";
@@ -588,8 +736,10 @@
         var wob = 1 + (rnd() - 0.5) * 0.08 * (j < DRAW_YEARS.length - 1 ? 1 : 0);
         draw[y] = Math.max(0, now * (1 + (k - 1) * t) * wob);
       });
-      out.push(encodeGuess({ pref: pref, school: school, guess: guess, draw: draw, mark: makeMark(rnd), seq: 1,
-        reason: SAMPLE_REASONS[guess][Math.floor(rnd() * SAMPLE_REASONS[guess].length)] }));
+      var g = { pref: pref, school: school, guess: guess, draw: draw, mark: makeMark(rnd), seq: 1,
+        reason: SAMPLE_REASONS[guess][Math.floor(rnd() * SAMPLE_REASONS[guess].length)] };
+      if (ideaIds && rp() < 0.8) { g.prop = sampleProp(rp, ideaIds); g.seq = 2; }
+      out.push(encodeGuess(g));
     }
     return out;
   }
@@ -603,7 +753,8 @@
     elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
     schoolQuery: schoolQuery, matchSchool: matchSchool, foldText: foldText, isKanaQuery: isKanaQuery,
     CODE_HEAD: CODE_HEAD, encodeGuess: encodeGuess, decodeGuess: decodeGuess, extractGuesses: extractGuesses,
-    makeMark: makeMark, commonCalib: commonCalib,
+    makeMark: makeMark, commonCalib: commonCalib, SORT_IDS: SORT_IDS,
+    sortTally: sortTally, ideaTally: ideaTally, ownIdeas: ownIdeas, proposalsByTo: proposalsByTo,
     groupGuesses: groupGuesses, summarizeGuesses: summarizeGuesses, sampleClass: sampleClass
   };
 });
