@@ -73,13 +73,19 @@
     { id: "town", label: "地域の みなさん" },
     { id: "family", label: "おうちの 人" }
   ];
+  /** 宛先の 名前（ふつうの 文字。カードの 画像・コピーの 文に 使う）。市長さんは model.mayorLabel（「福岡市長さん」） */
   UG.toLabel = function (id, cityName) {
-    if (id === "mayor") {
-      var m = /(市|区|町|村)$/.exec(cityName || "");
-      return (m ? m[1] : "市") + "長さん";
-    }
+    if (id === "mayor") return M.mayorLabel(cityName);
     for (var i = 0; i < UG.TO.length; i++) if (UG.TO[i].id === id) return UG.TO[i].label;
     return "";
+  };
+  /** 宛先の 名前（画面の HTML。市区町村名は ふりがな処理から 外す） */
+  UG.toLabelHtml = function (id, cityName) {
+    if (id === "mayor") {
+      var b = M.mayorBase(cityName);
+      return (b ? nr(b) : "市") + "長さん";
+    }
+    return esc(UG.toLabel(id, cityName));
   };
 
   function level(pct) {
@@ -244,7 +250,7 @@
     function hasProposal() {
       return !!(String(st.proposal || "").trim() || String(st.ownIdea || "").trim() || st.ideas.length);
     }
-    var toName = function (id) { return UG.toLabel(id, c.city.name); };
+    var toName = function (id) { return UG.toLabelHtml(id, c.city.name); };
     var evidence = nr(c.school.name) + "の 子どもは、2025年の " + num(c.now) + "人から 2050年には " + num(c.v50) + "人（" + UG.pctText(c.pct) + "）に なる 計算です。";
     var sortLead = c.pct != null && c.pct >= -5
       ? "わたしの 学校は あまり へらない 計算。でも 同じ まちには へる 学校も ある。人数が 少ない 学校に ついて、きみは どう 感じる？"

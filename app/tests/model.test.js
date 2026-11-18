@@ -502,3 +502,35 @@ test("見本のクラス：架空の提案も入る。よそうの値は第1段�
   assert.ok(M.ideaTally(r, IDEA_IDS).length >= 5);
   assert.ok(M.ownIdeas(r).length >= 2);
 });
+
+test("宛名：市区町村名から「◯◯長さん」", () => {
+  // 政令市の区 → 市長さん
+  assert.equal(M.mayorLabel("福岡市早良区"), "福岡市長さん");
+  assert.equal(M.mayorLabel("京都市上京区"), "京都市長さん");
+  assert.equal(M.mayorLabel("札幌市中央区"), "札幌市長さん");
+  assert.equal(M.mayorLabel("堺市堺区"), "堺市長さん");
+  // 郡の付いた町村 → 町村長さん。名前に「郡」が入るだけのものは そのまま
+  assert.equal(M.mayorLabel("山越郡長万部町"), "長万部町長さん");
+  assert.equal(M.mayorLabel("島尻郡久米島町"), "久米島町長さん");
+  assert.equal(M.mayorLabel("上郡町"), "上郡町長さん");
+  assert.equal(M.mayorLabel("小郡市"), "小郡市長さん");
+  assert.equal(M.mayorLabel("郡山市"), "郡山市長さん");
+  assert.equal(M.mayorLabel("蒲郡市"), "蒲郡市長さん");
+  // 東京の特別区・ふつうの市町村 → そのまま
+  assert.equal(M.mayorLabel("世田谷区"), "世田谷区長さん");
+  assert.equal(M.mayorLabel("みらい市"), "みらい市長さん");
+  assert.equal(M.mayorLabel("四日市市"), "四日市市長さん");
+  assert.equal(M.mayorLabel("廿日市市"), "廿日市市長さん");
+  assert.equal(M.mayorLabel("東村"), "東村長さん");
+  assert.equal(M.mayorBase("福岡市早良区"), "福岡市");
+  assert.equal(M.mayorLabel(""), "市長さん");
+  assert.equal(M.mayorLabel(null), "市長さん");
+});
+
+test("ステップ5のカード：model の SORT_IDS と 画面の UG.SORT_CARDS が 同じ順・同じ id", () => {
+  const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../js/views2.js"), "utf8");
+  const block = src.slice(src.indexOf("UG.SORT_CARDS = ["), src.indexOf("];", src.indexOf("UG.SORT_CARDS = [")));
+  const ids = [...block.matchAll(/\{\s*id:\s*"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(ids, M.SORT_IDS);
+  assert.equal(ids.length, 8);
+});

@@ -54,8 +54,8 @@
   /* ---------------- みんなの 提案（第2段階） ---------------- */
   var SORT_LABEL = [["good", "いいね"], ["bad", "しんぱい"], ["mid", "どちらとも"]];
   function toTitle(to, school) {
-    if (to === "mayor") return nr(school.city.name) + "長さん"; // 「みらい市」→「みらい市長さん」（UG.toLabel の 市・区・町・村 長さん と そろえる）
-    return UG.toLabel(to, school.city.name) || "宛先の ない 提案";
+    // 市長さんは model.mayorLabel と 同じ 決まり（福岡市早良区 → 福岡市長さん）。子どもの カードの 宛先とも そろう
+    return UG.toLabel(to, school.city.name) ? UG.toLabelHtml(to, school.city.name) : "宛先の ない 提案";
   }
   function ideaText(id) {
     for (var i = 0; i < UG.IDEAS.length; i++) if (UG.IDEAS[i].id === id) return UG.IDEAS[i].t;

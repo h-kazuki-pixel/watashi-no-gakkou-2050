@@ -127,6 +127,59 @@ def _school_in_data(pref, city_name, school_name=None):
     return city, school
 
 
+def run_class_real() -> int:
+    """クラスで 見る（実データ）：福岡市早良区の 学校で、宛先を 市長さんに した 提案 → 宛名は「福岡市長さん」。
+    子どもの ステップ5の 宛先の ボタンも 同じ。印刷の 1枚を 印刷の メディアで 撮る"""
+    city, school = _school_in_data("40", "福岡市早良区", "西新小学校")
+    errors = []
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        shutil.copytree(ROOT / "app", td / "app")
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(**LAUNCH)
+            page = browser.new_page(viewport={"width": 1180, "height": 820})
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto((td / "app" / "index.html").as_uri())
+            page.evaluate("UG.resetState()")
+            page.goto((td / "app" / "index.html").as_uri() + "#class")
+            page.reload()
+            page.wait_for_selector("#class-text")
+            codes = page.evaluate("""s => [1, 2, 3].map(i => UG.model.encodeGuess({ pref: '40', school: s, guess: 'down',
+                draw: {2030: 600, 2035: 560, 2040: 520, 2045: 480, 2050: 450}, mark: 'fuku0' + i, seq: 2,
+                prop: { sort: { c1: 'good', c2: 'bad' }, ideas: ['room_town'], to: i < 3 ? 'mayor' : 'board',
+                        proposal: '空いた 教室を 地域の 人も 使える 場所に して ほしいです。' + i } }))""", school["id"])
+            page.fill("#class-text", "\n".join(codes))
+            page.click("#class-load")
+            page.wait_for_selector("#class-props .sort-bars")
+            page.click('[data-sheet-to="mayor"]')
+            page.click("#class-sheet-make")
+            page.wait_for_selector("#class-sheet")
+            NO_RT = "sel => [...document.querySelectorAll(sel)].map(e => { const c = e.cloneNode(true); c.querySelectorAll('rt').forEach(r => r.remove()); return c.textContent.replace(/\\s/g, ''); })"
+            title = page.evaluate(NO_RT, "#class-sheet .sh-to")[0]
+            assert title == "福岡市長さんへ", title
+            groups = page.evaluate(NO_RT, "[data-sheet-to]")
+            assert groups[0] == "福岡市長さん", groups
+            page.emulate_media(media="print")
+            page.screenshot(path=str(OUT / "r-class-sheet-sawara.png"), full_page=True)
+            pdf = page.pdf(prefer_css_page_size=True, print_background=True)
+            (OUT / "r-class-sheet-sawara.pdf").write_bytes(pdf)
+            page.emulate_media(media="screen")
+            print(f"  福岡市早良区 {school['name']}：印刷の 1枚の 宛名「{title}」")
+            # 子どもの ステップ5：宛先の ボタン
+            page.evaluate("""s => { UG.resetState(); Object.assign(UG.state, { prefCode: '40', cityCode: '40137', schoolId: s,
+                grade: 'e5', guess: 'down', draw: {2030: 600, 2035: 560, 2040: 520, 2045: 480, 2050: 450}, maxStep: 5 });
+                UG.save(); UG.go('step5'); }""", school["id"])
+            page.wait_for_selector("#card svg")
+            chip = page.evaluate(NO_RT, '[data-to="mayor"]')[0]
+            assert chip == "福岡市長さん", chip
+            card_to = page.evaluate("UG.cardData().to")
+            assert card_to == "福岡市長さん", card_to
+            print(f"  子どもの ステップ5の 宛先：「{chip}」、カード：「{card_to}」")
+            browser.close()
+    print("errors:", errors)
+    return 1 if errors else 0
+
+
 def run_kana() -> int:
     """ひらがなで学校をさがす（実データ）。読み（kana）がまだ無い学校は「飛ばした」と出す。"""
     todo = []
@@ -281,4 +334,6 @@ if __name__ == "__main__":
         sys.exit(run_real(a.prefs.split(",")))
     rc = main()
     print("ひらがなで さがす（app/data の実データ）")
-    sys.exit(rc or run_kana())
+    rc = rc or run_kana()
+    print("クラスで 見る（app/data の実データ）")
+    sys.exit(rc or run_class_real())

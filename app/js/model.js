@@ -605,6 +605,27 @@
   }
 
 
+  /* ---------- 提案の 宛先：市区町村の 長 ---------- */
+  /**
+   * 「◯◯長さん」の ◯◯ に する 名前。
+   *  - 政令市の区（福岡市早良区・京都市上京区）→ 市（福岡市）
+   *  - 郡の 付いた 町村（山越郡長万部町）→ 町村（長万部町）。上郡町・小郡市のように 名前に 郡が 入るだけの ものは そのまま
+   *  - 東京の 特別区（世田谷区）・ふつうの 市町村 → そのまま
+   */
+  function mayorBase(cityName) {
+    var n = String(cityName == null ? "" : cityName).trim();
+    var m = /^(.+?市).+区$/.exec(n);
+    if (m) return m[1];
+    m = /^.+?郡(.+[町村])$/.exec(n);
+    if (m) return m[1];
+    return n;
+  }
+  /** 「福岡市長さん」「長万部町長さん」「世田谷区長さん」。名前が 無ければ「市長さん」 */
+  function mayorLabel(cityName) {
+    var b = mayorBase(cityName);
+    return (b || "市") + "長さん";
+  }
+
   /* ---------- クラスモード 第2段階：提案の 集計 ---------- */
   function withProp(items) {
     return items.filter(function (d) { return d.prop; });
@@ -753,7 +774,7 @@
     elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
     schoolQuery: schoolQuery, matchSchool: matchSchool, foldText: foldText, isKanaQuery: isKanaQuery,
     CODE_HEAD: CODE_HEAD, encodeGuess: encodeGuess, decodeGuess: decodeGuess, extractGuesses: extractGuesses,
-    makeMark: makeMark, commonCalib: commonCalib, SORT_IDS: SORT_IDS,
+    makeMark: makeMark, commonCalib: commonCalib, SORT_IDS: SORT_IDS, mayorBase: mayorBase, mayorLabel: mayorLabel,
     sortTally: sortTally, ideaTally: ideaTally, ownIdeas: ownIdeas, proposalsByTo: proposalsByTo,
     groupGuesses: groupGuesses, summarizeGuesses: summarizeGuesses, sampleClass: sampleClass
   };

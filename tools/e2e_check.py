@@ -421,6 +421,9 @@ def main() -> int:
         page.fill("#own-idea", "校庭で月に1回、朝市をひらく")
         page.fill("#proposal", "空いた教室を図書室にして、地域の人も入れるようにしてほしいです。子どもとお年よりがいっしょに本を読める場所にしたいです。")
 
+        # ステップ5の 8枚の カードは model の SORT_IDS と 同じ順・同じ id（コードに 入れる 並び）
+        assert page.evaluate("UG.SORT_CARDS.map(k => k.id)") == page.evaluate("UG.model.SORT_IDS")
+        assert page.evaluate("(() => { const c = document.querySelector('[data-to=mayor]').cloneNode(true); c.querySelectorAll('rt').forEach(r => r.remove()); return c.textContent.replace(/\\s/g, ''); })()") == "みらい市長さん"
         # クラスモード 第2段階（子ども）：提案を 書いたら「先生に 提案を わたす」→ 提案つきの コード（名前・学年は 入らない）
         assert page.is_visible("#handoff-btn") and not page.is_visible("#handoff-box")
         page.click("#handoff-btn")
