@@ -187,7 +187,7 @@
         '<div class="card pick">' +
           '<h2><span class="no">1</span>学校を えらぶ</h2>' +
           pickerHtml() +
-          (pref.sample ? '<p class="note">れんしゅう用の「みらい市」です。本当には ない まちで、数字は つくりものです。</p>' : "") +
+          (pref.sample ? '<p class="note">れんしゅう用の「みらい市」です。本当には ない まちで、数字は つくりものです。じぶんの まちは、うえの「都道府県」から えらんでね。</p>' : "") +
           (city.approx ? '<p class="note">' + UG.APPROX_NOTE + "</p>" : "") +
           '<div id="school-note">' + schoolNoteHtml() + "</div>" +
           (city.combined ? '<p class="note">' + UG.COMBINED_NOTE + "</p>" : "") +
