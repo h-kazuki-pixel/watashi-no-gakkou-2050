@@ -449,6 +449,30 @@ def main() -> int:
         page.click("#next-btn")
 
         page.wait_for_selector("#card svg")
+        # 事例帳（cases.js）：6件、id が 重ならない、ideas は UG.IDEAS に ある、出典は https
+        cases = page.evaluate("""() => ({ ids: UG.CASES.map(k => k.id), ideas: UG.IDEAS.map(k => k.id),
+          bad: UG.CASES.filter(k => !k.ideas.length || k.ideas.some(i => !UG.IDEAS.some(x => x.id === i))).map(k => k.id),
+          urls: [].concat(...UG.CASES.map(k => k.src.map(s => s.url))) })""")
+        assert len(cases["ids"]) == 6 and len(set(cases["ids"])) == 6, cases["ids"]
+        assert not cases["bad"], f"UG.IDEAS に 無い ideas: {cases['bad']}"
+        assert cases["urls"] and all(u.startswith("https://") for u in cases["urls"]), cases["urls"]
+        # 最初は 閉じている。開いて room_kids を えらぶと kyohoku が 先頭（near）、details は 開いた まま。外すと もとの 順
+        order = lambda: page.evaluate("[...document.querySelectorAll('#case-list li')].map(l => l.getAttribute('data-case'))")
+        assert page.evaluate("UG.state.ideas") == [] and not page.evaluate("document.getElementById('cases').open"), "事例帳が 最初から 開いている"
+        assert order() == cases["ids"], order()
+        page.click("#cases summary")
+        assert page.evaluate("document.getElementById('cases').open")
+        page.click('[data-idea="room_kids"]')
+        assert order()[0] == "kyohoku" and "near" in page.get_attribute('#case-list li[data-case="kyohoku"]', "class"), order()
+        assert page.locator('#case-list li[data-case="kyohoku"] .tag.near').count() == 1
+        assert page.evaluate("document.getElementById('cases').open"), "アイデアを えらぶと 事例帳が 閉じた"
+        near_ids = page.evaluate("[...document.querySelectorAll('#case-list li.near')].map(l => l.getAttribute('data-case'))")
+        assert near_ids == [k for k in cases["ids"] if k in ("kyohoku",)], near_ids  # room_kids に 近いのは kyohoku だけ
+        page.click('[data-idea="room_kids"]')
+        assert order() == cases["ids"] and page.locator("#case-list li.near").count() == 0, order()
+        assert page.locator("#cases a").count() == 0, "子どもの 画面の 事例帳に リンクが ある"
+        bare("step5-cases")
+        page.locator("#cases").screenshot(path=str(OUT / "5-cases.png"))
         page.click('[data-sort="c1"][data-v="good"]'); page.click('[data-sort="c2"][data-v="bad"]')
         page.click('[data-idea="room_town"]'); page.click('[data-idea="online"]')
         page.fill("#own-idea", "校庭で月に1回、朝市をひらく")
@@ -559,6 +583,12 @@ def main() -> int:
         page.click('[data-go="teachers"]')
         page.wait_for_selector(".teachers")
         shot("9-teachers")
+        # 事例帳の 出典：例ごとに 1行（6つ）、リンクは 14個。すべて https・新しい タブ。{ が 残らない
+        src_cases = page.evaluate("""() => { const u = document.getElementById('src-cases'); return { li: u.querySelectorAll(':scope > li').length,
+          a: [...u.querySelectorAll('a')].map(a => [a.href, a.target, a.rel]), text: u.textContent }; }""")
+        assert src_cases["li"] == 6 and len(src_cases["a"]) == 14, (src_cases["li"], len(src_cases["a"]))
+        assert all(h.startswith("https://") and t == "_blank" and "noopener" in r for h, t, r in src_cases["a"]), src_cases["a"]
+        assert "{" not in src_cases["text"] and "|" not in src_cases["text"], src_cases["text"]
         # 町字データ（学校名の読み）の出典は、読みを付けた県（data/index.js の kana: true）があるときだけ出す。
         # app/data の実物に読みがあってもなくても確かめられるよう、いったん全県の kana を外してから付け直す。
         kana_codes = page.evaluate("UG.index.filter(p => p.kana).map(p => p.code)")
@@ -852,7 +882,13 @@ def main() -> int:
         tp.evaluate("UG.go('step3')"); tp.wait_for_selector(".verdict")
         tall("step3", [".btn.small"])
         tp.evaluate("UG.go('step5')"); tp.wait_for_selector("#card svg")
-        tall("step5", [".tri button", ".tabs button", ".btn.sub", "[data-reset]"])  # .btn.small は ステップ3で（ここでは 閉じた 箱の 中）
+        tall("step5", [".tri button", ".tabs button", ".btn.sub", "[data-reset]", "#cases summary"])  # .btn.small は ステップ3で（ここでは 閉じた 箱の 中）
+        tp.click("#cases summary")
+        assert tp.evaluate("document.getElementById('cases').open")
+        over_t = tp.evaluate("""() => ({ page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          cases: Math.max(...[...document.querySelectorAll('#cases, #case-list li')].map(e => e.getBoundingClientRect().right)) - document.documentElement.clientWidth })""")
+        if over_t["page"] > 1 or over_t["cases"] > 1:
+            problems.append(f"[タッチ 820px] 事例帳が 横に はみ出す: {over_t}")
         tp.screenshot(path=str(OUT / "t-5-teian-touch.png"), full_page=True)
         tctx.close()
 

@@ -301,7 +301,12 @@
           '<ul class="reuse">' + UG.REUSE.map(function (r) {
             return "<li><span>" + r[1] + '</span><span class="bar"><i style="width:' + (r[0] / 55.1 * 100).toFixed(1) + '%"></i></span><b>' + r[0] + "%</b></li>";
           }).join("") + "</ul>" +
-          '<p class="fine">1つの 校舎に 2つ以上の 使い道が ある 場合も 数えています。出典：文部科学省「令和6年度 廃校施設等活用状況実態調査」</p></div>' +
+          '<p class="fine">1つの 校舎に 2つ以上の 使い道が ある 場合も 数えています。出典：文部科学省「令和6年度 廃校施設等活用状況実態調査」</p>' +
+          // 事例帳（cases.js）。出典は 先生向けページに 出し、子どもの 画面には リンクを 置かない
+          '<details class="cases" id="cases"><summary>全国の 使い方の {例|れい}を 見る（' + UG.CASES.length + "つ）</summary>" +
+            '<p class="fine">えらんだ アイデアに 近い {例|れい}が {上|うえ}に ならぶよ。いまの ようすは {変|か}わって いる ことも あるよ。どの 使い方が よいかは、きみが 考えてね。</p>' +
+            '<ul class="case-list" id="case-list"></ul></details>' +
+        "</div>" +
       "</section>" +
 
       '<section class="card write-card">' +
@@ -360,11 +365,27 @@
         : "");
     }
     var handoffUpdate = UG.bindHandoff(root, function () { return UG.classCode(true); });
+    /** 事例帳：いま えらんで いる アイデアに 近い 例を 上に（同じ 中は UG.CASES の 順）。#case-list の 中だけ 作り直す */
+    function drawCases() {
+      var near = function (k) { return k.ideas.some(function (id) { return st.ideas.indexOf(id) >= 0; }); };
+      var list = UG.CASES.map(function (k, i) { return { k: k, i: i, near: near(k) }; })
+        .sort(function (a, b) { return (b.near - a.near) || (a.i - b.i); });
+      UG.$("#case-list", root).innerHTML = UG.ruby(list.map(function (x) {
+        var k = x.k;
+        return '<li data-case="' + k.id + '"' + (x.near ? ' class="near"' : "") + ">" +
+          '<p class="case-tags"><span class="tag">' + (k.kind === "now" ? "いまも 学校" : "もと 学校") + "</span>" +
+            (x.near ? '<span class="tag near">きみの アイデアに 近い</span>' : "") + "</p>" +
+          "<h4>" + k.title + "</h4>" +
+          '<p class="case-place">' + k.place + "（" + k.from + "）</p>" +
+          "<p>" + k.text + "</p>" +
+          '<p class="fine">やって いる 人：' + k.who + "</p></li>";
+      }).join(""));
+    }
     function drawCard() {
       UG.$("#card", root).innerHTML = UG.cardSVG(UG.cardData());
       handoffUpdate(hasProposal());
     }
-    drawSort(); drawCard();
+    drawSort(); drawCard(); drawCases();
 
     UG.on(root, "click", "[data-sort]", function (ev, el) {
       var id = el.getAttribute("data-sort"), v = el.getAttribute("data-v");
@@ -383,7 +404,7 @@
       UG.save();
       var on = st.ideas.indexOf(id) >= 0;
       el.classList.toggle("on", on); el.setAttribute("aria-pressed", on);
-      drawCard();
+      drawCard(); drawCases();
     });
     UG.on(root, "click", "[data-wish]", function (ev, el) {
       var id = el.getAttribute("data-wish"), i = st.wishes.indexOf(id);
@@ -457,6 +478,16 @@
     var src = UG.$("#src-prefs", root);
     if (src) src.innerHTML = UG.sourceList();
     // 学校名の読み（kana）を付けた県があるときだけ、町字データの出典を出す（add-kana が data/index.js に kana: true を書く）
+    // 事例帳の 出典：例ごとに「場所・見出し：出典の リンク、…」（{漢字|よみ} は 漢字だけ）
+    var casesSrc = UG.$("#src-cases", root);
+    if (casesSrc) {
+      var kanji = function (s) { return String(s).replace(/\{([^|{}]+)\|[^|{}]+\}/g, "$1"); };
+      casesSrc.innerHTML = UG.CASES.map(function (k) {
+        return "<li>" + esc(kanji(k.place)) + "・" + esc(kanji(k.title)) + "：" + k.src.map(function (s) {
+          return '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.name) + "</a>";
+        }).join("、") + "</li>";
+      }).join("");
+    }
     var kanaSrc = UG.$("#src-kana", root);
     if (kanaSrc) kanaSrc.hidden = !UG.index.some(function (p) { return p.kana; });
     var back = UG.$("[data-go]", root);
