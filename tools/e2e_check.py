@@ -272,6 +272,7 @@ def main() -> int:
           pt: +document.querySelector('svg.chart .p-now').getAttribute('cy')})""")
         assert now_lab["lab"] > now_lab["pt"], f"[step2] 「いま」が これまでの線に 重なる側に ある: {now_lab}"
         page.click("#redo")
+        page.evaluate("scrollTo({top: 0, behavior: 'instant'})")  # 押すときに動いた分を戻す（全体のスクリーンショットの途中に見出しが写る）
         draw_line(0.62, 0.74, 140, 30)
         assert not page.is_disabled("#next-btn"), "線を描いても次へ進めない"
         drawn = page.evaluate("UG.state.draw")
