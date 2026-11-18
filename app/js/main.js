@@ -12,7 +12,7 @@
   }
   /** いまの進み具合で開ける画面に直す */
   function resolve(step) {
-    if (step === "teachers") return step;
+    if (step === "teachers" || step === "class") return step; // 先生・大人の方へ／クラスで 見る
     if (ORDER.indexOf(step) < 0) return "home";
     if (step !== "home" && !UG.ctx()) return "home";
     if (ORDER.indexOf(step) >= 3 && !drawn()) return "step2";
@@ -63,7 +63,7 @@
       if (i === cur) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
     });
     var bar = UG.$("#sample-bar");
-    bar.hidden = !(c && c.sample && st.step !== "home" && st.step !== "teachers");
+    bar.hidden = !(c && c.sample && st.step !== "home" && st.step !== "teachers" && st.step !== "class");
     document.body.classList.toggle("no-ruby", !st.furigana);
     // 学年に合わせてふりがなを減らす（CSS が ruby[data-g] と比べる）。学年を選ぶ前は全部つける
     if (st.grade) document.body.setAttribute("data-grade", st.grade); else document.body.removeAttribute("data-grade");
@@ -75,7 +75,7 @@
     var st = UG.state;
     UG.$$("[data-ruby]").forEach(function (el) { el.innerHTML = UG.ruby(el.innerHTML); });
     var h = location.hash.slice(1);
-    if (h && (ORDER.indexOf(h) >= 0 || h === "teachers")) st.step = h;
+    if (h && (ORDER.indexOf(h) >= 0 || h === "teachers" || h === "class")) st.step = h;
 
     document.addEventListener("click", function (ev) {
       var t = ev.target.closest ? ev.target.closest("[data-go]") : null;
@@ -88,7 +88,7 @@
     });
     window.addEventListener("hashchange", function () {
       var n = location.hash.slice(1);
-      if (n && n !== UG.state.step && (ORDER.indexOf(n) >= 0 || n === "teachers")) UG.go(n);
+      if (n && n !== UG.state.step && (ORDER.indexOf(n) >= 0 || n === "teachers" || n === "class")) UG.go(n);
     });
     // 画面の向きや幅が変わってグラフの組み方が変わるときは描き直す
     var wasNarrow = window.innerWidth < 600, rt = null;

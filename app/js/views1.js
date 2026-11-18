@@ -297,8 +297,27 @@
         '<p class="fine kbd-hint">キーボードの ときは、丸を えらんで ↑↓ で 動かせます。</p>' +
       "</section>" +
       '<aside class="tip"><b>ヒント</b>　まわりの ようすを 思い出そう。新しい 家は ふえている？ 赤ちゃんや 小さい 子を よく 見かける？ 空き家は ある？</aside>' +
+      // クラスモード：線を かきおえたら、先生に よそうを わたす コードを 出せる（授業で 使わない 子には 小さく）
+      '<div class="handoff" id="handoff"' + (done ? "" : " hidden") + '>' +
+        '<button type="button" class="btn sub" id="handoff-btn" aria-expanded="false" aria-controls="handoff-box">先生に よそうを わたす</button>' +
+        '<div class="handoff-box" id="handoff-box" hidden>' +
+          '<p class="fine">この コードを コピーして、先生に 言われた ところに はりつけてね。名前は 入って いないよ。</p>' +
+          '<div class="handoff-row"><textarea id="handoff-code" class="code" rows="2" readonly aria-label="よそうの コード" data-nr></textarea>' +
+          '<button type="button" class="btn small" id="handoff-copy">コピー</button></div>' +
+        "</div>" +
+      "</div>" +
       nav("step1", "もどる", "step3", "データと くらべる", !done)
     );
+    /** いまの よそうの コード（名前は 入れない） */
+    function handoffCode() {
+      return M.encodeGuess({ pref: st.prefCode, school: st.schoolId, guess: st.guess, draw: st.draw, reason: st.reason });
+    }
+    function handoffUpdate(ok) {
+      UG.$("#handoff", root).hidden = !ok;
+      var box = UG.$("#handoff-box", root);
+      if (!ok) { box.hidden = true; UG.$("#handoff-btn", root).setAttribute("aria-expanded", "false"); }
+      if (!box.hidden) UG.$("#handoff-code", root).value = handoffCode() || "";
+    }
     function readout(vals, ok) {
       var el = UG.$("#readout", root);
       el.innerHTML = UG.ruby(ok
@@ -313,9 +332,23 @@
         st.draw = vals; st.revealed = false; UG.save();
         readout(vals, ok);
         UG.$("#next-btn", root).disabled = !ok;
+        handoffUpdate(ok);
       }
     });
     readout(st.draw, done);
+    UG.$("#handoff-btn", root).addEventListener("click", function (ev) {
+      var box = UG.$("#handoff-box", root), open = box.hidden;
+      box.hidden = !open;
+      ev.currentTarget.setAttribute("aria-expanded", String(open));
+      handoffUpdate(true);
+    });
+    UG.$("#handoff-copy", root).addEventListener("click", function () {
+      var ta = UG.$("#handoff-code", root);
+      UG.copyText(ta.value).then(function (ok) {
+        if (!ok) { ta.focus(); ta.select(); }
+        UG.toast(ok ? "コピーしました。先生に 言われた ところに はりつけてね" : "コピーできませんでした。えらんだ 文字を コピーしてね");
+      });
+    });
     UG.$("#redo", root).addEventListener("click", function () { chart.reset(); });
   };
 

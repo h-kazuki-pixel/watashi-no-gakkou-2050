@@ -382,4 +382,89 @@
     s.push("</svg>");
     return s.join("");
   };
+
+  /**
+   * クラスで 見る：全員の よそうの線を重ねた図（さわれない）。
+   * cfg: { xMin, yMax, hist[{y,v}], now{y,v}, lines[{2030:…,…,2050:…}], est[{y,v}]|null }
+   * 線は「きみの よそう」と同じ青の点線を細くしたもの。データ（赤）は est を渡したときだけ。
+   */
+  UG.classChart = function (container, cfg) {
+    var xMin = cfg.xMin, xMax = M.TARGET_YEAR, yMax = cfg.yMax;
+    var W = 720, H = 400, R = cfg.est ? 112 : 26;
+    var sx = function (y) { return L + ((y - xMin) / (xMax - xMin)) * (W - L - R); };
+    var sy = function (v) { return H - B - (M.clamp(v, 0, yMax) / yMax) * (H - T - B); };
+    var s = [];
+    var xs = [];
+    for (var x = Math.ceil(xMin / 10) * 10; x <= xMax; x += 10) xs.push(x);
+    if (xs.indexOf(2025) < 0) xs.push(2025);
+    xs.sort();
+    xs.forEach(function (x) {
+      var strong = x === xMax;
+      s.push('<line class="grid" x1="' + sx(x) + '" y1="' + T + '" x2="' + sx(x) + '" y2="' + (H - B) + '"/>');
+      s.push('<text class="tick' + (strong ? " strong" : "") + '" x="' + sx(x) + '" y="' + (H - B + 22) + '" text-anchor="middle">' + x + (strong ? "年" : "") + "</text>");
+    });
+    M.niceTicks(yMax, 4).forEach(function (t) {
+      s.push('<line class="grid' + (t === 0 ? " base" : "") + '" x1="' + L + '" y1="' + sy(t) + '" x2="' + (W - R) + '" y2="' + sy(t) + '"/>');
+      s.push('<text class="tick" x="' + (L - 8) + '" y="' + (sy(t) + 5) + '" text-anchor="end">' + UG.num(t) + "</text>");
+    });
+    s.push('<text class="tick" x="' + (L - 8) + '" y="' + (T - 14) + '" text-anchor="end">（人）</text>');
+    var nx = sx(cfg.now.y);
+    s.push('<rect class="future" x="' + nx + '" y="' + T + '" width="' + (W - R - nx) + '" height="' + (H - T - B) + '"/>');
+    s.push('<line class="nowline" x1="' + nx + '" y1="' + T + '" x2="' + nx + '" y2="' + (H - B) + '"/>');
+
+    var past = (cfg.hist || []).filter(function (p) { return p.y >= xMin; }).concat([{ y: cfg.now.y, v: cfg.now.v }]);
+    if (past.length > 1) s.push('<path class="l-hist" d="' + path(past, sx, sy) + '"/>');
+    (cfg.lines || []).forEach(function (d) {
+      var pts = [{ y: cfg.now.y, v: cfg.now.v }].concat(M.DRAW_YEARS.map(function (y) { return { y: y, v: d[y] }; }));
+      s.push('<path class="l-class" d="' + path(pts, sx, sy) + '"/>');
+    });
+    if (cfg.est) {
+      var estIn = cfg.est.filter(function (p) { return p.y <= xMax; });
+      s.push('<path class="l-est draw-in" pathLength="1" d="' + path(estIn, sx, sy) + '"/>');
+      var e50 = estIn[estIn.length - 1];
+      s.push('<circle class="p-est" cx="' + sx(e50.y) + '" cy="' + sy(e50.v) + '" r="7"/>');
+      s.push('<text class="lab-end" x="' + (sx(e50.y) + 14) + '" y="' + (sy(e50.v) + 6) + '">データ ' + UG.num(e50.v) + "人</text>");
+    }
+    s.push('<circle class="p-now" cx="' + nx + '" cy="' + sy(cfg.now.v) + '" r="7"/>');
+    s.push('<text class="lab-now" x="' + (nx - 10) + '" y="' + (sy(cfg.now.v) + 28) + '" text-anchor="end">いま ' + UG.num(cfg.now.v) + "人</text>");
+    container.innerHTML = '<svg class="chart class-chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' +
+      esc(cfg.aria || "みんなの よそうの 線") + '">' + s.join("") + "</svg>";
+  };
+
+  /**
+   * 2050年の よそうの 散らばり（点を 横に 並べ、同じ くらいの 値は 上に 積む）。
+   * cfg: { values[], now, est50|null }
+   */
+  UG.dotPlot = function (container, cfg) {
+    var vals = cfg.values || [];
+    var top = Math.max.apply(null, vals.concat([cfg.now, cfg.est50 || 0, 1]));
+    var xMax = M.niceMax(top * 1.05);
+    var W = 720, l = 28, r = 28, bins = 36, rad = 7.5, gap = 2 * rad + 2;
+    var bw = xMax / bins, stack = {};
+    var dots = vals.slice().sort(function (a, b) { return a - b; }).map(function (v) {
+      var b = Math.min(bins - 1, Math.floor(v / bw));
+      stack[b] = (stack[b] || 0) + 1;
+      return { b: b, k: stack[b] - 1 };
+    });
+    var maxStack = Math.max.apply(null, [1].concat(Object.keys(stack).map(function (k) { return stack[k]; })));
+    var top0 = 34, base = top0 + maxStack * gap + 6, H = base + 40;
+    var sx = function (v) { return l + (M.clamp(v, 0, xMax) / xMax) * (W - l - r); };
+    var s = [];
+    s.push('<line class="grid base" x1="' + l + '" y1="' + base + '" x2="' + (W - r) + '" y2="' + base + '"/>');
+    M.niceTicks(xMax, 5).forEach(function (t) {
+      s.push('<line class="grid" x1="' + sx(t) + '" y1="' + base + '" x2="' + sx(t) + '" y2="' + (base + 6) + '"/>');
+      s.push('<text class="tick" x="' + sx(t) + '" y="' + (base + 26) + '" text-anchor="middle">' + UG.num(t) + "</text>");
+    });
+    s.push('<line class="dp-now" x1="' + sx(cfg.now) + '" y1="' + (top0 - 10) + '" x2="' + sx(cfg.now) + '" y2="' + base + '"/>');
+    s.push('<text class="tick" x="' + sx(cfg.now) + '" y="' + (top0 - 16) + '" text-anchor="middle">いま ' + UG.num(cfg.now) + "人</text>");
+    dots.forEach(function (d) {
+      s.push('<circle class="dp-dot" cx="' + (sx((d.b + 0.5) * bw)) + '" cy="' + (base - rad - 2 - d.k * gap) + '" r="' + rad + '"/>');
+    });
+    if (cfg.est50 != null) {
+      s.push('<line class="dp-est" x1="' + sx(cfg.est50) + '" y1="' + (top0 - 10) + '" x2="' + sx(cfg.est50) + '" y2="' + base + '"/>');
+      s.push('<text class="tick" x="' + sx(cfg.est50) + '" y="' + (base + 26 + 0) + '" dy="18" text-anchor="middle">データ ' + UG.num(cfg.est50) + "人</text>");
+    }
+    container.innerHTML = '<svg class="dotplot" viewBox="0 0 ' + W + " " + (H + (cfg.est50 != null ? 18 : 0)) + '" role="img" aria-label="' +
+      esc("2050年の よそうの 散らばり。点 1つが 1人") + '">' + s.join("") + "</svg>";
+  };
 })();

@@ -220,3 +220,98 @@ test("変化率は画面に出す丸めた人数から出す", () => {
   assert.equal(Math.round(M.shownPct(306, 168)), -45);
   assert.equal(M.shownPct(0.4, 3), null);                // 0人からの変化率は出さない
 });
+
+/* ---------------- クラスモード：よそうのコード ---------------- */
+const DRAW = { 2030: 300.4, 2035: 280, 2040: 250.6, 2045: 230, 2050: 210 };
+const G1 = { pref: "34", school: "B134210003686", guess: "down", draw: DRAW, reason: "近くに 新しい 家が ふえているから" };
+
+test("コード：作る → 読む で元にもどる（日本語の理由・空の理由）", () => {
+  const c = M.encodeGuess(G1);
+  assert.match(c, /^WG50-[A-Za-z0-9_-]+$/);
+  const d = M.decodeGuess(c);
+  assert.equal(d.ok, true);
+  assert.deepEqual([d.pref, d.school, d.guess, d.reason], ["34", "B134210003686", "down", "近くに 新しい 家が ふえているから"]);
+  assert.deepEqual(d.draw, { 2030: 300, 2035: 280, 2040: 251, 2045: 230, 2050: 210 }); // 整数に丸める
+  const e = M.decodeGuess(M.encodeGuess({ ...G1, reason: "" }));
+  assert.equal(e.ok, true);
+  assert.equal(e.reason, "");
+  assert.equal(M.decodeGuess(M.encodeGuess({ ...G1, reason: "   " })).reason, "");
+  // 絵文字（UTF-16 のペア）や記号も もどる
+  assert.equal(M.decodeGuess(M.encodeGuess({ ...G1, reason: "😀 \"かぎ\" と \\ と 、。" })).reason, "😀 \"かぎ\" と \\ と 、。");
+  for (const g of ["up", "same", "down"]) assert.equal(M.decodeGuess(M.encodeGuess({ ...G1, guess: g })).guess, g);
+  // 名前（nick）は入らない
+  const withNick = M.encodeGuess({ ...G1, nick: "たろう" });
+  assert.equal(withNick, c);
+  assert.equal(JSON.stringify(M.decodeGuess(withNick)).indexOf("たろう"), -1);
+  // 線がそろっていない・guess が無いときは作らない
+  assert.equal(M.encodeGuess({ ...G1, draw: { 2030: 1, 2035: 2 } }), null);
+  assert.equal(M.encodeGuess({ ...G1, guess: null }), null);
+});
+
+test("コード：こわれたもの・別のものは読まない", () => {
+  const c = M.encodeGuess(G1);
+  assert.equal(M.decodeGuess(c.slice(0, -1)).ok, false);         // 最後が切れた
+  assert.equal(M.decodeGuess(c.slice(0, 30)).ok, false);         // 途中で切れた
+  const mid = Math.floor(c.length / 2);
+  const flip = c.slice(0, mid) + (c[mid] === "A" ? "B" : "A") + c.slice(mid + 1);
+  assert.equal(M.decodeGuess(flip).ok, false);                    // 1文字ちがう
+  assert.equal(M.decodeGuess(flip).error, "check");
+  assert.equal(M.decodeGuess("WG50-").ok, false);
+  assert.equal(M.decodeGuess("WG50-abc").ok, false);
+  assert.equal(M.decodeGuess("こんにちは").ok, false);
+  assert.equal(M.decodeGuess("https://example.com/WG50").ok, false);
+  assert.equal(M.decodeGuess(null).ok, false);
+});
+
+test("コード：まわりに文がある貼り付けから全部取り出す。同じコードは1回", () => {
+  const a = M.encodeGuess(G1);
+  const b = M.encodeGuess({ ...G1, guess: "up", draw: { 2030: 320, 2035: 340, 2040: 360, 2045: 380, 2050: 400 }, reason: "" });
+  const other = M.encodeGuess({ ...G1, school: "B134210003613" });
+  const text = `山田 花子　2026/11/20 10:31\n${a}\n\n鈴木 一郎 11月20日\nよそうです→${b}。おねがいします\n` +
+    `${a}\n（もう一度 送りました）\n${b}${other}\nWG50-abcdef こわれた\n佐藤：${a.slice(0, 40)}…`;
+  const r = M.extractGuesses(text);
+  assert.equal(r.items.length, 3);
+  assert.equal(r.dup, 2);           // a と b の2回目
+  assert.equal(r.bad.length, 2);    // WG50-abcdef と 途中で切れたもの
+  assert.deepEqual(r.items.map((d) => d.guess), ["down", "up", "down"]);
+  assert.deepEqual(M.extractGuesses("").items, []);
+  assert.deepEqual(M.extractGuesses("コードは ありません").bad, []);
+  // 全角で貼られても読む
+  const wide = a.replace(/[A-Za-z0-9]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0xfee0));
+  assert.equal(M.extractGuesses(wide).items.length, 1);
+});
+
+test("コード：学校がまじったら学校ごとに分ける（人数の多い順）", () => {
+  const items = M.extractGuesses([
+    M.encodeGuess(G1), M.encodeGuess({ ...G1, school: "X2" }), M.encodeGuess({ ...G1, reason: "べつ" }),
+    M.encodeGuess({ ...G1, pref: "40", school: "X2" })].join(" ")).items;
+  const g = M.groupGuesses(items);
+  assert.deepEqual(g.map((x) => [x.pref, x.school, x.items.length]), [["34", "B134210003686", 2], ["34", "X2", 1], ["40", "X2", 1]]);
+});
+
+test("集計：最小・最大・真ん中、guess ごと、推計より多い・少ない・ほぼ同じ", () => {
+  const mk = (v50, guess) => ({ guess, draw: { 2030: 1, 2035: 1, 2040: 1, 2045: 1, 2050: v50 } });
+  const items = [mk(100, "down"), mk(150.4, "down"), mk(200, "same"), mk(149.6, "up"), mk(300, "up")];
+  const s = M.summarizeGuesses(items, 150.2);
+  assert.equal(s.n, 5);
+  assert.equal(s.min, 100);
+  assert.equal(s.max, 300);
+  assert.equal(s.median, 150.4);
+  assert.deepEqual(s.guess, { up: 2, same: 1, down: 2 });
+  assert.deepEqual(s.vsEst, { more: 2, less: 1, same: 2 }); // 150.4 と 149.6 は画面の丸めで 150 → 同じ
+  assert.equal(M.summarizeGuesses(items.slice(0, 4)).median, (149.6 + 150.4) / 2); // 偶数は真ん中2つの平均
+  assert.equal(M.summarizeGuesses(items).vsEst, null);                        // 推計を渡さなければ出さない
+  const e = M.summarizeGuesses([], 10);
+  assert.deepEqual([e.n, e.min, e.max, e.median], [0, null, null, null]);
+});
+
+test("見本のクラス：架空の30人分のコード。毎回同じ", () => {
+  const a = M.sampleClass("00", "S2", 306, 30, 7), b = M.sampleClass("00", "S2", 306, 30, 7);
+  assert.equal(a.length, 30);
+  assert.deepEqual(a, b);
+  const r = M.extractGuesses(a.join("\n"));
+  assert.equal(r.items.length + r.dup, 30);
+  assert.ok(r.items.every((d) => d.pref === "00" && d.school === "S2"));
+  const s = M.summarizeGuesses(r.items);
+  assert.ok(s.guess.up > 0 && s.guess.same > 0 && s.guess.down > 0);
+});

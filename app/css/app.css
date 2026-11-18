@@ -582,3 +582,41 @@ body[data-grade="adult"] ruby[data-g="6"] rt { display: none; }
 /* はじめの画面の下：出典と、先生向けページへの入口 */
 .credit { text-align: center; }
 .credit .link { font-size: inherit; }
+
+/* ---------- ステップ2：先生に よそうを わたす（主役の「データと くらべる」より控えめに） ---------- */
+.handoff { margin: 4px 0 0; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.handoff .btn.sub { margin-left: 0; }
+.handoff-box { width: 100%; max-width: 640px; border: 1.5px dashed var(--grid-strong); border-radius: 12px; padding: 10px 12px; background: var(--card); }
+.handoff-box .fine { margin: 0 0 6px; }
+.handoff-row { display: flex; gap: 8px; align-items: stretch; }
+.handoff-row textarea.code { flex: 1 1 auto; min-width: 0; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; word-break: break-all; resize: none; }
+
+/* ---------- クラスで 見る（プロジェクターで 見やすく） ---------- */
+.view-class { font-size: 1.12em; }
+.view-class textarea#class-text { width: 100%; font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+.class-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.class-count { font-size: 1.1em; margin: 12px 0 0; }
+.class-count b { font-size: 1.3em; }
+.class-schools { display: flex; flex-wrap: wrap; gap: 10px; }
+.class-schools .ct { margin-left: 10px; font-weight: 700; }
+.class-guess { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 14px; }
+.class-guess .cg { flex: 1 1 140px; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 14px; background: var(--card); }
+.class-guess .lb { display: block; font-weight: 700; }
+.class-guess .n { font-size: 2.1em; font-family: var(--font-display); margin-right: 4px; }
+.class-stats { font-size: 1.1em; }
+.class-stats b { font-size: 1.3em; }
+.class-reveal { margin-top: 12px; }
+.class-vs { margin-top: 12px; padding-top: 10px; border-top: 2px solid var(--grid-strong); }
+.class-vs b { text-decoration: underline; text-decoration-color: var(--red); text-decoration-thickness: 4px; text-underline-offset: 5px; }
+.chart .l-class { fill: none; stroke: var(--blue); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: 1 5; opacity: 0.75; }
+.chart .lab-end { font-size: 15px; font-weight: 700; fill: var(--ink); paint-order: stroke; stroke: #fff; stroke-width: 4px; }
+.dotplot { width: 100%; height: auto; display: block; }
+.dotplot .grid { stroke: var(--grid-strong); stroke-width: 1.5; }
+.dotplot .tick { font-size: 15px; fill: var(--ink); }
+.dotplot .dp-dot { fill: var(--blue); stroke: #fff; stroke-width: 1.5; }
+.dotplot .dp-now { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 4 4; }
+.dotplot .dp-est { stroke: var(--red); stroke-width: 3.5; }
+.class-reasons .row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.reason-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.reason-list li { border: 1.5px solid var(--grid-strong); border-radius: 10px; padding: 8px 12px; background: var(--card); }
+.reason-list .tg { display: inline-block; font-size: 0.8em; font-weight: 700; border: 1.5px solid var(--ink); border-radius: 999px; padding: 0 8px; margin-right: 8px; }

@@ -291,6 +291,27 @@ def main() -> int:
         assert tp.evaluate("document.querySelector('svg.chart [role=slider][tabindex=\"0\"]') !== null"), "丸をキーボードで選べない"
         tctx.close()
         shot("2-yosou"); bare("step2")
+
+        # クラスモード（子ども）：線を かいたら「先生に よそうを わたす」→ コードと「コピー」
+        assert page.is_visible("#handoff-btn") and not page.is_visible("#handoff-box")
+        hb, nb = page.locator("#handoff-btn").bounding_box(), page.locator("#next-btn").bounding_box()
+        assert hb["width"] * hb["height"] < nb["width"] * nb["height"], "「先生に よそうを わたす」が「データと くらべる」より大きい"
+        page.click("#handoff-btn")
+        handoff_code = page.input_value("#handoff-code")
+        dec = page.evaluate("c => UG.model.decodeGuess(c)", handoff_code)
+        assert dec["ok"] and [dec["pref"], dec["school"], dec["guess"], dec["reason"]] == ["00", "S2", "down", "空き家がふえているから"], dec
+        assert dec["draw"]["2050"] == round(drawn["2050"]), (dec["draw"], drawn)
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+        page.click("#handoff-copy")
+        page.wait_for_selector("#toast.show")
+        assert "コピーしました" in page.inner_text("#toast"), page.inner_text("#toast")
+        try:
+            clip = page.evaluate("navigator.clipboard.readText()")
+            assert clip == handoff_code, clip
+        except Exception as e:  # file:// でクリップボードを読めない環境では、トーストだけで確かめる
+            if "assert" in type(e).__name__.lower():
+                raise
+        shot("2-yosou-handoff"); bare("step2-handoff")
         page.click("#next-btn")
 
         page.wait_for_selector(".verdict")
@@ -412,6 +433,82 @@ def main() -> int:
         assert page.locator("#src-kana").is_hidden()
         page.evaluate("codes => { UG.index.forEach(p => { if (codes.includes(p.code)) p.kana = true; }); UG.render(); }", kana_codes)
         assert page.locator("#src-kana").is_hidden() == (not kana_codes), "data/index.js の kana: true と出典の出る・出ないが合わない"
+
+        # クラスモード（先生）：先生向けページから「クラスで 見る」
+        page.click('#class-howto button[data-go="class"]')
+        page.wait_for_selector("#class-text")
+        assert page.evaluate("location.hash") == "#class"
+        bare("class-empty")
+        others = page.evaluate("""() => [
+          UG.model.encodeGuess({ pref: '00', school: 'S2', guess: 'up', draw: {2030: 320, 2035: 333, 2040: 351, 2045: 372, 2050: 401}, reason: '駅の 近くに マンションが できたから' }),
+          UG.model.encodeGuess({ pref: '00', school: 'S2', guess: 'same', draw: {2030: 300, 2035: 302, 2040: 299, 2045: 303, 2050: 305}, reason: '' })]""")
+        pasted = (f"山田 花子 2026/11/20 10:31\n{handoff_code}\n\n鈴木 一郎 10:32\nよそうです {others[0]}\n"
+                  f"{handoff_code}\n佐藤 10:35\n{others[1]}\nWG50-こわれた {others[1][:30]}")
+        page.fill("#class-text", pasted)
+        page.click("#class-load")
+        page.wait_for_selector("#class-chart svg")
+        cnt = page.evaluate("(() => { const e = document.querySelector('#class-count').cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent; })()")
+        assert cnt.split() == ["読めた", "3人", "読めなかった", "1", "同じで", "のぞいた", "1"], cnt
+        assert page.locator("#class-chart .l-class").count() == 3
+        assert page.locator("#class-dots .dp-dot").count() == 3
+        # 「データを 見せる」の前は、推計（赤い線・数）を出さない
+        assert page.locator("#view .l-est, #view .p-est, #view .dp-est, #class-vs").count() == 0, "見せる前に推計が出ている"
+        est50 = page.evaluate("Math.round(UG.model.interp(UG.model.estPoints(UG.findSchool('00', null, 'S2'), null), 2050))")
+        assert f"{est50}人" not in page.inner_text("#view"), "見せる前に推計の数が出ている"
+        assert page.locator("#class-reasons li").count() == 2  # 理由のある2人。名前は出ない
+        assert "山田" not in page.inner_text("#view") and "鈴木" not in page.inner_text("#view")
+        bare("class")
+        shot("c-1-class")
+        page.set_viewport_size({"width": 820, "height": 1180})
+        page.wait_for_timeout(300)
+        shot("c-1-class-820")
+        over = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+        if over > 1:
+            problems.append(f"クラスで 見る（820px）で横スクロール: {over}px")
+        page.set_viewport_size({"width": 1180, "height": 820})
+        page.wait_for_timeout(300)
+        page.click("#class-reveal")
+        page.wait_for_selector("#class-vs")
+        assert page.locator("#class-chart .l-est").count() == 1 and page.locator("#class-dots .dp-est").count() == 1
+        vs = page.inner_text("#class-vs")
+        assert f"{est50:,}" in vs, vs
+        bare("class-reveal")
+        shot("c-2-reveal")
+        page.click("#class-hide")
+        assert page.locator("#class-reasons").count() == 0, "理由を かくせない"
+        page.click("#class-hide")
+        assert page.locator("#class-reasons li").count() == 2
+        # 学校が まじったら、学校ごとの数を出して えらぶ
+        mixed = page.evaluate("UG.model.encodeGuess({ pref: '00', school: 'S3', guess: 'down', draw: {2030: 1, 2035: 2, 2040: 3, 2045: 4, 2050: 5}, reason: '' })")
+        page.fill("#class-text", pasted + "\n" + mixed)
+        page.click("#class-load")
+        page.wait_for_selector("[data-pick]")
+        picks = [t.replace("\n", " ") for t in page.locator("[data-pick]").all_inner_texts()]
+        assert len(picks) == 2 and "3人" in picks[0] and "1人" in picks[1], picks
+        assert page.locator("#class-chart").count() == 0
+        bare("class-pick")
+        shot("c-0-pick", full=False)
+        page.click('[data-pick="1"]')
+        page.wait_for_selector("#class-chart svg")
+        assert page.locator("#class-chart .l-class").count() == 1
+        # 見本の クラス（みらい市だけ）
+        page.click("#class-sample")
+        page.wait_for_function("document.querySelectorAll('#class-chart .l-class').length >= 25")
+        n_sample = page.locator("#class-chart .l-class").count()
+        assert page.locator("#class-dots .dp-dot").count() == n_sample
+        assert f"読めた{n_sample}人" in page.evaluate("(() => { const e = document.querySelector('#class-count').cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent.replace(/\\s/g, ''); })()")
+        bare("class-sample")
+        shot("c-3-sample")
+        page.set_viewport_size({"width": 820, "height": 1180})
+        page.wait_for_timeout(300)
+        shot("c-3-sample-820")
+        page.click("#class-reveal"); page.wait_for_selector("#class-vs")
+        shot("c-4-sample-reveal-820")
+        page.set_viewport_size({"width": 1180, "height": 820})
+        # 読んだ コードは 保存しない
+        assert "WG50" not in page.evaluate("JSON.stringify(Object.assign({}, localStorage))"), "コードが localStorage に入っている"
+        # 実データの県では「見本の クラスで ためす」を出さない
+        assert page.evaluate("UG.state.prefCode") == "00"
 
         # スマートフォン幅
         page.set_viewport_size({"width": 390, "height": 800})

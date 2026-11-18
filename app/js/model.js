@@ -308,6 +308,219 @@
     return false;
   }
 
+  /* ---------------- クラスモード：よそうのコード ----------------
+   * 子どもの よそうを、先生に わたす 1つながりの文字列にする。
+   *   WG50- ＋ 中身（base64url） ＋ 確かめ用（CRC-32 を base64url で 6文字）
+   * 中身は JSON の配列 [版, 都道府県コード, 学校の id, guess(u/s/d), 2030, 2035, 2040, 2045, 2050, 理由] を UTF-8 にしたもの。
+   * 線の値は整数に丸める。理由が空なら配列から省く。名前（nick）は入れない。
+   */
+  var CODE_HEAD = "WG50-";
+  var CODE_VERSION = 1;
+  var CHECK_LEN = 6;
+  var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  var GUESS_TO = { up: "u", same: "s", down: "d" };
+  var GUESS_FROM = { u: "up", s: "same", d: "down" };
+  var REASON_MAX = 200; // 入力欄は60字。古い端末などで長いものが来ても、ここまでは読む
+
+  function utf8Bytes(s) {
+    var out = [];
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) {
+        var d = s.charCodeAt(i + 1);
+        if (d >= 0xdc00 && d < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; }
+      }
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+      else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+      else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    }
+    return out;
+  }
+  function utf8Text(bytes) {
+    var s = "";
+    for (var i = 0; i < bytes.length; i++) s += "%" + (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
+    return decodeURIComponent(s); // こわれた UTF-8 は例外
+  }
+  function b64Encode(bytes) {
+    var out = "";
+    for (var i = 0; i < bytes.length; i += 3) {
+      var n = (bytes[i] << 16) | ((bytes[i + 1] || 0) << 8) | (bytes[i + 2] || 0);
+      out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63];
+      if (i + 1 < bytes.length) out += B64[(n >> 6) & 63];
+      if (i + 2 < bytes.length) out += B64[n & 63];
+    }
+    return out;
+  }
+  function b64Decode(s) {
+    if (s.length % 4 === 1) return null;
+    var out = [], buf = 0, bits = 0;
+    for (var i = 0; i < s.length; i++) {
+      var v = B64.indexOf(s[i]);
+      if (v < 0) return null;
+      buf = (buf << 6) | v; bits += 6;
+      if (bits >= 8) { bits -= 8; out.push((buf >> bits) & 255); }
+    }
+    return out;
+  }
+  var CRC_TABLE = (function () {
+    var t = [];
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      t.push(c >>> 0);
+    }
+    return t;
+  })();
+  function crc32(bytes) {
+    var c = 0xffffffff;
+    for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 255] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+  function checkChars(bytes) {
+    var c = crc32(bytes), out = "";
+    for (var i = CHECK_LEN - 1; i >= 0; i--) out += B64[Math.floor(c / Math.pow(64, i)) % 64];
+    return out;
+  }
+
+  /**
+   * よそうをコードにする。g: { pref, school, guess: "up"|"same"|"down", draw: {2030:…, …, 2050:…}, reason }
+   * 線が2050年までそろっていなければ null。
+   */
+  function encodeGuess(g) {
+    if (!g || !GUESS_TO[g.guess]) return null;
+    var vals = DRAW_YEARS.map(function (y) { return g.draw && g.draw[y]; });
+    if (vals.some(function (v) { return v == null || !isFinite(v); })) return null;
+    var arr = [CODE_VERSION, String(g.pref), String(g.school), GUESS_TO[g.guess]]
+      .concat(vals.map(function (v) { return Math.max(0, Math.round(v)); }));
+    var reason = String(g.reason || "").replace(/\s+/g, " ").trim().slice(0, REASON_MAX);
+    if (reason) arr.push(reason);
+    var bytes = utf8Bytes(JSON.stringify(arr));
+    return CODE_HEAD + b64Encode(bytes) + checkChars(bytes);
+  }
+
+  /** コードを読む。読めれば { ok: true, code, pref, school, guess, draw, reason }、読めなければ { ok: false, code, error } */
+  function decodeGuess(code) {
+    var fail = function (e) { return { ok: false, code: code, error: e }; };
+    code = String(code == null ? "" : code).trim();
+    if (code.indexOf(CODE_HEAD) !== 0) return fail("head");
+    var rest = code.slice(CODE_HEAD.length);
+    if (rest.length <= CHECK_LEN) return fail("short");
+    var bytes = b64Decode(rest.slice(0, -CHECK_LEN));
+    if (!bytes || checkChars(bytes) !== rest.slice(-CHECK_LEN)) return fail("check"); // 途中で切れた・書きかえた
+    var arr;
+    try { arr = JSON.parse(utf8Text(bytes)); } catch (e) { return fail("format"); }
+    if (!Array.isArray(arr) || arr[0] !== CODE_VERSION) return fail("version");
+    if (arr.length < 9 || arr.length > 10) return fail("format");
+    var pref = arr[1], school = arr[2], guess = GUESS_FROM[arr[3]], reason = arr.length > 9 ? arr[9] : "";
+    if (typeof pref !== "string" || !/^\d{2}$/.test(pref) || typeof school !== "string" || !school || school.length > 40 ||
+        !guess || typeof reason !== "string" || reason.length > REASON_MAX) return fail("format");
+    var draw = {};
+    for (var i = 0; i < DRAW_YEARS.length; i++) {
+      var v = arr[4 + i];
+      if (typeof v !== "number" || !isFinite(v) || v < 0 || v > 100000) return fail("format");
+      draw[DRAW_YEARS[i]] = v;
+    }
+    return { ok: true, code: code, pref: pref, school: school, guess: guess, draw: draw, reason: reason };
+  }
+
+  /**
+   * 貼りつけた文（名前や日時が まじっていてもよい）から、コードを全部取り出して読む。
+   * 返り値: { items: [読めたもの], bad: [読めなかったコード], dup: 同じコードで除いた数 }
+   */
+  function extractGuesses(text) {
+    var s = String(text == null ? "" : text);
+    if (s.normalize) s = s.normalize("NFKC");
+    var found = [];
+    (s.match(/WG50-[A-Za-z0-9_-]+/g) || []).forEach(function (tok) {
+      // すきまなく続けて貼られたコードは、WG50- で分ける
+      tok.split(CODE_HEAD).forEach(function (p, i) { if (i > 0 && p) found.push(CODE_HEAD + p); });
+    });
+    var seen = {}, items = [], bad = [], dup = 0;
+    found.forEach(function (c) {
+      if (seen[c]) { dup++; return; }
+      seen[c] = true;
+      var d = decodeGuess(c);
+      if (d.ok) items.push(d); else bad.push(c);
+    });
+    return { items: items, bad: bad, dup: dup };
+  }
+
+  /** 学校ごとに分ける。人数の多い順 [{ pref, school, items }] */
+  function groupGuesses(items) {
+    var map = {}, out = [];
+    items.forEach(function (d) {
+      var k = d.pref + "/" + d.school;
+      if (!map[k]) { map[k] = { pref: d.pref, school: d.school, items: [] }; out.push(map[k]); }
+      map[k].items.push(d);
+    });
+    return out.sort(function (a, b) { return b.items.length - a.items.length; });
+  }
+
+  /**
+   * 集計。est50 があれば、推計（2050年）より多い・少ない・ほぼ同じ（画面の丸めで同じ）の数も出す。
+   * 返り値: { n, min, max, median, guess: {up, same, down}, vsEst: {more, less, same} | null }
+   */
+  function summarizeGuesses(items, est50) {
+    var v = items.map(function (d) { return d.draw[TARGET_YEAR]; }).sort(function (a, b) { return a - b; });
+    var n = v.length;
+    var g = { up: 0, same: 0, down: 0 };
+    items.forEach(function (d) { g[d.guess]++; });
+    var vs = null;
+    if (est50 != null && isFinite(est50)) {
+      vs = { more: 0, less: 0, same: 0 };
+      var e = Math.round(est50);
+      v.forEach(function (x) { var r = Math.round(x); vs[r > e ? "more" : r < e ? "less" : "same"]++; });
+    }
+    return {
+      n: n,
+      min: n ? v[0] : null,
+      max: n ? v[n - 1] : null,
+      median: n ? (n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2) : null,
+      guess: g,
+      vsEst: vs
+    };
+  }
+
+  /** 決まった種から同じ並びを出す乱数（見本のクラス用） */
+  function seeded(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6d2b79f5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  var SAMPLE_REASONS = {
+    up: ["近くに 新しい 家が ふえているから", "マンションが できたから", "駅の 近くは 人気だから", "公園で 小さい 子を よく 見るから", "", ""],
+    same: ["あまり 変わって いないと 思うから", "なんとなく", "引っこして くる 人と 出て いく 人が 同じくらいだから", "", ""],
+    down: ["赤ちゃんを あまり 見ないから", "空き家が ふえているから", "人が へっていると ニュースで 見たから", "お店が へったから",
+      "友だちが 引っこして いったから", "", ""]
+  };
+  /**
+   * 見本のクラス（架空の n人分のコード）。練習用のまち（架空の学校）だけに使う。
+   * now: いまの人数。毎回同じ値になるように seed で決める。
+   */
+  function sampleClass(pref, school, now, n, seed) {
+    var rnd = seeded(seed == null ? 2050 : seed), out = [];
+    for (var i = 0; i < (n || 30); i++) {
+      var r = rnd();
+      var guess = r < 0.5 ? "down" : r < 0.75 ? "same" : "up";
+      var k = guess === "down" ? 0.4 + rnd() * 0.5 : guess === "same" ? 0.92 + rnd() * 0.16 : 1.1 + rnd() * 0.45;
+      var draw = {};
+      DRAW_YEARS.forEach(function (y, j) {
+        var t = (j + 1) / DRAW_YEARS.length;
+        var wob = 1 + (rnd() - 0.5) * 0.08 * (j < DRAW_YEARS.length - 1 ? 1 : 0);
+        draw[y] = Math.max(0, now * (1 + (k - 1) * t) * wob);
+      });
+      out.push(encodeGuess({ pref: pref, school: school, guess: guess, draw: draw,
+        reason: SAMPLE_REASONS[guess][Math.floor(rnd() * SAMPLE_REASONS[guess].length)] }));
+    }
+    return out;
+  }
+
   return {
     EST_YEARS: EST_YEARS, BASE_YEAR: BASE_YEAR, TARGET_YEAR: TARGET_YEAR, DRAW_YEARS: DRAW_YEARS,
     CLASS_MAX: CLASS_MAX, MULTI_MAX: MULTI_MAX, MULTI_MAX_WITH_G1: MULTI_MAX_WITH_G1,
@@ -315,6 +528,8 @@
     pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan,
     simValue: simValue, simPoints: simPoints, agesFor: agesFor, ageStep: ageStep,
     elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
-    schoolQuery: schoolQuery, matchSchool: matchSchool, foldText: foldText, isKanaQuery: isKanaQuery
+    schoolQuery: schoolQuery, matchSchool: matchSchool, foldText: foldText, isKanaQuery: isKanaQuery,
+    CODE_HEAD: CODE_HEAD, encodeGuess: encodeGuess, decodeGuess: decodeGuess, extractGuesses: extractGuesses,
+    groupGuesses: groupGuesses, summarizeGuesses: summarizeGuesses, sampleClass: sampleClass
   };
 });
