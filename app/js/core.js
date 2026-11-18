@@ -153,7 +153,10 @@
       draw: {}, revealed: false, extraHist: [],
       viewYear: 2050, ageStep: 0, sim: { move: 0, birth: 0 },
       quiz: {}, sort: {}, ideas: [], ownIdea: "", proposal: "", to: "mayor", nick: "",
-      furigana: true, step: "home", maxStep: 0
+      furigana: true, step: "home", maxStep: 0,
+      // クラスモード：この端末の でたらめな 印（初めて コードを 作るときに 作る）と、作った 順の 番号。
+      // 同じ 子が 2回 送ったら、先生の 画面で 新しい ほうだけ 数える。「さいしょから やりなおす」で 消える
+      classMark: "", classSeq: 0
     };
   };
   UG.state = UG.defaults();
@@ -219,6 +222,17 @@
       return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return false; });
     }
     return Promise.resolve(false);
+  };
+
+  /** でたらめな数（0以上1未満）。使えれば crypto を使う。端末や 名前の 情報は 使わない */
+  UG.random = function () {
+    try {
+      var a = new Uint32Array(1);
+      window.crypto.getRandomValues(a);
+      return a[0] / 4294967296;
+    } catch (e) {
+      return Math.random();
+    }
   };
 
   /* ---------- 小さな DOM ヘルパー ---------- */

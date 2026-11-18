@@ -301,6 +301,10 @@ def main() -> int:
         dec = page.evaluate("c => UG.model.decodeGuess(c)", handoff_code)
         assert dec["ok"] and [dec["pref"], dec["school"], dec["guess"], dec["reason"]] == ["00", "S2", "down", "空き家がふえているから"], dec
         assert dec["draw"]["2050"] == round(drawn["2050"]), (dec["draw"], drawn)
+        # 端末の印（でたらめな6文字。state に入れ、名前は入れない）と、作った順の番号
+        mark = page.evaluate("UG.state.classMark")
+        assert len(mark) == 6 and dec["mark"] == mark and dec["seq"] >= 1 and dec["calib"] is None, dec
+        assert page.input_value("#handoff-code") == handoff_code  # 中身が変わらなければ番号を進めない
         page.context.grant_permissions(["clipboard-read", "clipboard-write"])
         page.click("#handoff-copy")
         page.wait_for_selector("#toast.show")
@@ -439,21 +443,30 @@ def main() -> int:
         page.wait_for_selector("#class-text")
         assert page.evaluate("location.hash") == "#class"
         bare("class-empty")
+        # 3人分。鈴木さんは 同じ端末から2回（古いほうは数えない）、佐藤さんのコードは 途中で改行されている。
+        # 2人は 実際の人数 280人（ステップ1）を入れている
         others = page.evaluate("""() => [
-          UG.model.encodeGuess({ pref: '00', school: 'S2', guess: 'up', draw: {2030: 320, 2035: 333, 2040: 351, 2045: 372, 2050: 401}, reason: '駅の 近くに マンションが できたから' }),
-          UG.model.encodeGuess({ pref: '00', school: 'S2', guess: 'same', draw: {2030: 300, 2035: 302, 2040: 299, 2045: 303, 2050: 305}, reason: '' })]""")
-        pasted = (f"山田 花子 2026/11/20 10:31\n{handoff_code}\n\n鈴木 一郎 10:32\nよそうです {others[0]}\n"
-                  f"{handoff_code}\n佐藤 10:35\n{others[1]}\nWG50-こわれた {others[1][:30]}")
+          UG.model.encodeGuess({ pref: '00', school: 'S2', guess: 'up', draw: {2030: 320, 2035: 333, 2040: 351, 2045: 372, 2050: 401}, reason: '駅の 近くに マンションが できたから', calib: 280, mark: 'suzuki', seq: 4 }),
+          UG.model.encodeGuess({ pref: '00', school: 'S2', guess: 'same', draw: {2030: 300, 2035: 302, 2040: 299, 2045: 303, 2050: 305}, reason: '', calib: 280, mark: 'satou1', seq: 1 }),
+          UG.model.encodeGuess({ pref: '00', school: 'S2', guess: 'down', draw: {2030: 200, 2035: 150, 2040: 120, 2045: 100, 2050: 90}, reason: 'まちがえた', mark: 'suzuki', seq: 2 })]""")
+        pasted = (f"山田 花子 2026/11/20 10:31\n{handoff_code}\n\n鈴木 一郎 10:30\n{others[2]}\n鈴木 一郎 10:32\nよそうです {others[0]}\n"
+                  f"{handoff_code}\n佐藤 10:35\n{others[1][:40]}\n{others[1][40:]}\nWG50-こわれた {others[1][:30]}")
         page.fill("#class-text", pasted)
         page.click("#class-load")
         page.wait_for_selector("#class-chart svg")
         cnt = page.evaluate("(() => { const e = document.querySelector('#class-count').cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent; })()")
         assert cnt.split() == ["読めた", "3人", "読めなかった", "1", "同じで", "のぞいた", "1"], cnt
+        assert "同じ 端末から 来た 1件は、新しい ものだけ 数えました" in page.evaluate(
+            "(() => { const e = document.querySelector('#class-replaced').cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent; })()")
+        assert "まちがえた" not in page.inner_text("#view")
+        # 実際の人数：コードの いちばん多い calib（280人）に 合わせる
+        assert "280" in page.inner_text("#class-calib-msg") and page.input_value("#class-calib") == "280"
         assert page.locator("#class-chart .l-class").count() == 3
         assert page.locator("#class-dots .dp-dot").count() == 3
         # 「データを 見せる」の前は、推計（赤い線・数）を出さない
         assert page.locator("#view .l-est, #view .p-est, #view .dp-est, #class-vs").count() == 0, "見せる前に推計が出ている"
-        est50 = page.evaluate("Math.round(UG.model.interp(UG.model.estPoints(UG.findSchool('00', null, 'S2'), null), 2050))")
+        est50 = page.evaluate("Math.round(UG.model.interp(UG.model.estPoints(UG.findSchool('00', null, 'S2'), 280), 2050))")
+        est50_raw = page.evaluate("Math.round(UG.model.interp(UG.model.estPoints(UG.findSchool('00', null, 'S2'), null), 2050))")
         assert f"{est50}人" not in page.inner_text("#view"), "見せる前に推計の数が出ている"
         assert page.locator("#class-reasons li").count() == 2  # 理由のある2人。名前は出ない
         assert "山田" not in page.inner_text("#view") and "鈴木" not in page.inner_text("#view")
@@ -474,6 +487,15 @@ def main() -> int:
         assert f"{est50:,}" in vs, vs
         bare("class-reveal")
         shot("c-2-reveal")
+        # 「合わせない」→ 推計は もとの値。先生が 値を直すと その値で
+        page.click("#class-calib-off")
+        assert f"{est50_raw:,}" in page.inner_text("#class-vs"), page.inner_text("#class-vs")
+        assert "合わせて いません" in page.evaluate("(() => { const e = document.querySelector('#class-calib-msg').cloneNode(true); e.querySelectorAll('rt').forEach(r => r.remove()); return e.textContent; })()")
+        bare("class-calib-off")
+        page.fill("#class-calib", "306"); page.click("#class-calib-set")
+        assert f"{est50_raw:,}" in page.inner_text("#class-vs")  # 306人＝推計の2025年と同じ → 同じ推計
+        page.fill("#class-calib", "280"); page.click("#class-calib-set")
+        assert f"{est50:,}" in page.inner_text("#class-vs")
         page.click("#class-hide")
         assert page.locator("#class-reasons").count() == 0, "理由を かくせない"
         page.click("#class-hide")

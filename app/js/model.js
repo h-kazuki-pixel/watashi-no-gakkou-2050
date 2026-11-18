@@ -311,11 +311,16 @@
   /* ---------------- クラスモード：よそうのコード ----------------
    * 子どもの よそうを、先生に わたす 1つながりの文字列にする。
    *   WG50- ＋ 中身（base64url） ＋ 確かめ用（CRC-32 を base64url で 6文字）
-   * 中身は JSON の配列 [版, 都道府県コード, 学校の id, guess(u/s/d), 2030, 2035, 2040, 2045, 2050, 理由] を UTF-8 にしたもの。
-   * 線の値は整数に丸める。理由が空なら配列から省く。名前（nick）は入れない。
+   * 中身は JSON の配列を UTF-8 にしたもの。名前（nick）は入れない。
+   *   版2：[2, 都道府県コード, 学校の id, guess(u/s/d), 2030, 2035, 2040, 2045, 2050, 端末の印, 番号, 理由?, 実際の人数?]
+   *        端末の印は でたらめな6文字（同じ子が2回送ったら新しいほうだけ数える）。番号は その端末で作った順。
+   *        理由と実際の人数（calib）は無ければ省く（calib だけあるときは 理由を "" にする）。
+   *   版1：[1, 都道府県コード, 学校の id, guess, 2030…2050, 理由?]（読むだけ）
+   * 線の値は整数に丸める。
    */
   var CODE_HEAD = "WG50-";
-  var CODE_VERSION = 1;
+  var CODE_VERSION = 2;
+  var MARK_RE = /^[A-Za-z0-9_-]{4,12}$/;
   var CHECK_LEN = 6;
   var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   var GUESS_TO = { up: "u", same: "s", down: "d" };
@@ -384,22 +389,29 @@
   }
 
   /**
-   * よそうをコードにする。g: { pref, school, guess: "up"|"same"|"down", draw: {2030:…, …, 2050:…}, reason }
+   * よそうをコードにする。g: { pref, school, guess: "up"|"same"|"down", draw: {2030:…, …, 2050:…}, reason, calib, mark, seq }
    * 線が2050年までそろっていなければ null。
    */
   function encodeGuess(g) {
     if (!g || !GUESS_TO[g.guess]) return null;
     var vals = DRAW_YEARS.map(function (y) { return g.draw && g.draw[y]; });
     if (vals.some(function (v) { return v == null || !isFinite(v); })) return null;
+    var mark = typeof g.mark === "string" && MARK_RE.test(g.mark) ? g.mark : "";
+    var seq = g.seq > 0 && isFinite(g.seq) ? Math.floor(g.seq) : 0;
     var arr = [CODE_VERSION, String(g.pref), String(g.school), GUESS_TO[g.guess]]
-      .concat(vals.map(function (v) { return Math.max(0, Math.round(v)); }));
+      .concat(vals.map(function (v) { return Math.max(0, Math.round(v)); }), [mark, seq]);
     var reason = String(g.reason || "").replace(/\s+/g, " ").trim().slice(0, REASON_MAX);
-    if (reason) arr.push(reason);
+    var calib = g.calib > 0 && isFinite(g.calib) ? Math.round(g.calib) : null;
+    if (reason || calib) arr.push(reason);
+    if (calib) arr.push(calib);
     var bytes = utf8Bytes(JSON.stringify(arr));
     return CODE_HEAD + b64Encode(bytes) + checkChars(bytes);
   }
 
-  /** コードを読む。読めれば { ok: true, code, pref, school, guess, draw, reason }、読めなければ { ok: false, code, error } */
+  /**
+   * コードを読む。読めれば { ok: true, code, pref, school, guess, draw, reason, calib, mark, seq }、読めなければ { ok: false, code, error }。
+   * 版1（印・番号・calib なし）も読む。
+   */
   function decodeGuess(code) {
     var fail = function (e) { return { ok: false, code: code, error: e }; };
     code = String(code == null ? "" : code).trim();
@@ -410,9 +422,20 @@
     if (!bytes || checkChars(bytes) !== rest.slice(-CHECK_LEN)) return fail("check"); // 途中で切れた・書きかえた
     var arr;
     try { arr = JSON.parse(utf8Text(bytes)); } catch (e) { return fail("format"); }
-    if (!Array.isArray(arr) || arr[0] !== CODE_VERSION) return fail("version");
-    if (arr.length < 9 || arr.length > 10) return fail("format");
-    var pref = arr[1], school = arr[2], guess = GUESS_FROM[arr[3]], reason = arr.length > 9 ? arr[9] : "";
+    if (!Array.isArray(arr) || (arr[0] !== 1 && arr[0] !== 2)) return fail("version");
+    var v1 = arr[0] === 1, mark = "", seq = 0, reason = "", calib = null;
+    if (v1) {
+      if (arr.length < 9 || arr.length > 10) return fail("format");
+      reason = arr.length > 9 ? arr[9] : "";
+    } else {
+      if (arr.length < 11 || arr.length > 13) return fail("format");
+      mark = arr[9]; seq = arr[10];
+      reason = arr.length > 11 ? arr[11] : "";
+      calib = arr.length > 12 ? arr[12] : null;
+      if (typeof mark !== "string" || (mark && !MARK_RE.test(mark)) || typeof seq !== "number" || !(seq >= 0 && seq <= 1e9) ||
+          (calib !== null && !(typeof calib === "number" && calib > 0 && calib <= 100000))) return fail("format");
+    }
+    var pref = arr[1], school = arr[2], guess = GUESS_FROM[arr[3]];
     if (typeof pref !== "string" || !/^\d{2}$/.test(pref) || typeof school !== "string" || !school || school.length > 40 ||
         !guess || typeof reason !== "string" || reason.length > REASON_MAX) return fail("format");
     var draw = {};
@@ -421,29 +444,73 @@
       if (typeof v !== "number" || !isFinite(v) || v < 0 || v > 100000) return fail("format");
       draw[DRAW_YEARS[i]] = v;
     }
-    return { ok: true, code: code, pref: pref, school: school, guess: guess, draw: draw, reason: reason };
+    return { ok: true, code: code, pref: pref, school: school, guess: guess, draw: draw, reason: reason,
+      calib: calib, mark: mark, seq: seq };
+  }
+
+  /** 端末の印（でたらめな6文字）。rand は 0以上1未満を返す関数。名前や端末の情報からは作らない */
+  function makeMark(rand) {
+    var s = "";
+    for (var i = 0; i < 6; i++) s += B64[Math.floor(rand() * 64) % 64];
+    return s;
   }
 
   /**
    * 貼りつけた文（名前や日時が まじっていてもよい）から、コードを全部取り出して読む。
-   * 返り値: { items: [読めたもの], bad: [読めなかったコード], dup: 同じコードで除いた数 }
+   *  - すきまなく続けて貼られたコードは WG50- で分ける
+   *  - 読めなかったコードが行の終わりにあれば、すぐ後ろの行の頭の base64url の文字を1〜3行つないで読み直す（途中で改行されたとき）
+   *  - 同じコードは1回。同じ端末の印があれば、番号のいちばん大きいもの（新しいもの）だけを数える
+   * 返り値: { items: [読めたもの], bad: [読めなかったコード], dup: 同じコードで除いた数, replaced: 同じ端末の古いもので除いた数 }
    */
   function extractGuesses(text) {
     var s = String(text == null ? "" : text);
     if (s.normalize) s = s.normalize("NFKC");
+    var lines = s.split(/\r\n|\r|\n|\u2028|\u2029/);
     var found = [];
-    (s.match(/WG50-[A-Za-z0-9_-]+/g) || []).forEach(function (tok) {
-      // すきまなく続けて貼られたコードは、WG50- で分ける
-      tok.split(CODE_HEAD).forEach(function (p, i) { if (i > 0 && p) found.push(CODE_HEAD + p); });
-    });
-    var seen = {}, items = [], bad = [], dup = 0;
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li], re = /WG50-[A-Za-z0-9_-]*/g, m;
+      while ((m = re.exec(line))) {
+        var pieces = m[0].split(CODE_HEAD).slice(1);
+        var atEnd = !line.slice(m.index + m[0].length).trim();
+        for (var pi = 0; pi < pieces.length; pi++) {
+          var code = CODE_HEAD + pieces[pi];
+          if (!decodeGuess(code).ok && pi === pieces.length - 1 && atEnd) {
+            var joined = code;
+            for (var k = 1; k <= 3 && li + k < lines.length; k++) {
+              var run = /^\s*([A-Za-z0-9_-]+)/.exec(lines[li + k]);
+              if (!run || run[1].indexOf(CODE_HEAD) === 0) break;
+              joined += run[1];
+              if (decodeGuess(joined).ok) { code = joined; break; }
+              if (lines[li + k].trim() !== run[1]) break; // 行の中に ほかの文字が つづく → その先へは つながない
+            }
+          }
+          if (pieces[pi] || code !== CODE_HEAD) found.push(code);
+        }
+      }
+    }
+    var seen = {}, all = [], bad = [], dup = 0;
     found.forEach(function (c) {
       if (seen[c]) { dup++; return; }
       seen[c] = true;
       var d = decodeGuess(c);
-      if (d.ok) items.push(d); else bad.push(c);
+      if (d.ok) all.push(d); else bad.push(c);
     });
-    return { items: items, bad: bad, dup: dup };
+    // 同じ端末から2つ以上 → 番号のいちばん大きいものだけ
+    var latest = {};
+    all.forEach(function (d) { if (d.mark && (!latest[d.mark] || d.seq > latest[d.mark].seq)) latest[d.mark] = d; });
+    var items = all.filter(function (d) { return !d.mark || latest[d.mark] === d; });
+    return { items: items, bad: bad, dup: dup, replaced: all.length - items.length };
+  }
+
+  /** 読んだコードの calib（実際の人数）で、いちばん多い値（同じ数なら小さい値）。無ければ null */
+  function commonCalib(items) {
+    var cnt = {}, best = null;
+    items.forEach(function (d) { if (d.calib > 0) cnt[d.calib] = (cnt[d.calib] || 0) + 1; });
+    Object.keys(cnt).forEach(function (k) {
+      var v = +k;
+      if (best === null || cnt[k] > cnt[best] || (cnt[k] === cnt[best] && v < best)) best = v;
+    });
+    return best;
   }
 
   /** 学校ごとに分ける。人数の多い順 [{ pref, school, items }] */
@@ -500,22 +567,28 @@
       "友だちが 引っこして いったから", "", ""]
   };
   /**
-   * 見本のクラス（架空の n人分のコード）。練習用のまち（架空の学校）だけに使う。
-   * now: いまの人数。毎回同じ値になるように seed で決める。
+   * 見本のクラス（架空の n人分のコード）。練習用のまち（架空の学校）だけに使う。毎回同じ値になるように seed で決める。
+   * now: いまの人数、est50: データの 2050年の推計（あれば「へる」の子の 2050年を そのまわりに広げ、データより少ない子も出す）。
+   * 子どもごとに ちがう 端末の印を付ける。
    */
-  function sampleClass(pref, school, now, n, seed) {
+  function sampleClass(pref, school, now, est50, n, seed) {
     var rnd = seeded(seed == null ? 2050 : seed), out = [];
     for (var i = 0; i < (n || 30); i++) {
       var r = rnd();
       var guess = r < 0.5 ? "down" : r < 0.75 ? "same" : "up";
-      var k = guess === "down" ? 0.4 + rnd() * 0.5 : guess === "same" ? 0.92 + rnd() * 0.16 : 1.1 + rnd() * 0.45;
+      var k;
+      if (guess === "down") {
+        k = est50 > 0 ? Math.min(0.92, (est50 * (0.55 + rnd() * 0.8)) / now) : 0.3 + rnd() * 0.6;
+      } else {
+        k = guess === "same" ? 0.92 + rnd() * 0.16 : 1.1 + rnd() * 0.45;
+      }
       var draw = {};
       DRAW_YEARS.forEach(function (y, j) {
         var t = (j + 1) / DRAW_YEARS.length;
         var wob = 1 + (rnd() - 0.5) * 0.08 * (j < DRAW_YEARS.length - 1 ? 1 : 0);
         draw[y] = Math.max(0, now * (1 + (k - 1) * t) * wob);
       });
-      out.push(encodeGuess({ pref: pref, school: school, guess: guess, draw: draw,
+      out.push(encodeGuess({ pref: pref, school: school, guess: guess, draw: draw, mark: makeMark(rnd), seq: 1,
         reason: SAMPLE_REASONS[guess][Math.floor(rnd() * SAMPLE_REASONS[guess].length)] }));
     }
     return out;
@@ -530,6 +603,7 @@
     elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
     schoolQuery: schoolQuery, matchSchool: matchSchool, foldText: foldText, isKanaQuery: isKanaQuery,
     CODE_HEAD: CODE_HEAD, encodeGuess: encodeGuess, decodeGuess: decodeGuess, extractGuesses: extractGuesses,
+    makeMark: makeMark, commonCalib: commonCalib,
     groupGuesses: groupGuesses, summarizeGuesses: summarizeGuesses, sampleClass: sampleClass
   };
 });

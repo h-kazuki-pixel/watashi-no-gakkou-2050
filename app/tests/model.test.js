@@ -306,7 +306,7 @@ test("集計：最小・最大・真ん中、guess ごと、推計より多い�
 });
 
 test("見本のクラス：架空の30人分のコード。毎回同じ", () => {
-  const a = M.sampleClass("00", "S2", 306, 30, 7), b = M.sampleClass("00", "S2", 306, 30, 7);
+  const a = M.sampleClass("00", "S2", 306, 168, 30, 7), b = M.sampleClass("00", "S2", 306, 168, 30, 7);
   assert.equal(a.length, 30);
   assert.deepEqual(a, b);
   const r = M.extractGuesses(a.join("\n"));
@@ -314,4 +314,75 @@ test("見本のクラス：架空の30人分のコード。毎回同じ", () => 
   assert.ok(r.items.every((d) => d.pref === "00" && d.school === "S2"));
   const s = M.summarizeGuesses(r.items);
   assert.ok(s.guess.up > 0 && s.guess.same > 0 && s.guess.down > 0);
+  assert.equal(r.replaced, 0); // 子どもごとに ちがう 端末の印
+  // 画面の 見本（seed 2050）：データより少なく予想する子が 30人中 8〜12人
+  for (const [now, e50] of [[306, 168], [548, 447], [23, 8], [451, 327]]) {
+    const t = M.summarizeGuesses(M.extractGuesses(M.sampleClass("00", "S2", now, e50, 30, 2050).join("\n")).items, e50);
+    assert.ok(t.vsEst.less >= 8 && t.vsEst.less <= 12, JSON.stringify([now, e50, t.vsEst]));
+  }
+});
+
+test("コード：実際の人数（calib）・端末の印・番号が もどる。版1も読む", () => {
+  const c = M.encodeGuess({ ...G1, calib: 412, mark: "aB3_-z", seq: 7 });
+  const d = M.decodeGuess(c);
+  assert.deepEqual([d.ok, d.calib, d.mark, d.seq, d.reason], [true, 412, "aB3_-z", 7, G1.reason]);
+  const e = M.decodeGuess(M.encodeGuess({ ...G1, reason: "", calib: 98.6, mark: "zzzzzz", seq: 2 }));
+  assert.deepEqual([e.ok, e.calib, e.reason], [true, 99, ""]);     // calib だけ
+  const f = M.decodeGuess(M.encodeGuess({ ...G1, calib: null }));
+  assert.deepEqual([f.ok, f.calib, f.mark, f.seq], [true, null, "", 0]); // calib・印なし
+  assert.equal(M.encodeGuess({ ...G1, mark: "名前" }), M.encodeGuess({ ...G1 })); // 印の形でなければ入れない
+  // 版1（印・番号・calib なし）
+  const v1 = M.decodeGuess("WG50-WzEsIjAwIiwiUzEiLCJ1IiwzMDAsMjgwLDI1MCwyMzAsMjEwXQA1vyjY");
+  assert.deepEqual([v1.ok, v1.pref, v1.school, v1.guess, v1.draw[2050], v1.calib, v1.mark], [true, "00", "S1", "up", 210, null, ""]);
+  // 端末の印は でたらめな6文字
+  const mk = M.makeMark(Math.random);
+  assert.match(mk, /^[A-Za-z0-9_-]{6}$/);
+  assert.equal(M.makeMark(() => 0), "AAAAAA");
+});
+
+test("コード：calib のある・無いが まじっても読む。いちばん多い calib", () => {
+  const codes = [M.encodeGuess({ ...G1, calib: 412 }), M.encodeGuess({ ...G1, calib: 412, reason: "" }),
+    M.encodeGuess({ ...G1, calib: 400 }), M.encodeGuess({ ...G1 }), M.encodeGuess({ ...G1, guess: "up" })];
+  const r = M.extractGuesses(codes.join("\n"));
+  assert.equal(r.items.length, 5);
+  assert.equal(M.commonCalib(r.items), 412);
+  assert.equal(M.commonCalib([{ calib: 400 }, { calib: 380 }]), 380);   // 同じ数なら小さい値
+  assert.equal(M.commonCalib([{ calib: null }, {}]), null);
+});
+
+test("コード：同じ端末から2回 → 番号のいちばん大きいものだけ", () => {
+  const old = M.encodeGuess({ ...G1, mark: "dev001", seq: 3, guess: "up" });
+  const mid = M.encodeGuess({ ...G1, mark: "dev001", seq: 5, guess: "same" });
+  const now = M.encodeGuess({ ...G1, mark: "dev001", seq: 9 });
+  const other = M.encodeGuess({ ...G1, mark: "dev002", seq: 1 });
+  const nomark = M.encodeGuess({ ...G1, reason: "印なし" });
+  const r = M.extractGuesses([now, old, other, mid, nomark, now].join("\n"));
+  assert.equal(r.items.length, 3);
+  assert.equal(r.replaced, 2);
+  assert.equal(r.dup, 1);
+  assert.equal(r.items.find((d) => d.mark === "dev001").guess, "down");
+});
+
+test("コード：途中で改行された貼り付け（Classroom 風）を つないで読む", () => {
+  const a = M.encodeGuess({ ...G1, mark: "dev0a1", seq: 1 });
+  const b = M.encodeGuess({ ...G1, mark: "dev0b2", seq: 1, guess: "up", reason: "" });
+  const c = M.encodeGuess({ ...G1, mark: "dev0c3", seq: 1, guess: "same", calib: 300 });
+  const text = [
+    "山田 花子", "11月20日 10:31", a.slice(0, 40), a.slice(40, 80), "  " + a.slice(80) + "  ", "",
+    "鈴木 一郎", "11月20日 10:32", "提出しました " + b.slice(0, 33), b.slice(33),
+    "佐藤", "WG50-", c.slice(5, 50), c.slice(50, 90), c.slice(90),
+  ].join("\n");
+  const r = M.extractGuesses(text);
+  assert.deepEqual(r.items.map((d) => d.mark), ["dev0a1", "dev0b2", "dev0c3"]);
+  assert.equal(r.bad.length, 0);
+  // 後ろの行の頭だけを つなぐ（後ろに 名前などが 続いても読む）
+  const r2 = M.extractGuesses(b.slice(0, 50) + "\n" + b.slice(50) + " 鈴木");
+  assert.equal(r2.items.length, 1);
+  // 4行以上に分かれたものは読まない（読めなかった数に入る）
+  const split4 = [a.slice(0, 20), a.slice(20, 40), a.slice(40, 60), a.slice(60, 80), a.slice(80)].join("\n");
+  const r3 = M.extractGuesses(split4);
+  assert.deepEqual([r3.items.length, r3.bad.length], [0, 1]);
+  // 改行の後ろが 別のコードなら つながない
+  const r4 = M.extractGuesses(a.slice(0, 40) + "\n" + b);
+  assert.deepEqual([r4.items.length, r4.bad.length], [1, 1]);
 });

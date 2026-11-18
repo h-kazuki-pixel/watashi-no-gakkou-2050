@@ -308,9 +308,19 @@
       "</div>" +
       nav("step1", "もどる", "step3", "データと くらべる", !done)
     );
-    /** いまの よそうの コード（名前は 入れない） */
+    /** いまの よそうの コード（名前は 入れない）。中身が 変わったときだけ 番号を 1つ 進める（線を なぞる あいだに 何度も 進めない） */
+    var lastCode = null, lastKey = null;
     function handoffCode() {
-      return M.encodeGuess({ pref: st.prefCode, school: st.schoolId, guess: st.guess, draw: st.draw, reason: st.reason });
+      var g = { pref: st.prefCode, school: st.schoolId, guess: st.guess, reason: st.reason, calib: st.calib, draw: {} };
+      M.DRAW_YEARS.forEach(function (y) { g.draw[y] = st.draw[y] == null ? null : Math.round(st.draw[y]); });
+      var key = JSON.stringify(g);
+      if (key === lastKey && lastCode) return lastCode;
+      if (!st.classMark) st.classMark = M.makeMark(UG.random);
+      st.classSeq = (st.classSeq || 0) + 1;
+      UG.save();
+      g.mark = st.classMark; g.seq = st.classSeq;
+      lastKey = key; lastCode = M.encodeGuess(g);
+      return lastCode;
     }
     function handoffUpdate(ok) {
       UG.$("#handoff", root).hidden = !ok;

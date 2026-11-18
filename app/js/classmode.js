@@ -9,7 +9,8 @@
   var GUESS_LABEL = { up: "ふえる", same: "同じくらい", down: "へる" };
 
   // 画面を 作り直しても 消えないように、ここに 置く（ページを 読みこみ直すと 消える）
-  var S = { res: null, groups: [], pick: -1, revealed: false, hideReasons: false, order: [], text: "" };
+  // calib：先生が 決めた 実際の 人数（undefined＝コードの いちばん 多い 値、null＝合わせない、数＝その 値）
+  var S = { res: null, groups: [], pick: -1, revealed: false, hideReasons: false, order: [], text: "", calib: undefined };
 
   function shuffle(n) {
     var a = [];
@@ -24,6 +25,7 @@
     S.groups = M.groupGuesses(S.res.items);
     S.pick = S.groups.length === 1 ? 0 : -1;
     S.revealed = false;
+    S.calib = undefined;
     S.order = S.pick >= 0 ? shuffle(S.groups[0].items.length) : [];
     // 学校の 名前を 出すために、まじっている 都道府県の データを 読む
     var prefs = {};
@@ -35,6 +37,10 @@
 
   function schoolOf(g) {
     return g ? UG.findSchool(g.pref, null, g.school) : null;
+  }
+  /** 推計を 合わせる 実際の 人数（無ければ null） */
+  function calibOf(g) {
+    return S.calib === undefined ? M.commonCalib(g.items) : S.calib;
   }
 
   UG.views["class"] = function (root) {
@@ -51,7 +57,9 @@
           (sample ? '<button type="button" class="btn ghost" id="class-sample">見本の クラスで ためす</button>' : "") +
         "</div>" +
         (res ? '<p class="class-count" id="class-count">読めた <b>' + res.items.length + "</b>人　読めなかった <b>" + res.bad.length +
-          "</b>　同じで のぞいた <b>" + res.dup + "</b></p>" : "") +
+          "</b>　同じで のぞいた <b>" + res.dup + "</b></p>" +
+          (res.replaced ? '<p class="fine" id="class-replaced">同じ 端末から 来た ' + res.replaced + "件は、新しい ものだけ 数えました。</p>" : "")
+          : "") +
         '<p class="fine">読みこんだ コードは この 画面を とじると 消えます（どこにも 送らず、のこしません）。</p>' +
       "</section>";
 
@@ -70,11 +78,22 @@
     }
 
     if (g && school) {
-      var v50 = M.interp(M.estPoints(school, null), M.TARGET_YEAR);
+      var calib = calibOf(g);
+      var v50 = M.interp(M.estPoints(school, calib), M.TARGET_YEAR);
       var sum = M.summarizeGuesses(g.items, S.revealed ? v50 : null);
       html +=
         '<section class="card class-result">' +
           '<p class="school-name">' + nr(school.name) + '<span class="city">' + nr(school.city.name) + "</span></p>" +
+          // 実際の 人数（ステップ1で 子どもが 入れた 値）で 推計を 合わせる。先生が 直せる
+          '<div class="class-calib">' +
+            (calib ? '<p id="class-calib-msg">実際の 人数 <b>' + num(calib) + "</b>人に 合わせて います。</p>"
+              : '<p id="class-calib-msg">' + (S.calib === null ? "実際の 人数には 合わせて いません。" : "実際の 人数に 合わせる ことも できます。") + "</p>") +
+            '<div class="row"><label for="class-calib">実際の 人数</label>' +
+              '<input id="class-calib" type="number" inputmode="numeric" min="1" max="3000" value="' + (calib || "") + '"><span>人</span>' +
+              '<button type="button" class="btn small" id="class-calib-set">合わせる</button>' +
+              (calib ? '<button type="button" class="btn sub" id="class-calib-off">合わせない</button>' : "") +
+            "</div>" +
+          "</div>" +
           '<div class="class-guess" aria-label="よそうの 数">' +
             ["up", "same", "down"].map(function (k) {
               return '<div class="cg"><span class="lb">' + GUESS_LABEL[k] + '</span><b class="n">' + sum.guess[k] + "</b>人</div>";
@@ -127,22 +146,32 @@
     if (sb) sb.addEventListener("click", function () {
       // 見本の クラス：練習用の まち（架空）の 学校で、架空の 30人分の コードを 作って 読む
       var sc = UG.findSchool("00", st.cityCode, st.schoolId) || UG.prefs["00"].cities[0].schools[1];
-      var codes = M.sampleClass("00", sc.id, M.estPoints(sc, null)[0].v, 30, 2050);
+      var est0 = M.estPoints(sc, null);
+      var codes = M.sampleClass("00", sc.id, est0[0].v, M.interp(est0, M.TARGET_YEAR), 30, 2050);
       reload(codes.join("\n"));
     });
     UG.on(root, "click", "[data-pick]", function (ev, el) {
       S.pick = +el.getAttribute("data-pick");
       S.revealed = false;
+      S.calib = undefined;
       S.order = shuffle(S.groups[S.pick].items.length);
       UG.render();
     });
+    var cs = UG.$("#class-calib-set", root);
+    if (cs) cs.addEventListener("click", function () {
+      var v = parseInt(UG.$("#class-calib", root).value, 10);
+      S.calib = v > 0 ? v : null;
+      UG.render();
+    });
+    var co = UG.$("#class-calib-off", root);
+    if (co) co.addEventListener("click", function () { S.calib = null; UG.render(); });
     var rv = UG.$("#class-reveal", root);
     if (rv) rv.addEventListener("click", function () { S.revealed = true; UG.render(); });
     var hd = UG.$("#class-hide", root);
     if (hd) hd.addEventListener("click", function () { S.hideReasons = !S.hideReasons; UG.render(); });
 
     if (g && school) {
-      var est2 = M.estPoints(school, null), now2 = est2[0].v;
+      var est2 = M.estPoints(school, calibOf(g)), now2 = est2[0].v;
       var hist2 = M.histPoints(school, []);
       var top = now2;
       g.items.forEach(function (d) { M.DRAW_YEARS.forEach(function (y) { top = Math.max(top, d.draw[y]); }); });
