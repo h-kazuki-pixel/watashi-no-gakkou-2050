@@ -317,7 +317,7 @@
       "</section>" +
 
       '<section class="card done-card">' +
-        '<span class="stamp big" aria-hidden="true">たんけん 修了</span>' +
+        '<span class="stamp big" aria-hidden="true"><span>たんけん<br>修了</span></span>' +
         "<div><h2>きみが 今日 使った「データの 力」</h2>" +
         '<ol class="skills"><li><b>問う</b><br>「2050年は 何人？」と 問いを 立てた</li><li><b>よそうする</b><br>じぶんの 考えを 線で あらわした</li>' +
         "<li><b>集める・読む</b><br>国の データを 読み、むかしの 人数を しらべた</li><li><b>くらべる</b><br>しくみと 場所の ちがいから 理由を 考えた</li>" +

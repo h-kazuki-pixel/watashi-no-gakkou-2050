@@ -87,6 +87,7 @@
       nowBelow = below;
       var nowLabY = { below: ny + 26, above: ny - 14, canBelow: ny + 26 <= H - B - 4, canAbove: ny - 14 >= T + 12 };
       var roomLeft = sx(cfg.now.y) - L;
+      var nowLabLeft = roomLeft > 96, nowPastAbove = prev ? prev.v > cfg.now.v : true;
       s.push('<text class="lab-now" x="' + (roomLeft > 96 ? sx(cfg.now.y) - 10 : L + 4) + '" y="' + (below ? ny + 26 : ny - 14) +
         '" text-anchor="' + (roomLeft > 96 ? "end" : "start") + '">いま ' + UG.num(cfg.now.v) + "人</text>");
     }
@@ -122,10 +123,12 @@
     function renderMine(focusYear) {
       var out = [], pts = minePoints();
       var hasAny = pts.length > 1;
-      // なぞる画面で線をかいたら、「いま ○人」を線と反対の側に移す（線が下へ向かうなら上、上へ向かうなら下）
+      // なぞる画面で線をかいたら、「いま ○人」の置き場を決め直す。
+      // 文字が点の左にあるとき：よそうの線とは当たらないので、これまでの線と重ならない側（線が上から来るなら下）。
+      // 文字が点の右にあるとき：よそうの線と反対の側（線が下へ向かうなら上、上へ向かうなら下）
       var lab = cfg.drawable && cfg.now ? svg.querySelector(".lab-now") : null;
       if (lab) {
-        var wantBelow = hasAny ? pts[1].v > cfg.now.v : nowBelow;
+        var wantBelow = !hasAny ? nowBelow : nowLabLeft ? nowPastAbove : pts[1].v > cfg.now.v;
         if (wantBelow && !nowLabY.canBelow) wantBelow = false;
         if (!wantBelow && !nowLabY.canAbove) wantBelow = true;
         lab.setAttribute("y", wantBelow ? nowLabY.below : nowLabY.above);

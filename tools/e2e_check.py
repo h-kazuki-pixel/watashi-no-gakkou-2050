@@ -266,6 +266,12 @@ def main() -> int:
         page.evaluate(f"UG.ctx().school.est[0] = {est0}; UG.render()")
         page.set_viewport_size({"width": 1180, "height": 820})
         page.wait_for_timeout(300)
+        # 「いま ○人」は、線を かいても これまでの線に 重ならない（黒い線が 左上から 来るので 点の 下に 置く）
+        draw_line(0.735, 0.75, 140, 30)
+        now_lab = page.evaluate("""() => ({lab: +document.querySelector('svg.chart .lab-now').getAttribute('y'),
+          pt: +document.querySelector('svg.chart .p-now').getAttribute('cy')})""")
+        assert now_lab["lab"] > now_lab["pt"], f"[step2] 「いま」が これまでの線に 重なる側に ある: {now_lab}"
+        page.click("#redo")
         draw_line(0.62, 0.74, 140, 30)
         assert not page.is_disabled("#next-btn"), "線を描いても次へ進めない"
         drawn = page.evaluate("UG.state.draw")
@@ -321,6 +327,21 @@ def main() -> int:
         page.wait_for_selector(".verdict")
         page.wait_for_timeout(2600)
         shot("3-shiraberu"); bare("step3")
+        # スタンプの文字は丸の中に収まる（「はっけん賞」が1行で丸からはみ出していた）。3種類、広い画面とスマホ幅
+        STAMP_FITS = """() => { const s = document.querySelector('.verdict .stamp'), t = s.firstElementChild;
+          return {ratio: t.offsetWidth / s.clientWidth, lines: s.querySelectorAll('br').length, text: t.textContent}; }"""
+        draw_s3 = page.evaluate("UG.state.draw")
+        est50_s3 = page.evaluate("UG.ctx().v50")
+        for w in (1180, 390):
+            page.set_viewport_size({"width": w, "height": 820}); page.wait_for_timeout(300)
+            for v in (est50_s3, est50_s3 * 1.2, est50_s3 * 2):
+                page.evaluate("v => { UG.model.DRAW_YEARS.forEach(y => { UG.state.draw[y] = v; }); UG.render(); }", v)
+                page.wait_for_selector(".verdict .stamp")
+                r = page.evaluate(STAMP_FITS)
+                assert r["lines"] == 1 and r["ratio"] <= 0.86, f"[step3 {w}px] スタンプの文字が丸からはみ出す: {r}"
+        page.set_viewport_size({"width": 1180, "height": 820}); page.wait_for_timeout(300)
+        page.evaluate("d => { UG.state.draw = d; UG.save(); UG.render(); }", draw_s3)
+        page.wait_for_selector(".verdict")
         # ステップ3の「人数が かわると、…どう なるだろう。つまみを …」は、句読点の後で改行できる
         assert "なるだろう。<wbr>" in page.inner_html("#view"), "ステップ3の文の句点の後に <wbr> がない"
         # 箱の「数字＋単位」（1,589人・やく 265人・48クラス）は1行で、箱からはみ出さない（4桁・320px）。3つの数字は同じ大きさ

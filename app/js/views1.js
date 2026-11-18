@@ -386,9 +386,9 @@
     var j = M.judgeGuess(mine50, c.v50);
     var first = !st.revealed;
     var wide = false;
-    var verdict = j.level === "close" ? ["ぴったり賞", "すごい！ ほぼ ぴったりの よそうだね。"]
-      : j.level === "near" ? ["おしい賞", "おしい！ データに 近い よそうだったね。"]
-      : ["はっけん賞", "データと 大きく ちがったね。「なぜ ちがったか」を 考える のが、たんけんの いちばん おもしろい ところだよ。"];
+    var verdict = j.level === "close" ? ["ぴったり<br>賞", "すごい！ ほぼ ぴったりの よそうだね。"]
+      : j.level === "near" ? ["おしい<br>賞", "おしい！ データに 近い よそうだったね。"]
+      : ["はっけん<br>賞", "データと 大きく ちがったね。「なぜ ちがったか」を 考える のが、たんけんの いちばん おもしろい ところだよ。"];
     var diff = Math.round(mine50) - Math.round(c.v50);
 
     root.innerHTML = UG.ruby(
@@ -399,7 +399,7 @@
         '<div class="row end"><button type="button" class="btn small ghost" id="wide" aria-pressed="false">2070年まで 見る</button></div>' +
         '<div class="table-wrap" id="data-table"></div>' +
         '<div class="verdict' + (first ? " pop" : "") + '">' +
-          '<span class="stamp" aria-hidden="true">' + verdict[0] + "</span>" +
+          '<span class="stamp" aria-hidden="true"><span>' + verdict[0] + "</span></span>" +
           "<div><p><b>" + verdict[1] + "</b></p>" +
           "<p>データの よそうは <b class=\"est\">" + num(c.v50) + "人</b>、きみの よそうは <b class=\"mine\">" + num(mine50) + "人</b>。" +
           (diff === 0 ? "ぴったり 同じ！" : "差は " + num(Math.abs(diff)) + "人（きみの ほうが " + (diff > 0 ? "多い" : "少ない") + "）。") + "</p>" +
