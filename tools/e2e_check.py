@@ -459,6 +459,10 @@ def main() -> int:
         # 最初は 閉じている。開いて room_kids を えらぶと kyohoku が 先頭（near）、details は 開いた まま。外すと もとの 順
         order = lambda: page.evaluate("[...document.querySelectorAll('#case-list li')].map(l => l.getAttribute('data-case'))")
         assert page.evaluate("UG.state.ideas") == [] and not page.evaluate("document.getElementById('cases').open"), "事例帳が 最初から 開いている"
+        # summary の 文字は 分かち書きの 空白が 残る（描画どおりの innerText を、ふりがなを 消して 読む。flex だと 語ごとに 切れて 空白が 落ちる）
+        sum_t = page.evaluate("""() => { document.body.classList.add('no-ruby'); const t = document.querySelector('#cases summary').innerText;
+          document.body.classList.remove('no-ruby'); return t; }""")
+        assert sum_t == f"全国の 使い方の 例を 見る（{len(cases['ids'])}つ）", repr(sum_t)
         assert order() == cases["ids"], order()
         page.click("#cases summary")
         assert page.evaluate("document.getElementById('cases').open")

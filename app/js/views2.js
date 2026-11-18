@@ -303,7 +303,7 @@
           }).join("") + "</ul>" +
           '<p class="fine">1つの 校舎に 2つ以上の 使い道が ある 場合も 数えています。出典：文部科学省「令和6年度 廃校施設等活用状況実態調査」</p>' +
           // 事例帳（cases.js）。出典は 先生向けページに 出し、子どもの 画面には リンクを 置かない
-          '<details class="cases" id="cases"><summary>全国の 使い方の {例|れい}を 見る（' + UG.CASES.length + "つ）</summary>" +
+          '<details class="cases" id="cases"><summary><span>全国の 使い方の {例|れい}を 見る（' + UG.CASES.length + "つ）</span></summary>" + // span で 包む（flex の summary だと 語の 間の 空白が 落ちる）
             '<p class="fine">えらんだ アイデアに 近い {例|れい}が {上|うえ}に ならぶよ。いまの ようすは {変|か}わって いる ことも あるよ。どの 使い方が よいかは、きみが 考えてね。</p>' +
             '<ul class="case-list" id="case-list"></ul></details>' +
         "</div>" +
