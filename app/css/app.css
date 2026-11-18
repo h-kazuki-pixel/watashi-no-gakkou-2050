@@ -5,6 +5,10 @@
  *   青ペン＝きみのよそう／赤ペン＝データのよそう／緑ペン＝もしも。黄色の蛍光ペンは「だいじなところ」だけ。
  * ノートの世界で統一するため、ライト1テーマに固定している。
  */
+/* 書体はアプリに同梱する（外部に通信しない）。使う文字だけを収録したもの：tools/build_fonts.py。SIL Open Font License 1.1（fonts/OFL-*.txt） */
+@font-face { font-family: "BIZ UDPGothic"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/BIZUDPGothic-Regular.woff2") format("woff2"); }
+@font-face { font-family: "BIZ UDPGothic"; font-style: normal; font-weight: 700; font-display: swap; src: url("../fonts/BIZUDPGothic-Bold.woff2") format("woff2"); }
+@font-face { font-family: "Yusei Magic"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/YuseiMagic-Regular.woff2") format("woff2"); }
 :root {
   --paper: #fbfcfd;
   --grid: #dbe8ef;

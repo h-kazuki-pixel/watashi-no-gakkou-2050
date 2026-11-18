@@ -5,13 +5,18 @@
   - コンソールエラーが出ないこと
   - 5ステップを最後まで進められること
   - 子ども向け画面に「ふりがなのない漢字」が残っていないこと
+  - 自分以外の http/https の宛先へ通信しないこと、同梱の3書体が読みこまれること（file:// と http の両方）
 を確かめ、各画面のスクリーンショットを保存する。
 """
+import functools
+import http.server
 import json
 import os
 import pathlib
 import shutil
 import sys
+import threading
+import urllib.parse
 
 from playwright.sync_api import sync_playwright
 
@@ -47,14 +52,62 @@ FIND_BARE_KANJI = """
 }
 """
 
+# 同梱の書体（app/css/app.css の @font-face）。document.fonts で、この3つが loaded になること
+FONT_FACES = [("BIZ UDPGothic", "400"), ("BIZ UDPGothic", "700"), ("Yusei Magic", "400")]
+FONT_STATUS = """async () => { await document.fonts.ready;
+  return [...document.fonts].map(f => [f.family.replace(/"/g, ''), String(f.weight), f.status]); }"""
+
+
+def watch_requests(ctx, own_origin, out):
+    """ctx（ブラウザのコンテキスト）の通信のうち、自分以外の http/https の宛先を out に足す。
+    own_origin は "http://127.0.0.1:8000" のような自分の宛先。file:// なら None（http/https はすべて外部）"""
+    def on_request(req):
+        u = urllib.parse.urlsplit(req.url)
+        if u.scheme in ("http", "https") and f"{u.scheme}://{u.netloc}" != own_origin:
+            out.append(req.url)
+    ctx.on("request", on_request)
+
+
+def check_fonts(page, where):
+    """同梱の3書体が loaded になっているか。足りないものを文字列で返す"""
+    faces = page.evaluate(FONT_STATUS)
+    # 同じ名前・太さの書体がすべて loaded で、1つ以上あること（ファイルが無いと error になる）
+    return [f"[{where}] 書体が読みこまれない: {f} {w}（{faces}）" for f, w in FONT_FACES
+            if not any(x[:2] == [f, w] for x in faces) or any(x[:2] == [f, w] and x[2] != "loaded" for x in faces)]
+
+
+def check_http(browser):
+    """app/ をローカルの HTTP サーバーで配ったときも、外部に通信せず、3書体が読みこまれること（GitHub Pages と同じ形）"""
+    class Quiet(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+    handler = functools.partial(Quiet, directory=str(ROOT / "app"))
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    own = f"http://127.0.0.1:{srv.server_address[1]}"
+    out, ext = [], []
+    try:
+        ctx = browser.new_context(viewport={"width": 1180, "height": 820})
+        watch_requests(ctx, own, ext)
+        pg = ctx.new_page()
+        pg.on("pageerror", lambda e: out.append(f"[http] {e}"))
+        pg.goto(own + "/index.html"); pg.wait_for_selector(".school-btn")
+        out += check_fonts(pg, "http")
+        ctx.close()
+    finally:
+        srv.shutdown()
+    return out + [f"[http] 外部への通信: {u}" for u in ext]
+
 
 def main() -> int:
     problems = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch(**LAUNCH)
         page = browser.new_page(viewport={"width": 1180, "height": 820})
+        external = []  # 自分以外の http/https の宛先への通信（file:// で開くので、http/https はすべて外部）
+        watch_requests(page.context, None, external)
         errors = []
-        page.on("console", lambda m: errors.append(m.text) if m.type == "error" and "fonts.g" not in m.text and "ERR_" not in m.text else None)
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" and "ERR_" not in m.text else None)
         page.on("pageerror", lambda e: errors.append(str(e)))
 
         def shot(name, full=True):
@@ -90,6 +143,7 @@ def main() -> int:
 
         page.goto(URL)
         page.wait_for_selector(".school-btn")
+        problems += check_fonts(page, "file://")
 
         # ことばの途中で改行しない：ルビを含む語は <span class="w">（nowrap）で包む。空白は語の外、句読点は語の中
         wrap = page.evaluate("""() => [
@@ -290,6 +344,7 @@ def main() -> int:
         # キーボードの案内：マウスの端末では出す。タッチの端末（pointer: coarse）では出さない
         assert page.is_visible(".kbd-hint"), "キーボードの案内が出ない"
         tctx = browser.new_context(viewport={"width": 390, "height": 820}, has_touch=True)
+        watch_requests(tctx, None, external)
         tp = tctx.new_page(); tp.goto(URL); tp.wait_for_selector(".school-btn")
         tp.click('[data-school="S2"]'); tp.click('[data-grade="e5"]'); tp.click("#start")
         tp.click('[data-guess="down"]'); tp.click("#next-btn"); tp.wait_for_selector("svg.chart .pad")
@@ -679,6 +734,8 @@ def main() -> int:
         shot("3-small-school"); bare("small")
 
         problems += [f"console: {e}" for e in errors]
+        problems += [f"[file://] 外部への通信: {u}" for u in external]
+        problems += check_http(browser)
         browser.close()
 
     print(json.dumps(problems, ensure_ascii=False, indent=1))

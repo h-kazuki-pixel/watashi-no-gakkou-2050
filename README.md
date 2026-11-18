@@ -99,11 +99,13 @@ app/                 アプリ本体（ビルド不要の HTML/CSS/JS）
   js/ruby-dict.js      ふりがな辞書
   data/sample.js       架空のまち「みらい市」
   data/index.js, pref_XX.js  実データ（パイプラインが生成）
+  fonts/               同梱の書体（使う文字だけの woff2。tools/build_fonts.py が作る。SIL OFL 1.1）
+  fonts/               同梱の書体（使う文字だけの woff2。tools/build_fonts.py が作る。SIL OFL 1.1）
 pipeline/            学区 × メッシュ → 学区別の将来児童数
   build_school_data.py   コマンド（inspect / build / build-all / make-kana / add-kana）
   school2050/            zip の中身判定、メッシュコード、幾何、読み込み、配分、書き出し、学校名の読み（kana.py）
   tests/                 手計算できる合成データでの検算
-tools/               ブラウザ通しテスト（e2e_check, e2e_realdata）、別の実装での検算（independent_check）、
+tools/               ブラウザ通しテスト（e2e_check, e2e_realdata）、書体の作成（build_fonts）、別の実装での検算（independent_check）、
                      実際の児童数との照合（compare_actual。pdfplumber が必要。入力は data_raw/actual/ に置き、リポジトリには入れない）
 docs/                応募文、授業案、データと方法、推計の当たり具合（ACCURACY）、ロードマップ
 ```
@@ -132,4 +134,5 @@ docs/                応募文、授業案、データと方法、推計の当�
 ## ライセンス
 
 - **コード**：MIT ライセンス（[`LICENSE`](LICENSE)）。対象はプログラムだけです。
+- **書体**：`app/fonts/` の BIZ UDPGothic（Copyright 2022 The BIZ UDGothic Project Authors）と Yusei Magic（Copyright 2020 The Yusei Magic Project Authors）は SIL Open Font License 1.1 です（`app/fonts/OFL-BIZUDPGothic.txt`、`app/fonts/OFL-YuseiMagic.txt`）。アプリで使う文字だけを収録した woff2 を同梱し、外部（Google Fonts）からは読みこみません。作り直すときは `pip install -r tools/requirements-fonts.txt` のあと `python3 tools/build_fonts.py <TTF のフォルダ>`（TTF は google/fonts の `ofl/bizudpgothic` と `ofl/yuseimagic`。リポジトリには入れない）。画面の文字や学校名を足したら作り直す。
 - **データ**：`app/data/` と `pipeline` が生成するデータは国土数値情報を加工したもので、MIT ライセンスの対象外です。上の「データの利用条件」に従い、非営利の利用に限ります。
