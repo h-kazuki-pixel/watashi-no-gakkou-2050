@@ -100,7 +100,6 @@ app/                 アプリ本体（ビルド不要の HTML/CSS/JS）
   data/sample.js       架空のまち「みらい市」
   data/index.js, pref_XX.js  実データ（パイプラインが生成）
   fonts/               同梱の書体（使う文字だけの woff2。tools/build_fonts.py が作る。SIL OFL 1.1）
-  fonts/               同梱の書体（使う文字だけの woff2。tools/build_fonts.py が作る。SIL OFL 1.1）
 pipeline/            学区 × メッシュ → 学区別の将来児童数
   build_school_data.py   コマンド（inspect / build / build-all / make-kana / add-kana）
   school2050/            zip の中身判定、メッシュコード、幾何、読み込み、配分、書き出し、学校名の読み（kana.py）
