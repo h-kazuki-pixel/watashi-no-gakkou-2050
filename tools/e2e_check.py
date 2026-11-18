@@ -449,11 +449,11 @@ def main() -> int:
         page.click("#next-btn")
 
         page.wait_for_selector("#card svg")
-        # 事例帳（cases.js）：6件、id が 重ならない、ideas は UG.IDEAS に ある、出典は https
+        # 事例帳（cases.js）：7件、id が 重ならない、ideas は UG.IDEAS に ある、出典は https
         cases = page.evaluate("""() => ({ ids: UG.CASES.map(k => k.id), ideas: UG.IDEAS.map(k => k.id),
           bad: UG.CASES.filter(k => !k.ideas.length || k.ideas.some(i => !UG.IDEAS.some(x => x.id === i))).map(k => k.id),
           urls: [].concat(...UG.CASES.map(k => k.src.map(s => s.url))) })""")
-        assert len(cases["ids"]) == 6 and len(set(cases["ids"])) == 6, cases["ids"]
+        assert len(cases["ids"]) == 7 and len(set(cases["ids"])) == 7, cases["ids"]
         assert not cases["bad"], f"UG.IDEAS に 無い ideas: {cases['bad']}"
         assert cases["urls"] and all(u.startswith("https://") for u in cases["urls"]), cases["urls"]
         # 最初は 閉じている。開いて room_kids を えらぶと kyohoku が 先頭（near）、details は 開いた まま。外すと もとの 順
@@ -475,6 +475,9 @@ def main() -> int:
         page.click('[data-idea="room_kids"]')
         assert order() == cases["ids"] and page.locator("#case-list li.near").count() == 0, order()
         assert page.locator("#cases a").count() == 0, "子どもの 画面の 事例帳に リンクが ある"
+        now_ids = page.evaluate("UG.CASES.filter(k => k.kind === 'now').map(k => k.id)")
+        now_tags = page.evaluate("""() => [...document.querySelectorAll('#case-list li')].filter(l => l.querySelector('.tag').textContent.startsWith('いまも')).map(l => l.getAttribute('data-case'))""")
+        assert now_ids == ["kobe"] and sorted(now_tags) == sorted(now_ids), (now_ids, now_tags)
         bare("step5-cases")
         page.locator("#cases").screenshot(path=str(OUT / "5-cases.png"))
         page.click('[data-sort="c1"][data-v="good"]'); page.click('[data-sort="c2"][data-v="bad"]')
@@ -587,10 +590,10 @@ def main() -> int:
         page.click('[data-go="teachers"]')
         page.wait_for_selector(".teachers")
         shot("9-teachers")
-        # 事例帳の 出典：例ごとに 1行（6つ）、リンクは 14個。すべて https・新しい タブ。{ が 残らない
+        # 事例帳の 出典：例ごとに 1行（7つ）、リンクは 16個。すべて https・新しい タブ。{ が 残らない
         src_cases = page.evaluate("""() => { const u = document.getElementById('src-cases'); return { li: u.querySelectorAll(':scope > li').length,
           a: [...u.querySelectorAll('a')].map(a => [a.href, a.target, a.rel]), text: u.textContent }; }""")
-        assert src_cases["li"] == 6 and len(src_cases["a"]) == 14, (src_cases["li"], len(src_cases["a"]))
+        assert src_cases["li"] == 7 and len(src_cases["a"]) == 16, (src_cases["li"], len(src_cases["a"]))
         assert all(h.startswith("https://") and t == "_blank" and "noopener" in r for h, t, r in src_cases["a"]), src_cases["a"]
         assert "{" not in src_cases["text"] and "|" not in src_cases["text"], src_cases["text"]
         # 町字データ（学校名の読み）の出典は、読みを付けた県（data/index.js の kana: true）があるときだけ出す。
