@@ -767,6 +767,27 @@ def main() -> int:
         assert page.locator("#class-sheet-print").count() == 1
         # 読んだ コードは 保存しない
         assert "WG50" not in page.evaluate("JSON.stringify(Object.assign({}, localStorage))"), "コードが localStorage に入っている"
+        # 知らない id（ほかの 版の アプリ・書きかえた コード）の アイデアと もっと 知りたい データは、数えず 出さない。
+        # 本物より 多く 入れて、絞らなければ 順位の 上に 出る ように する
+        bogus = page.evaluate("""() => { const s = UG.state, out = [];
+          for (let i = 0; i < 20; i++) out.push(UG.model.encodeGuess({ pref: '00', school: s.schoolId, guess: 'down',
+            draw: Object.assign({}, s.draw), reason: '', mark: 'bogus' + String(i).padStart(2, '0'), seq: 1,
+            prop: { ideas: ['bogus_id'], wishes: ['bogus_id'], to: 'mayor', proposal: 'ためしの 提案' } }));
+          return out.join('\\n'); }""")
+        assert page.evaluate("c => UG.model.decodeGuess(c.split('\\n')[0]).prop.wishes", bogus) == ["bogus_id"]
+        page.fill("#class-text", page.input_value("#class-text") + "\n" + bogus)
+        page.click("#class-load"); page.wait_for_selector("#class-props .sort-bars")
+        page.click('[data-sheet-to="mayor"]'); page.click("#class-sheet-make"); page.wait_for_selector("#class-sheet")
+        view_html = page.inner_html("#view")
+        assert "bogus" not in view_html, "知らない id が 先生の 画面か 印刷の 1枚に 出た"
+        assert page.locator("#class-sheet .idea-rank li").count() == 5
+        top = page.evaluate("""() => { const r = UG.model.extractGuesses(document.getElementById('class-text').value).items,
+            w = UG.WISHES.map(k => k.id), i = UG.IDEAS.map(k => k.id);
+          return { w: UG.model.wishTally(r, w).filter(x => w.includes(x.id)).slice(0, 3).map(x => [UG.WISHES.find(k => k.id === x.id).t, x.n]),
+                   raw: UG.model.wishTally(r, w)[0].id, ideaRaw: UG.model.ideaTally(r, i)[0].id }; }""")
+        assert top["raw"] == "bogus_id" and top["ideaRaw"] == "bogus_id", top  # 絞らなければ いちばん 上に 来る
+        sw2 = plain("#class-sheet .sh-wishes").replace(" ", "")
+        assert sw2 == "もっと知りたいデータ：" + "、".join(f"{t.replace(' ', '')}（{n}人）" for t, n in top["w"]), (sw2, top)
         # 実データの県では「見本の クラスで ためす」を出さない
         assert page.evaluate("UG.state.prefCode") == "00"
 

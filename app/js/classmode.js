@@ -65,6 +65,10 @@
   function wishText(id) { return textOf(UG.WISHES, id); }
   var ideaOrder = function () { return UG.IDEAS.map(function (k) { return k.id; }); };
   var wishOrder = function () { return UG.WISHES.map(function (k) { return k.id; }); };
+  /** 集計のうち、order に ある id だけ（ほかの 版の アプリや 書きかえた コードの 知らない id は 数えず 出さない） */
+  function known(tally, order) { return tally.filter(function (x) { return order.indexOf(x.id) >= 0; }); }
+  function ideaRank(items) { var o = ideaOrder(); return known(M.ideaTally(items, o), o); }
+  function wishRank(items) { var o = wishOrder(); return known(M.wishTally(items, o), o); }
   function sortBars(tally) {
     var max = 1;
     UG.SORT_CARDS.forEach(function (k) { var t = tally[k.id]; max = Math.max(max, t.good + t.bad + t.mid); });
@@ -112,7 +116,7 @@
     var props = (M.proposalsByTo(g.items, []).filter(function (x) { return x.to === to; })[0] || { items: [] }).items
       .filter(function (d) { return !S.noPrint[d.code]; });
     var sample = !!school.pref.sample;
-    var wishes = M.wishTally(g.items, wishOrder()).slice(0, 3);
+    var wishes = wishRank(g.items).slice(0, 3);
     return '<article class="class-sheet" id="class-sheet">' +
       '<h1 class="sh-to">' + toTitle(to, school) + "へ</h1>" +
       '<p class="sh-from">' + nr(school.name) + (S.className ? "　" + nr(S.className) : "") +
@@ -123,7 +127,7 @@
         UG.pctText(pct) + "）に なる 計算です。" +
         (calib ? "（学校の 実際の 人数 " + num(calib) + "人に 合わせて 計算）" : "") + "</p>" +
       "<h2>人数が 少なく なると？　いいこと・しんぱいな こと</h2>" + sortBars(M.sortTally(g.items)) +
-      "<h2>やってみたい アイデア（えらんだ 人が 多い 5つ）</h2>" + ideaList(M.ideaTally(g.items, ideaOrder()).slice(0, 5)) +
+      "<h2>やってみたい アイデア（えらんだ 人が 多い 5つ）</h2>" + ideaList(ideaRank(g.items).slice(0, 5)) +
       // もっと 知りたい データ：多い 3つだけ（子どもが 自由に 書いた 文は 印刷に 入れない）
       (wishes.length ? '<p class="sh-wishes"><b>もっと 知りたい データ：</b>' + wishes.map(function (x) {
         return wishText(x.id) + "（" + x.n + "人）";
@@ -149,9 +153,9 @@
       "<h3>いいこと？ しんぱいな こと？</h3>" +
       '<p class="sort-legend"><span class="k good">いいね</span><span class="k bad">しんぱい</span><span class="k mid">どちらとも</span></p>' +
       sortBars(M.sortTally(g.items)) +
-      "<h3>えらばれた アイデア</h3>" + ideaList(M.ideaTally(g.items, ideaOrder())) +
+      "<h3>えらばれた アイデア</h3>" + ideaList(ideaRank(g.items)) +
       (own.length ? "<h3>じぶんの アイデア</h3>" + ownList(own, "class-own") : "") +
-      "<h3>もっと 知りたい データ</h3>" + wishList(M.wishTally(g.items, wishOrder())) +
+      "<h3>もっと 知りたい データ</h3>" + wishList(wishRank(g.items)) +
       (ownWish.length ? ownList(ownWish, "class-own-wish") : "") +
       '<div class="row-head"><h3>提案（' + byTo.reduce(function (n, x) { return n + x.items.length; }, 0) + "件）</h3>" +
         '<button type="button" class="btn sub" id="class-props-open" aria-expanded="' + S.propsOpen + '">' +
