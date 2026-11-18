@@ -106,7 +106,7 @@ pipeline/            学区 × メッシュ → 学区別の将来児童数
   tests/                 手計算できる合成データでの検算
 tools/               ブラウザ通しテスト（e2e_check, e2e_realdata）、書体の作成（build_fonts）、別の実装での検算（independent_check）、
                      実際の児童数との照合（compare_actual。pdfplumber が必要。入力は data_raw/actual/ に置き、リポジトリには入れない）
-docs/                応募文、授業案、データと方法、推計の当たり具合（ACCURACY）、ロードマップ
+docs/                授業案、データと方法、推計の当たり具合（ACCURACY）、ロードマップ
 ```
 
 ## データの出典
