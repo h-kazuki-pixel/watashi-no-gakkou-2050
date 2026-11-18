@@ -57,10 +57,14 @@
     // 市長さんは model.mayorLabel と 同じ 決まり（福岡市早良区 → 福岡市長さん）。子どもの カードの 宛先とも そろう
     return UG.toLabel(to, school.city.name) ? UG.toLabelHtml(to, school.city.name) : "宛先の ない 提案";
   }
-  function ideaText(id) {
-    for (var i = 0; i < UG.IDEAS.length; i++) if (UG.IDEAS[i].id === id) return UG.IDEAS[i].t;
+  function textOf(list, id) {
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].t;
     return id;
   }
+  function ideaText(id) { return textOf(UG.IDEAS, id); }
+  function wishText(id) { return textOf(UG.WISHES, id); }
+  var ideaOrder = function () { return UG.IDEAS.map(function (k) { return k.id; }); };
+  var wishOrder = function () { return UG.WISHES.map(function (k) { return k.id; }); };
   function sortBars(tally) {
     var max = 1;
     UG.SORT_CARDS.forEach(function (k) { var t = tally[k.id]; max = Math.max(max, t.good + t.bad + t.mid); });
@@ -73,12 +77,21 @@
         SORT_LABEL.map(function (o) { return o[1] + " <b>" + t[o[0]] + "</b>"; }).join("　") + "</span></li>";
     }).join("") + "</ul>";
   }
-  function ideaList(tally) {
+  /** 人数の 多い 順の 一覧（アイデアと、もっと 知りたい データで 同じ 形）。opt: { text, id, none } */
+  function rankList(tally, opt) {
     var max = tally.length ? tally[0].n : 1;
-    return tally.length ? '<ol class="idea-rank">' + tally.map(function (x) {
-      return "<li><span class=\"lb\">" + ideaText(x.id) + '</span><span class="bar" aria-hidden="true"><i style="width:' +
+    return tally.length ? '<ol class="idea-rank"' + (opt.id ? ' id="' + opt.id + '"' : "") + ">" + tally.map(function (x) {
+      return "<li><span class=\"lb\">" + opt.text(x.id) + '</span><span class="bar" aria-hidden="true"><i style="width:' +
         (x.n / max * 100).toFixed(1) + '%"></i></span><span class="n"><b>' + x.n + "</b>人</span></li>";
-    }).join("") + "</ol>" : '<p class="fine">えらばれた アイデアは ありません。</p>';
+    }).join("") + "</ol>" : '<p class="fine">' + opt.none + "</p>";
+  }
+  function ideaList(tally) { return rankList(tally, { text: ideaText, none: "えらばれた アイデアは ありません。" }); }
+  function wishList(tally) { return rankList(tally, { text: wishText, id: "class-wishes", none: "えらばれた データは ありません。" }); }
+  /** 同じ 文は 1行に まとめて 人数を 付けた 一覧（子どもが 書いた 文） */
+  function ownList(texts, id) {
+    return '<ul class="own-ideas" id="' + id + '">' + mergeSame(texts.map(function (t) { return { prop: { proposal: t } }; })).map(function (x) {
+      return "<li>" + nr(x.text) + (x.n > 1 ? "（" + x.n + "人）" : "") + "</li>";
+    }).join("") + "</ul>";
   }
 
   /** 同じ 文の 提案は 1つに まとめて 人数を 付ける（印刷の 1枚を みじかく する） */
@@ -99,6 +112,7 @@
     var props = (M.proposalsByTo(g.items, []).filter(function (x) { return x.to === to; })[0] || { items: [] }).items
       .filter(function (d) { return !S.noPrint[d.code]; });
     var sample = !!school.pref.sample;
+    var wishes = M.wishTally(g.items, wishOrder()).slice(0, 3);
     return '<article class="class-sheet" id="class-sheet">' +
       '<h1 class="sh-to">' + toTitle(to, school) + "へ</h1>" +
       '<p class="sh-from">' + nr(school.name) + (S.className ? "　" + nr(S.className) : "") +
@@ -109,7 +123,11 @@
         UG.pctText(pct) + "）に なる 計算です。" +
         (calib ? "（学校の 実際の 人数 " + num(calib) + "人に 合わせて 計算）" : "") + "</p>" +
       "<h2>人数が 少なく なると？　いいこと・しんぱいな こと</h2>" + sortBars(M.sortTally(g.items)) +
-      "<h2>やってみたい アイデア（えらんだ 人の 数）</h2>" + ideaList(M.ideaTally(g.items, UG.IDEAS.map(function (k) { return k.id; }))) +
+      "<h2>やってみたい アイデア（えらんだ 人が 多い 5つ）</h2>" + ideaList(M.ideaTally(g.items, ideaOrder()).slice(0, 5)) +
+      // もっと 知りたい データ：多い 3つだけ（子どもが 自由に 書いた 文は 印刷に 入れない）
+      (wishes.length ? '<p class="sh-wishes"><b>もっと 知りたい データ：</b>' + wishes.map(function (x) {
+        return wishText(x.id) + "（" + x.n + "人）";
+      }).join("、") + "</p>" : "") +
       "<h2>わたしたちの 提案</h2>" +
       (props.length ? '<ul class="sh-props">' + mergeSame(props).map(function (x) {
           return "<li>" + nr(x.text) + (x.n > 1 ? "（" + x.n + "人）" : "") + "</li>";
@@ -126,16 +144,15 @@
     if (!withP.length) return out + '<p class="fine" id="class-props-none">ステップ5の コードを はると、ここに 出るよ。</p></section>';
     var order = UG.TO.map(function (t) { return t.id; });
     var byTo = M.proposalsByTo(g.items, order);
-    var own = M.ownIdeas(g.items);
+    var own = M.ownIdeas(g.items), ownWish = M.ownWishes(g.items);
     out += '<p class="fine">提案の 入った コード <b>' + withP.length + "</b>人ぶん。</p>" +
       "<h3>いいこと？ しんぱいな こと？</h3>" +
       '<p class="sort-legend"><span class="k good">いいね</span><span class="k bad">しんぱい</span><span class="k mid">どちらとも</span></p>' +
       sortBars(M.sortTally(g.items)) +
-      "<h3>えらばれた アイデア</h3>" + ideaList(M.ideaTally(g.items, UG.IDEAS.map(function (k) { return k.id; }))) +
-      (own.length ? "<h3>じぶんの アイデア</h3>" + '<ul class="own-ideas" id="class-own">' +
-        mergeSame(own.map(function (t) { return { prop: { proposal: t } }; })).map(function (x) {
-          return "<li>" + nr(x.text) + (x.n > 1 ? "（" + x.n + "人）" : "") + "</li>";
-        }).join("") + "</ul>" : "") +
+      "<h3>えらばれた アイデア</h3>" + ideaList(M.ideaTally(g.items, ideaOrder())) +
+      (own.length ? "<h3>じぶんの アイデア</h3>" + ownList(own, "class-own") : "") +
+      "<h3>もっと 知りたい データ</h3>" + wishList(M.wishTally(g.items, wishOrder())) +
+      (ownWish.length ? ownList(ownWish, "class-own-wish") : "") +
       '<div class="row-head"><h3>提案（' + byTo.reduce(function (n, x) { return n + x.items.length; }, 0) + "件）</h3>" +
         '<button type="button" class="btn sub" id="class-props-open" aria-expanded="' + S.propsOpen + '">' +
         (S.propsOpen ? "とじる" : "ひらく") + "</button></div>" +
@@ -290,7 +307,7 @@
       var sc = UG.findSchool("00", st.cityCode, st.schoolId) || UG.prefs["00"].cities[0].schools[1];
       var est0 = M.estPoints(sc, null);
       var codes = M.sampleClass("00", sc.id, est0[0].v, M.interp(est0, M.TARGET_YEAR), 30, 2050,
-        UG.IDEAS.map(function (k) { return k.id; }));
+        ideaOrder());
       reload(codes.join("\n"));
     });
     UG.on(root, "click", "[data-pick]", function (ev, el) {

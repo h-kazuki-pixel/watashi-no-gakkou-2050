@@ -404,14 +404,15 @@ test("提案：全部入りのコードを作る → 読むで元にもどる。
   assert.deepEqual([d.pref, d.school, d.guess, d.reason, d.calib, d.mark, d.seq], ["34", "B134210003686", "down", G1.reason, 412, "dev123", 9]);
   assert.deepEqual(d.prop, {
     sort: { c1: "good", c2: "bad", c3: "mid", c5: "good", c8: "bad" }, ideas: ["room_study", "online", "family"],
-    ownIdea: "校庭で 月に 1回、朝市を ひらく", to: "mayor", proposal: "空いた 教室を 地域の 人も 使える 場所に して ほしいです。 2行目も あります。"
+    ownIdea: "校庭で 月に 1回、朝市を ひらく", to: "mayor", proposal: "空いた 教室を 地域の 人も 使える 場所に して ほしいです。 2行目も あります。",
+    wishes: [], ownWish: ""
   });
   const json = JSON.stringify(d);
   assert.equal(json.indexOf("はなこ"), -1);
   assert.equal(json.indexOf("e5"), -1);
   // 空の提案（カードだけ・何も えらばない）も 読む
   const e = M.decodeGuess(M.encodeGuess({ ...G1, prop: {} }));
-  assert.deepEqual(e.prop, { sort: {}, ideas: [], ownIdea: "", to: "", proposal: "" });
+  assert.deepEqual(e.prop, { sort: {}, ideas: [], ownIdea: "", to: "", proposal: "", wishes: [], ownWish: "" });
   assert.equal(e.calib, null);
   // 第1段階（提案なし）は prop が null
   assert.equal(M.decodeGuess(M.encodeGuess(G1)).prop, null);
@@ -534,3 +535,84 @@ test("ステップ5のカード：model の SORT_IDS と 画面の UG.SORT_CARDS
   assert.deepEqual(ids, M.SORT_IDS);
   assert.equal(ids.length, 8);
 });
+
+/* ---------------- ステップ5：もっと 知りたい データ ---------------- */
+const WISH_IDS = ["akiya", "move", "baby", "past", "room", "play"];
+
+test("もっと 知りたい データ：作る → 読むで もどる。空なら 省く。長い 文は 1行・60字まで", () => {
+  const d = M.decodeGuess(M.encodeGuess({ ...G1, prop: { ...PROP, wishes: ["akiya", "past"], ownWish: "通学路の\n歩道の 広さ" } }));
+  assert.deepEqual([d.prop.wishes, d.prop.ownWish], [["akiya", "past"], "通学路の 歩道の 広さ"]);
+  assert.equal(d.prop.proposal, PROP.proposal.replace("\n", " ")); // ほかの 項目は そのまま
+  // 空なら w・d を 入れない（コードは これまでと 同じ）
+  assert.equal(M.encodeGuess({ ...G1, prop: { ...PROP, wishes: [], ownWish: "  " } }), M.encodeGuess({ ...G1, prop: PROP }));
+  // 作るときに 4つ目・不正な id を 外し、自由な 文は 60字で 切る
+  const cut = M.decodeGuess(M.encodeGuess({ ...G1, prop: { wishes: ["akiya", "<b>", "move", "baby", "past"], ownWish: "あ".repeat(80) } }));
+  assert.deepEqual([cut.prop.wishes, cut.prop.ownWish.length], [["akiya", "move", "baby"], 60]);
+});
+
+/** 中身の 配列から、チェック文字の 合う コードを 作る（encodeGuess を 通らない 形を 試すため） */
+function rawCode(arr) {
+  const bytes = Buffer.from(JSON.stringify(arr), "utf8");
+  const c = require("zlib").crc32(bytes);
+  let check = "";
+  for (let i = 5; i >= 0; i--) check += "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"[Math.floor(c / Math.pow(64, i)) % 64];
+  return M.CODE_HEAD + bytes.toString("base64url") + check;
+}
+const v3 = (prop) => [3, G1.pref, G1.school, "d", ...M.DRAW_YEARS.map((y) => Math.round(G1.draw[y])), "", 0, G1.reason, 0, prop];
+
+test("もっと 知りたい データ：古い コードは []・\"\"。形の おかしい w・d は 今の 項目と 同じく 読まない", () => {
+  // rawCode は encodeGuess と 同じ コードを 作る
+  assert.equal(rawCode(v3({ s: "g-------", w: ["akiya"] })), M.encodeGuess({ ...G1, prop: { sort: { c1: "good" }, wishes: ["akiya"] } }));
+  // w・d の 無い 版3（これまでの ステップ5の コード）
+  const old = M.decodeGuess(M.encodeGuess({ ...G1, prop: PROP }));
+  assert.deepEqual([old.ok, old.prop.wishes, old.prop.ownWish], [true, [], ""]);
+  // 今の 項目（4つ以上の アイデア）と 同じく、形が おかしければ コードごと 読まない
+  assert.deepEqual(M.decodeGuess(rawCode(v3({ i: ["online", "bus", "pr", "play"] }))).error, "format");
+  [
+    { w: ["akiya", "move", "baby", "past"] }, // 4つ以上
+    { w: ["<b>"] },                           // id が 不正
+    { w: "akiya" },                           // 配列で ない
+    { d: "あ".repeat(61) },                   // d が 長い
+    { d: 5 }                                  // d が 文字で ない
+  ].forEach((p) => {
+    const r = M.decodeGuess(rawCode(v3(p)));
+    assert.deepEqual([r.ok, r.error], [false, "format"], JSON.stringify(p));
+  });
+  // ちょうど 3つ・60字は 読む
+  const ok = M.decodeGuess(rawCode(v3({ w: ["akiya", "move", "baby"], d: "あ".repeat(60) })));
+  assert.deepEqual([ok.ok, ok.prop.wishes, ok.prop.ownWish.length], [true, ["akiya", "move", "baby"], 60]);
+});
+
+test("もっと 知りたい データ：wishTally（多い順、同じ数は order の順）と ownWishes", () => {
+  const mk = (p, mark) => M.decodeGuess(M.encodeGuess({ ...G1, mark, prop: p }));
+  const items = [
+    mk({ wishes: ["baby", "akiya"] }, "m00001"),
+    mk({ wishes: ["akiya"], ownWish: "まちの 公園の 数" }, "m00002"),
+    mk({ wishes: ["move", "baby"], ownWish: "まちの 公園の 数" }, "m00003"),
+    mk({ proposal: "A" }, "m00004"),                                  // えらばない
+    M.decodeGuess(M.encodeGuess({ ...G1, mark: "m00005" }))           // 提案なし
+  ];
+  assert.deepEqual(M.wishTally(items, WISH_IDS), [{ id: "akiya", n: 2 }, { id: "baby", n: 2 }, { id: "move", n: 1 }]);
+  assert.deepEqual(M.ownWishes(items), ["まちの 公園の 数", "まちの 公園の 数"]);
+  assert.deepEqual(M.wishTally([], WISH_IDS), []);
+});
+
+test("見本のクラス：もっと 知りたい データが 入る。よそうと 提案の 値は 変わらない", () => {
+  const a = M.sampleClass("00", "S2", 306, 168, 30, 2050, IDEA_IDS);
+  assert.deepEqual(a, M.sampleClass("00", "S2", 306, 168, 30, 2050, IDEA_IDS)); // 毎回同じ
+  const r = M.extractGuesses(a.join("\n")).items;
+  // よそうと 提案（もっと 知りたい データを 足す 前の 項目）は、足す 前（3cbf906）の 見本と 同じ
+  const fp = r.map((d) => [d.guess, d.draw, d.reason, d.seq, d.prop && { sort: d.prop.sort, ideas: d.prop.ideas, ownIdea: d.prop.ownIdea, to: d.prop.to, proposal: d.prop.proposal }]);
+  assert.equal(require("crypto").createHash("sha256").update(JSON.stringify(fp)).digest("hex"),
+    "1b93c9e35954d67c5d65342398be0358ea15c63c7dcdb3b25f5ef8ee26cbe7c7");
+  const withP = r.filter((d) => d.prop);
+  const picked = withP.filter((d) => d.prop.wishes.length);
+  assert.ok(picked.length >= 10 && picked.length < withP.length, picked.length); // 7割ほど
+  assert.ok(picked.every((d) => d.prop.wishes.length <= 2 && d.prop.wishes.every((w) => WISH_IDS.includes(w))));
+  const tally = M.wishTally(r, WISH_IDS);
+  assert.ok(tally.length >= 4, JSON.stringify(tally));
+  const own = M.ownWishes(r);
+  assert.ok(own.length >= 1 && own.every((t) => ["通学路の 歩道の 広さ", "まちの 公園の 数"].includes(t)), own);
+  assert.ok(r.filter((d) => !d.prop).every((d) => d.prop === null)); // 提案の ない 子には 付けない
+});
+

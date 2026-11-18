@@ -88,7 +88,8 @@
     var st = UG.state;
     var g = { pref: st.prefCode, school: st.schoolId, guess: st.guess, reason: st.reason, calib: st.calib, draw: {} };
     M.DRAW_YEARS.forEach(function (y) { g.draw[y] = st.draw[y] == null ? null : Math.round(st.draw[y]); });
-    if (withProp) g.prop = { sort: st.sort, ideas: st.ideas, ownIdea: st.ownIdea, to: st.to, proposal: st.proposal };
+    if (withProp) g.prop = { sort: st.sort, ideas: st.ideas, ownIdea: st.ownIdea, to: st.to, proposal: st.proposal,
+      wishes: st.wishes, ownWish: st.ownWish };
     var key = JSON.stringify(g);
     if (key === lastKey && lastCode) return lastCode;
     if (!st.classMark) st.classMark = M.makeMark(UG.random);
@@ -289,7 +290,7 @@
     }
     var nowLine = c.sample || st.calib
       ? "いま、子どもは <span class=\"nw\"><b class=\"n\">" + num(c.now) + "</b>人。</span>"
-      : "いま、この 学区に 住む 小学生は <span class=\"nw\">やく <b class=\"n\">" + num(c.now) + "</b>人。</span>";
+      : "いま、この 学区（この 学校に 通う 地域）に 住む 小学生は <span class=\"nw\">やく <b class=\"n\">" + num(c.now) + "</b>人。</span>";
     var ageLine = c.age ? "きみが " + c.age + "さいに なる ころ" : "いまから 24年後";
 
     root.innerHTML = UG.ruby(
@@ -298,7 +299,7 @@
         '<p class="school-name">' + nr(c.school.name) + '<span class="city">' + nr(c.city.name) + "</span></p>" +
         '<p class="big">' + nowLine + "</p>" +
         '<div class="dots" aria-hidden="true">' + dots(c.now) + "</div>" +
-        '<p class="fine">● 1つ ＝ ' + unit + "人" + (c.sample ? "" : "（国の 2025年の 推計から 計算）") + "</p>" +
+        '<p class="fine">● 1つ ＝ ' + unit + "人" + (c.sample ? "" : "（国の データから 計算した 2025年の 人数）") + "</p>" +
         (UG.approxNote(c.city, c.school) ? '<p class="note">' + UG.approxNote(c.city, c.school) + "</p>" : "") +
         (c.city.note ? '<p class="note">' + UG.TERMS_NOTE + "</p>" : "") +
         (c.city.combined ? '<p class="note">' + UG.COMBINED_NOTE + "</p>" : "") +

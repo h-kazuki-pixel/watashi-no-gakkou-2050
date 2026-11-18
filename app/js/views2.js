@@ -54,6 +54,17 @@
   ];
   UG.MAX_IDEAS = 3;
 
+  /* ステップ5「もっと 知りたい データ」の 候補。クラスで 集めて、データを 作っている 人に 伝える ときに 使う */
+  UG.WISHES = [
+    { id: "akiya", t: "まちの 空き家の 数" },
+    { id: "move", t: "ひっこして くる 人と でて いく 人の 数" },
+    { id: "baby", t: "生まれた 赤ちゃんの 数" },
+    { id: "past", t: "この 学校の むかしの 人数" },
+    { id: "room", t: "使って いない 教室の 数" },
+    { id: "play", t: "子どもが 遊べる 場所" }
+  ];
+  UG.MAX_WISHES = 3;
+
   /* 文部科学省「令和6年度 廃校施設等活用状況実態調査」活用用途（複数回答、%） */
   UG.REUSE = [
     [55.1, "べつの 学校の 校舎"],
@@ -175,7 +186,11 @@
       var y = 2025 + k, out;
       if (res.known) {
         out = (k === 0 ? "2025年" : k + "年後（" + y + "年）") + "の 小学生は <span class=\"nw\">やく <b>" + num(res.sum) + "人</b></span>" + (k > 0 ? "（ひっこしが ないと したら）。" : "。");
-        if (k > 0) out += "データの よそうは " + num(M.interp(c.est, y)) + "人。差は ひっこしなどを 考えた ぶんだよ。";
+        if (k > 0) {
+          var estY = num(M.interp(c.est, y));
+          // 四捨五入して同じ人数なら「差」は無い
+          out += "データの よそうは " + estY + "人。" + (estY === num(res.sum) ? "ここでは 同じに なったね。" : "差は ひっこしなどを 考えた ぶんだよ。");
+        }
         if (k === 6) out += "<br><mark>ここまでは、いま いる 子どもだけで 計算できる。</mark>";
       } else {
         out = y + "年の 小学生には、まだ 生まれて いない 子（？）が まざる。<mark>何人 生まれるかは だれにも わからない。だから「よそう」が ひつように なる。</mark>";
@@ -246,9 +261,10 @@
   /* ====================== 5 ていあん ====================== */
   V.step5 = function (root) {
     var st = UG.state, c = UG.ctx();
-    /** 提案の 文を 書いたか、アイデアを えらんだら「先生に 提案を わたす」を 出す */
+    /** 提案の 文を 書いたか、アイデアや もっと 知りたい データを えらんだ（書いた）ら「先生に 提案を わたす」を 出す */
     function hasProposal() {
-      return !!(String(st.proposal || "").trim() || String(st.ownIdea || "").trim() || st.ideas.length);
+      return !!(String(st.proposal || "").trim() || String(st.ownIdea || "").trim() || st.ideas.length ||
+        st.wishes.length || String(st.ownWish || "").trim());
     }
     var toName = function (id) { return UG.toLabelHtml(id, c.city.name); };
     var evidence = nr(c.school.name) + "の 子どもは、2025年の " + num(c.now) + "人から 2050年には " + num(c.v50) + "人（" + UG.pctText(c.pct) + "）に なる 計算です。";
@@ -298,6 +314,15 @@
         '<p class="evidence">' + evidence + "</p>" +
         '<label for="proposal">きみの ていあん</label>' +
         '<textarea id="proposal" rows="3" maxlength="110" placeholder="れい：空いた 教室を 図書室に して、地域の 人も 入れる ように して ほしいです。">' + esc(st.proposal) + "</textarea>" +
+        // もっと 知りたい データ（先生に わたす コードに 入る。カードには 入れない）
+        '<p class="label" id="wishes-label">もっと 知りたい データは ある？（3つまで。えらばなくても だいじょうぶ）</p>' +
+        '<div class="chips" id="wishes" role="group" aria-labelledby="wishes-label">' + UG.WISHES.map(function (k) {
+          var on = st.wishes.indexOf(k.id) >= 0;
+          return '<button type="button" class="chip' + (on ? " on" : "") + '" data-wish="' + k.id + '" aria-pressed="' + on + '">' + k.t + "</button>";
+        }).join("") + "</div>" +
+        '<label for="own-wish">ほかに 知りたい データ</label>' +
+        '<input id="own-wish" type="text" maxlength="30" value="' + esc(st.ownWish) + '" placeholder="れい：通学路の 歩道の 広さ">' +
+        '<p class="fine">クラスで 集めて、データを 作っている 人に 伝える ときに 使えるよ。</p>' +
         '<label for="nick">ニックネーム（書かなくても だいじょうぶ。本当の 名前は 書かないでね）</label>' +
         '<input id="nick" type="text" maxlength="12" value="' + esc(st.nick) + '">' +
       "</section>" +
@@ -360,6 +385,16 @@
       el.classList.toggle("on", on); el.setAttribute("aria-pressed", on);
       drawCard();
     });
+    UG.on(root, "click", "[data-wish]", function (ev, el) {
+      var id = el.getAttribute("data-wish"), i = st.wishes.indexOf(id);
+      if (i >= 0) st.wishes.splice(i, 1);
+      else if (st.wishes.length >= UG.MAX_WISHES) { UG.toast("えらべるのは 3つまで。どれかを はずしてね"); return; }
+      else st.wishes.push(id);
+      UG.save();
+      var on = st.wishes.indexOf(id) >= 0;
+      el.classList.toggle("on", on); el.setAttribute("aria-pressed", on);
+      handoffUpdate(hasProposal());
+    });
     UG.on(root, "click", "[data-to]", function (ev, el) {
       st.to = el.getAttribute("data-to"); UG.save();
       UG.$$("[data-to]", root).forEach(function (b) { var on = b === el; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
@@ -368,6 +403,8 @@
     [["#own-idea", "ownIdea"], ["#proposal", "proposal"], ["#nick", "nick"]].forEach(function (p) {
       UG.$(p[0], root).addEventListener("input", function (ev) { st[p[1]] = ev.target.value; UG.save(); drawCard(); });
     });
+    // カードには 入らないので、描き直さず「先生に わたす」だけ 合わせる
+    UG.$("#own-wish", root).addEventListener("input", function (ev) { st.ownWish = ev.target.value; UG.save(); handoffUpdate(hasProposal()); });
 
     UG.$("#save-png", root).addEventListener("click", function () {
       UG.cardPNG(UG.cardSVG(UG.cardData())).then(function (blob) {

@@ -153,6 +153,7 @@
       draw: {}, revealed: false, extraHist: [],
       viewYear: 2050, ageStep: 0, sim: { move: 0, birth: 0 },
       quiz: {}, sort: {}, ideas: [], ownIdea: "", proposal: "", to: "mayor", nick: "",
+      wishes: [], ownWish: "", // ステップ5「もっと 知りたい データ」（UG.WISHES の id と、自由に 書いた 文）
       furigana: true, step: "home", maxStep: 0,
       // クラスモード：この端末の でたらめな 印（初めて コードを 作るときに 作る）と、作った 順の 番号。
       // 同じ 子が 2回 送ったら、先生の 画面で 新しい ほうだけ 数える。「さいしょから やりなおす」で 消える
@@ -171,7 +172,7 @@
       .replace(/<\/?[a-z][^<>]*>/gi, "")                // <span …> <ruby …> <wbr> とそのとじタグ（こわれたものも）
       .replace(/[\u0001-\u0004]r?\d*[\u0004]?/g, "");    // ふりがな処理のよけ印
   };
-  var FREE_TEXT = ["reason", "ownIdea", "proposal", "nick"];
+  var FREE_TEXT = ["reason", "ownIdea", "proposal", "nick", "ownWish"];
   UG.loadState = function (seed) {
     var saved = null;
     try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { saved = null; }

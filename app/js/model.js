@@ -399,8 +399,10 @@
   var SORT_TO = { good: "g", bad: "b", mid: "m" };
   var SORT_FROM = { g: "good", b: "bad", m: "mid" };
   var PROPOSAL_MAX = 300, OWN_IDEA_MAX = 100; // 入力欄は 110字・40字。古い端末などで長いものが来ても、ここまでは読む
+  var OWN_WISH_MAX = 60, WISH_MAX = 3; // もっと 知りたい データ：自由な 文（入力欄は 30字）と、えらべる 数
   var ID_RE = /^[a-z][a-z0-9_]{0,23}$/;
-  /** 提案の中身 → コードに入れる形 { s: "gb-m----", i: [アイデアの id], o: 自分のアイデア, t: 宛先, p: 提案 }（空のものは省く） */
+  /** 提案の中身 → コードに入れる形 { s: "gb-m----", i: [アイデアの id], o: 自分のアイデア, t: 宛先, p: 提案,
+   *  w: [もっと 知りたい データの id], d: 自由に 書いた 知りたい データ }（空のものは省く） */
   function propOut(pr) {
     var out = {};
     var sv = SORT_IDS.map(function (id) { return SORT_TO[pr.sort && pr.sort[id]] || "-"; }).join("");
@@ -412,9 +414,14 @@
     if (typeof pr.to === "string" && ID_RE.test(pr.to)) out.t = pr.to;
     var text = oneLine(pr.proposal, PROPOSAL_MAX);
     if (text) out.p = text;
+    var wishes = (pr.wishes || []).filter(function (x) { return typeof x === "string" && ID_RE.test(x); }).slice(0, WISH_MAX);
+    if (wishes.length) out.w = wishes;
+    var wish = oneLine(pr.ownWish, OWN_WISH_MAX);
+    if (wish) out.d = wish;
     return out;
   }
-  /** コードの形 → 提案の中身 { sort, ideas, ownIdea, to, proposal }。形がおかしければ null */
+  /** コードの形 → 提案の中身 { sort, ideas, ownIdea, to, proposal, wishes, ownWish }。形がおかしければ null。
+   *  w・d の無い コード（これまでの もの）は wishes: []、ownWish: "" */
   function propIn(o) {
     if (!o || typeof o !== "object" || Array.isArray(o)) return null;
     var s = o.s == null ? "--------" : o.s, ideas = o.i == null ? [] : o.i;
@@ -423,14 +430,19 @@
         (o.o != null && (typeof o.o !== "string" || o.o.length > OWN_IDEA_MAX)) ||
         (o.t != null && (typeof o.t !== "string" || !ID_RE.test(o.t))) ||
         (o.p != null && (typeof o.p !== "string" || o.p.length > PROPOSAL_MAX))) return null;
+    var wishes = o.w == null ? [] : o.w;
+    if (!Array.isArray(wishes) || wishes.length > WISH_MAX ||
+        !wishes.every(function (x) { return typeof x === "string" && ID_RE.test(x); }) ||
+        (o.d != null && (typeof o.d !== "string" || o.d.length > OWN_WISH_MAX))) return null;
     var sort = {};
     SORT_IDS.forEach(function (id, i) { if (s[i] !== "-") sort[id] = SORT_FROM[s[i]]; });
-    return { sort: sort, ideas: ideas.slice(), ownIdea: o.o || "", to: o.t || "", proposal: o.p || "" };
+    return { sort: sort, ideas: ideas.slice(), ownIdea: o.o || "", to: o.t || "", proposal: o.p || "",
+      wishes: wishes.slice(), ownWish: o.d || "" };
   }
 
   /**
    * よそうをコードにする。g: { pref, school, guess: "up"|"same"|"down", draw: {2030:…, …, 2050:…}, reason, calib, mark, seq,
-   *   prop: { sort: {c1: "good"|"bad"|"mid", …}, ideas: [id…], ownIdea, to, proposal } | 無し }（ステップ5は prop つき）
+   *   prop: { sort: {c1: "good"|"bad"|"mid", …}, ideas: [id…], ownIdea, to, proposal, wishes: [id…], ownWish } | 無し }（ステップ5は prop つき）
    * 線が2050年までそろっていなければ null。
    */
   function encodeGuess(g) {
@@ -639,17 +651,25 @@
     });
     return out;
   }
-  /** アイデアごとの数（多い順。同じ数なら order の順、order に無いものは後ろ）[{ id, n }] */
-  function ideaTally(items, order) {
+  /** prop[key]（id の 配列）ごとの数（多い順。同じ数なら order の順、order に無いものは後ろ）[{ id, n }] */
+  function tallyIds(items, key, order) {
     var cnt = {};
-    withProp(items).forEach(function (d) { d.prop.ideas.forEach(function (id) { cnt[id] = (cnt[id] || 0) + 1; }); });
+    withProp(items).forEach(function (d) { (d.prop[key] || []).forEach(function (id) { cnt[id] = (cnt[id] || 0) + 1; }); });
     var pos = function (id) { var i = (order || []).indexOf(id); return i < 0 ? 1e6 : i; };
     return Object.keys(cnt).map(function (id) { return { id: id, n: cnt[id] }; })
       .sort(function (a, b) { return b.n - a.n || pos(a.id) - pos(b.id) || (a.id < b.id ? -1 : 1); });
   }
+  /** アイデアごとの数（多い順。同じ数なら order の順、order に無いものは後ろ）[{ id, n }] */
+  function ideaTally(items, order) { return tallyIds(items, "ideas", order); }
+  /** もっと 知りたい データごとの数（ideaTally と 同じ 並び）[{ id, n }] */
+  function wishTally(items, order) { return tallyIds(items, "wishes", order); }
   /** 自分の アイデア（書いてあるものだけ） */
   function ownIdeas(items) {
     return withProp(items).map(function (d) { return d.prop.ownIdea; }).filter(Boolean);
+  }
+  /** 自由に 書いた もっと 知りたい データ（書いてあるものだけ） */
+  function ownWishes(items) {
+    return withProp(items).map(function (d) { return d.prop.ownWish; }).filter(Boolean);
   }
   /** 宛先ごとの 提案（文の あるものだけ）。order の順、order に無い宛先は後ろ [{ to, items }] */
   function proposalsByTo(items, order) {
@@ -712,6 +732,22 @@
     for (i = 0; i < pairs.length; i++) { r -= pairs[i][1]; if (r < 0) return pairs[i][0]; }
     return pairs[pairs.length - 1][0];
   }
+  // 見本の「もっと 知りたい データ」（架空）。候補の 選ばれやすさと、自由な 文
+  var SAMPLE_WISH_W = [["akiya", 6], ["move", 5], ["baby", 4], ["past", 3], ["room", 3], ["play", 2]];
+  var SAMPLE_OWN_WISH = ["通学路の 歩道の 広さ", "まちの 公園の 数"];
+  /** 見本の もっと 知りたい データ。7割が 1〜2個 えらび、12% が 自由な 文を 書く */
+  function sampleWishes(rnd) {
+    var wishes = [];
+    if (rnd() < 0.7) {
+      var k = rnd() < 0.5 ? 1 : 2;
+      for (var t = 0; t < 20 && wishes.length < k; t++) {
+        var id = pickW(rnd, SAMPLE_WISH_W);
+        if (wishes.indexOf(id) < 0) wishes.push(id);
+      }
+    }
+    var own = rnd() < 0.12 ? SAMPLE_OWN_WISH[Math.floor(rnd() * SAMPLE_OWN_WISH.length)] : "";
+    return { wishes: wishes, ownWish: own };
+  }
   /** 見本の 提案（架空）。ideaIds：えらべる アイデアの id */
   function sampleProp(rnd, ideaIds) {
     var sort = {};
@@ -742,6 +778,8 @@
     var rnd = seeded(seed == null ? 2050 : seed), out = [];
     // 提案は べつの 乱数で 作る（よそうの 値は 第1段階と 同じ まま）。4人に1人ほどは ステップ2の コードだけ
     var rp = seeded((seed == null ? 2050 : seed) + 101);
+    // もっと 知りたい データも べつの 乱数（よそうと 提案の 値は 変えない）
+    var rw = seeded((seed == null ? 2050 : seed) + 202);
     for (var i = 0; i < (n || 30); i++) {
       var r = rnd();
       var guess = r < 0.5 ? "down" : r < 0.75 ? "same" : "up";
@@ -759,7 +797,11 @@
       });
       var g = { pref: pref, school: school, guess: guess, draw: draw, mark: makeMark(rnd), seq: 1,
         reason: SAMPLE_REASONS[guess][Math.floor(rnd() * SAMPLE_REASONS[guess].length)] };
-      if (ideaIds && rp() < 0.8) { g.prop = sampleProp(rp, ideaIds); g.seq = 2; }
+      if (ideaIds && rp() < 0.8) {
+        g.prop = sampleProp(rp, ideaIds); g.seq = 2;
+        var w = sampleWishes(rw);
+        g.prop.wishes = w.wishes; g.prop.ownWish = w.ownWish;
+      }
       out.push(encodeGuess(g));
     }
     return out;
@@ -775,7 +817,8 @@
     schoolQuery: schoolQuery, matchSchool: matchSchool, foldText: foldText, isKanaQuery: isKanaQuery,
     CODE_HEAD: CODE_HEAD, encodeGuess: encodeGuess, decodeGuess: decodeGuess, extractGuesses: extractGuesses,
     makeMark: makeMark, commonCalib: commonCalib, SORT_IDS: SORT_IDS, mayorBase: mayorBase, mayorLabel: mayorLabel,
-    sortTally: sortTally, ideaTally: ideaTally, ownIdeas: ownIdeas, proposalsByTo: proposalsByTo,
+    sortTally: sortTally, ideaTally: ideaTally, ownIdeas: ownIdeas, wishTally: wishTally, ownWishes: ownWishes,
+    proposalsByTo: proposalsByTo,
     groupGuesses: groupGuesses, summarizeGuesses: summarizeGuesses, sampleClass: sampleClass
   };
 });

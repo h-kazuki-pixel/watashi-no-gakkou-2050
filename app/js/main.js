@@ -70,6 +70,30 @@
     UG.$("#furi").checked = !!st.furigana;
   };
 
+  /* 「さいしょから やりなおす」は2回で消す（1回で ぜんぶ 消えないように）。
+   * 1回目：文字を かえて armed にする。5秒で もとに もどる。
+   * 0.5秒未満の 2回目は数えない（ダブルクリックや 指の ふるえで 消さない）。0.5〜5秒の 2回目で 消す */
+  var RESET_HOLD = 5000, RESET_MIN = 500, resetAt = 0, resetT = null;
+  function resetDisarm(btn) {
+    clearTimeout(resetT); resetT = null;
+    if (btn.hasAttribute("data-label")) btn.textContent = btn.getAttribute("data-label");
+    btn.classList.remove("armed");
+  }
+  function resetClick(btn) {
+    var now = Date.now();
+    if (!btn.classList.contains("armed")) {
+      if (!btn.hasAttribute("data-label")) btn.setAttribute("data-label", btn.textContent);
+      btn.textContent = "もう 1回 おすと、ぜんぶ きえるよ";
+      btn.classList.add("armed");
+      resetAt = now;
+      resetT = setTimeout(function () { resetDisarm(btn); }, RESET_HOLD);
+      return;
+    }
+    if (now - resetAt < RESET_MIN) return;
+    resetDisarm(btn);
+    UG.resetState(); UG.go("home"); UG.toast("さいしょから はじめます");
+  }
+
   function start(seed) {
     UG.loadState(seed);
     var st = UG.state;
@@ -81,7 +105,7 @@
       var t = ev.target.closest ? ev.target.closest("[data-go]") : null;
       if (t && !t.disabled) { ev.preventDefault(); UG.go(t.getAttribute("data-go")); }
       var r = ev.target.closest ? ev.target.closest("[data-reset]") : null;
-      if (r) { UG.resetState(); UG.go("home"); UG.toast("さいしょから はじめます"); }
+      if (r) resetClick(r);
     });
     UG.$("#furi").addEventListener("change", function (ev) {
       st = UG.state; st.furigana = ev.target.checked; UG.save(); UG.renderChrome();

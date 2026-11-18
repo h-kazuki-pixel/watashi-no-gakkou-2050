@@ -135,6 +135,11 @@ def main() -> int:
                     continue
             raise AssertionError("3回なぞっても線が描けない: " + json.dumps(page.evaluate("UG.state.draw")))
 
+        def plain(sel):
+            """sel の 文字（ふりがなを 除く）"""
+            return page.evaluate("""s => { const e = document.querySelector(s); if (!e) return null; const c = e.cloneNode(true);
+              c.querySelectorAll('rt').forEach(r => r.remove()); return c.textContent; }""", sel)
+
         def bare(step):
             for chars, ctx in page.evaluate(FIND_BARE_KANJI):
                 rest = "".join(c for c in chars if c not in ALLOW)
@@ -517,13 +522,40 @@ def main() -> int:
         assert hb5["width"] * hb5["height"] < sv5["width"] * sv5["height"], "「先生に 提案を わたす」が 目立ちすぎる"
         page.locator(".out-card").screenshot(path=str(OUT / "5-teian-handoff.png"))
         bare("step5-handoff")
-        # 提案を 消して アイデアも 外すと かくれる
-        page.evaluate("UG.state.proposal = ''; UG.state.ownIdea = ''; UG.state.ideas = []; UG.render()")
+        # もっと 知りたい データ：3つまで（4つ目は えらばず toast）。コードに 入り、提案カード（画像・文）には 入らない
+        assert d5["prop"]["wishes"] == [] and d5["prop"]["ownWish"] == "", d5["prop"]
+        assert page.locator("#wishes [data-wish]").count() == 6
+        assert page.evaluate("document.querySelector('#proposal').compareDocumentPosition(document.querySelector('#wishes')) & 4"), "もっと 知りたい データが 提案の 箱の 前に ある"
+        assert page.evaluate("document.querySelector('#wishes').compareDocumentPosition(document.querySelector('#nick')) & 4"), "もっと 知りたい データが ニックネームの 後に ある"
+        for w in ("akiya", "move", "baby"):
+            page.click(f'[data-wish="{w}"]')
+        page.click('[data-wish="past"]')
+        assert page.evaluate("UG.state.wishes") == ["akiya", "move", "baby"], page.evaluate("UG.state.wishes")
+        assert page.get_attribute('[data-wish="past"]', "aria-pressed") == "false" and page.get_attribute('[data-wish="baby"]', "aria-pressed") == "true"
+        assert "えらべるのは 3つまで。どれかを はずしてね" in plain("#toast"), plain("#toast")
+        page.fill("#own-wish", "通学路の 歩道の 広さ")
+        assert page.get_attribute("#own-wish", "maxlength") == "30"
+        d5w = page.evaluate("c => UG.model.decodeGuess(c)", page.input_value("#handoff-code"))
+        assert d5w["prop"]["wishes"] == ["akiya", "move", "baby"] and d5w["prop"]["ownWish"] == "通学路の 歩道の 広さ", d5w["prop"]
+        card_all = page.evaluate("document.querySelector('#card svg').textContent + UG.cardText(UG.cardData())").replace(" ", "")
+        for t in ("空き家の数", "赤ちゃんの数", "通学路の歩道の広さ"):
+            assert t not in card_all, f"提案カードに「もっと 知りたい データ」が 入った: {t}"
+        bare("step5-wishes")
+        page.locator(".write-card").screenshot(path=str(OUT / "5-wishes.png"))
+        # 提案を 消して アイデアも 外すと かくれる。もっと 知りたい データ だけでも 出る
+        page.evaluate("UG.state.proposal = ''; UG.state.ownIdea = ''; UG.state.ideas = []; UG.state.wishes = []; UG.state.ownWish = ''; UG.render()")
         assert not page.is_visible("#handoff-btn"), "提案が 無いのに「先生に 提案を わたす」が出ている"
-        page.evaluate("UG.state.ideas = ['room_town', 'online']; UG.render()")
+        page.click('[data-wish="past"]')
+        assert page.is_visible("#handoff-btn"), "もっと 知りたい データを えらんでも「先生に 提案を わたす」が出ない"
+        page.click('[data-wish="past"]')
+        assert not page.is_visible("#handoff-btn")
+        page.fill("#own-wish", "まちの 公園の 数")
+        assert page.is_visible("#handoff-btn"), "ほかに 知りたい データを 書いても「先生に 提案を わたす」が出ない"
+        page.evaluate("UG.state.ideas = ['room_town', 'online']; UG.state.wishes = ['akiya', 'move', 'baby']; UG.state.ownWish = '通学路の 歩道の 広さ'; UG.render()")
         page.fill("#own-idea", "校庭で月に1回、朝市をひらく")
         page.fill("#proposal", "空いた教室を図書室にして、地域の人も入れるようにしてほしいです。子どもとお年よりがいっしょに本を読める場所にしたいです。")
 
+        state5 = page.evaluate("JSON.stringify(UG.state)")  # タッチの 端末の 確かめに 使う（線を かき おえた 状態）
         page.click('[data-go="teachers"]')
         page.wait_for_selector(".teachers")
         shot("9-teachers")
@@ -648,6 +680,14 @@ def main() -> int:
         assert page.locator("#class-props .sort-bars li").count() == 8
         assert page.locator("#class-props .idea-rank li").count() >= 5
         assert page.locator("#class-own li").count() >= 2  # 同じ ものは「（○人）」で まとめる
+        # もっと 知りたい データ：じぶんの アイデアの 後に、候補の 順位（idea-rank と 同じ 形）と 自由な 文（同じ 文は まとめる）
+        assert page.locator("#class-wishes.idea-rank li").count() >= 4
+        assert page.evaluate("document.querySelector('#class-own').compareDocumentPosition(document.querySelector('#class-wishes')) & 4")
+        own_wish_rows = [r.replace(" ", "") for r in page.locator("#class-own-wish li").all_inner_texts()]
+        assert own_wish_rows and len(own_wish_rows) == len(set(own_wish_rows)), own_wish_rows
+        assert any("まちの公園の数" in r for r in own_wish_rows), own_wish_rows
+        wish_top3 = page.evaluate("""() => { const r = UG.model.extractGuesses(document.getElementById('class-text').value).items;
+          return UG.model.wishTally(r, UG.WISHES.map(k => k.id)).slice(0, 3).map(x => [UG.WISHES.find(k => k.id === x.id).t, x.n]); }""")
         assert page.locator("#class-props .prop-list").count() == 0, "提案の一覧が最初から開いている"
         bare("class-props")
         page.locator("#class-props").screenshot(path=str(OUT / "c-5-props-closed.png"))
@@ -682,7 +722,14 @@ def main() -> int:
         tot = sum(int(_m.group(1)) if (_m := __import__("re").search(r"（(\d+)人）$", r)) else 1 for r in rows)
         assert tot == len(rest) == mayor_n - 1, (tot, len(rest), mayor_n)
         assert "出典" in sheet_plain and "わたしの学校2050" in sheet_plain
-        assert page.locator("#class-sheet .sort-bars li").count() == 8 and page.locator("#class-sheet .idea-rank li").count() >= 5
+        assert page.locator("#class-sheet .sort-bars li").count() == 8 and page.locator("#class-sheet .idea-rank li").count() == 5
+        assert "えらんだ人が多い5つ" in sheet_plain.replace(" ", ""), sheet_plain
+        # もっと 知りたい データ：多い 3つだけ。子どもが 自由に 書いた 文は 入れない
+        sw = plain("#class-sheet .sh-wishes").replace(" ", "")
+        want = "もっと知りたいデータ：" + "、".join(f"{t.replace(' ', '')}（{n}人）" for t, n in wish_top3)
+        assert sw == want, (sw, want)
+        for t in ("まちの公園の数", "通学路の歩道の広さ"):
+            assert t not in sheet_plain.replace(" ", ""), f"印刷の 1枚に 自由な 文が 入った: {t}"
         assert "5年2組" not in page.evaluate("JSON.stringify(Object.assign({}, localStorage))"), "クラスの名前が保存されている"
         bare("class-sheet")
         page.locator("#class-sheet").screenshot(path=str(OUT / "c-6-sheet.png"))
@@ -701,6 +748,18 @@ def main() -> int:
         if pages > 1:
             problems.append(f"印刷用の 1枚が {pages}ページに なる")
         page.emulate_media(media="screen")
+        # 5つの 宛先 すべて A4 縦 1ページ
+        tos = page.evaluate("[...document.querySelectorAll('[data-sheet-to]')].map(b => b.getAttribute('data-sheet-to'))")
+        assert sorted(tos) == sorted(["mayor", "board", "principal", "town", "family"]), tos
+        for to in tos:
+            page.click(f'[data-sheet-to="{to}"]'); page.click("#class-sheet-make"); page.wait_for_selector("#class-sheet")
+            page.emulate_media(media="print")
+            n = len(_re.findall(rb"/Type\s*/Page[^s]", page.pdf(prefer_css_page_size=True, print_background=True)))
+            page.emulate_media(media="screen")
+            print(f"印刷用の 1枚（{to}）：PDF", n, "ページ")
+            if n != 1:
+                problems.append(f"印刷用の 1枚（{to}）が {n}ページに なる")
+        page.click('[data-sheet-to="mayor"]'); page.click("#class-sheet-make"); page.wait_for_selector("#class-sheet")
         # Claude の 画面の 中（印刷できない）では、ファイルで 保存する・文を コピーする
         page.evaluate("window.claude = {}; UG.render()")
         assert page.locator("#class-sheet-print").count() == 0 and page.locator("#class-sheet-save").count() == 1
@@ -732,6 +791,49 @@ def main() -> int:
         draw_line(0.8, 0.85, 140, 20)
         page.click("#next-btn"); page.wait_for_selector(".verdict"); page.wait_for_timeout(2500)
         shot("3-small-school"); bare("small")
+
+        # 「さいしょから やりなおす」は 2回で 消す：1回目は 消えない、すぐの 2回目（0.5秒未満）も 消えない、
+        # 5秒で もとの 文字に もどる、0.5秒 以上 あけた 2回目で 消えて home へ
+        RESET = "[data-reset]"
+        label0 = page.inner_text(RESET)
+        page.click(RESET)
+        assert page.inner_text(RESET).replace(" ", "") == "もう1回おすと、ぜんぶきえるよ", page.inner_text(RESET)
+        assert "armed" in page.get_attribute(RESET, "class")
+        assert page.evaluate("getComputedStyle(document.querySelector('[data-reset]')).color") == "rgb(224, 49, 49)"
+        assert page.evaluate("UG.state.schoolId") == "S5", "1回目で 消えた"
+        page.evaluate("document.querySelector('[data-reset]').click()")  # すぐの 2回目
+        assert page.evaluate("UG.state.schoolId") == "S5", "すぐの 2回目で 消えた"
+        page.wait_for_timeout(5200)
+        assert page.inner_text(RESET) == label0 and "armed" not in page.get_attribute(RESET, "class"), "5秒たっても もどらない"
+        assert page.evaluate("UG.state.schoolId") == "S5"
+        page.click(RESET); page.wait_for_timeout(600); page.click(RESET)
+        assert page.evaluate("[UG.state.schoolId, UG.state.step, Object.keys(UG.state.draw).length]") == [None, "home", 0], "2回目で 消えない"
+        assert "さいしょから はじめます" in plain("#toast"), plain("#toast")
+        assert page.inner_text(RESET) == label0
+
+        # タッチの 端末（820×1180）：押せる ものの 高さが 44px 以上
+        tctx = browser.new_context(viewport={"width": 820, "height": 1180}, has_touch=True)
+        watch_requests(tctx, None, external)
+        tp = tctx.new_page(); tp.goto(URL); tp.wait_for_selector(".school-btn")
+        assert tp.evaluate("matchMedia('(pointer: coarse)').matches")
+        tp.evaluate("s => { localStorage.setItem('ug2050:v1', s); }", state5)
+        tp.reload(); tp.wait_for_selector("#view")
+        TALL = """sel => [...document.querySelectorAll(sel)].filter(e => e.offsetParent !== null).map(e => e.getBoundingClientRect().height)"""
+        def tall(where, sels):
+            for sel in sels:
+                hs = tp.evaluate(TALL, sel)
+                if not hs:
+                    problems.append(f"[タッチ {where}] {sel} が 見つからない")
+                elif min(hs) < 44:
+                    problems.append(f"[タッチ {where}] {sel} の 高さが 44px より 小さい: {min(hs):.1f}px")
+        tp.evaluate("UG.go('home')"); tp.wait_for_selector(".picker select")
+        tall("home", [".picker select", ".tabs button", "[data-reset]"])
+        tp.evaluate("UG.go('step3')"); tp.wait_for_selector(".verdict")
+        tall("step3", [".btn.small"])
+        tp.evaluate("UG.go('step5')"); tp.wait_for_selector("#card svg")
+        tall("step5", [".tri button", ".tabs button", ".btn.sub", "[data-reset]"])  # .btn.small は ステップ3で（ここでは 閉じた 箱の 中）
+        tp.screenshot(path=str(OUT / "t-5-teian-touch.png"), full_page=True)
+        tctx.close()
 
         problems += [f"console: {e}" for e in errors]
         problems += [f"[file://] 外部への通信: {u}" for u in external]
