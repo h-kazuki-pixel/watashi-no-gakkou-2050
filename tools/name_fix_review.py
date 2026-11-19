@@ -107,6 +107,31 @@ def partner_rule(app_name, partner_mext, self_mext, p29_a_name, a_inside, a27_ad
     return failed
 
 
+PARTNER_CLOSED_RULES = {
+    1: "相手の学校のコードが文科省の一覧のちょうど1行に当たり、名前がアプリの名前と同じ（本分校 9 でもよい）",
+    2: "この学校のコードが文科省の存続の行（本分校 1・廃止年月日なし）で、名前が P29 の (a) の名前と同じ",
+    3: "直す名前の学校が、同じ市区町村のアプリの学校にほかに無い",
+    4: "この学校のコードの学校の点（P29 の (a)）がこの区域の中",
+    5: "学区データの所在地が、この学校のコードの学校の所在地（P29 の (a)）と番地まで一致",
+}
+
+
+def partner_closed_rule(app_name, partner_rows, self_mext, p29_a_name, a_inside, a27_addr, a_addr) -> list[int]:
+    """相手の行が廃校（本分校 9）の学校の「名前が誤り」の決まり（DATA_METHOD.md）の 1・2・4・5 を見て、外れた番号を返す。
+    partner_rows は相手のコードの文科省の行の並び（ちょうど1行でなければ外れ）。決まり3は呼ぶ側で見る。"""
+    failed = []
+    if not (len(partner_rows) == 1 and cl.norm_name(partner_rows[0].name) == cl.norm_name(app_name)):
+        failed.append(1)
+    if not (self_mext and self_mext.honbun == "1" and not self_mext.abol and p29_a_name
+            and cl.norm_name(p29_a_name) == cl.norm_name(self_mext.name)):
+        failed.append(2)
+    if not a_inside:
+        failed.append(4)
+    if not (a_addr and addr_match(a27_addr, a_addr) == "一致"):
+        failed.append(5)
+    return failed
+
+
 def name_taken(names: dict, sid: str, city: str, new_name: str) -> bool:
     """決まり3：直す名前（new_name）の学校が、同じ市区町村に sid のほかにあるか。names は {id: (市区町村, 名前)}（直す学校の新しい名前を入れたもの）"""
     return any(k == (city, new_name) and x != sid for x, k in names.items())
@@ -262,7 +287,7 @@ def main(argv=None) -> int:
                     why.append("(a) も (b) も点がこの学区の外" if ia == "外" and ib in ("外", "") else "材料がそろわない")
             # 同じ名前の学校がもう1つある学校の「名前が誤り」（決まり3は全部見たあとで）
             prow = {"相手の id": "", "相手のコード": "", "相手の文科省の名前": "", "相手の文科省の本分校": "", "相手の所在地（P29）": "",
-                    "A27 の所在地と相手": "", "相手ありの決まりで外れた番号": "", "_cand": ""}
+                    "A27 の所在地と相手": "", "相手ありの決まり": "", "相手ありの決まりで外れた番号": "", "_cand": ""}
             if role == "対象" and judge == "決められない":
                 partners = [x for x in by_city_name[(city, s["name"])] if x != sid]
                 if len(partners) == 1:
@@ -272,8 +297,15 @@ def main(argv=None) -> int:
                     pp = [ft for ft in pfeats if pcode and ft.props.get(pf.school_code) == pcode]
                     paddr = pp[0].props.get(pf.address, "") if len(pp) == 1 and pf.address else ""
                     pa_name = export.strip_owner(pa[0].props.get(pf.name, "")) if len(pa) == 1 else ""
-                    failed = partner_rule(s["name"], pm[0] if len(pm) == 1 else None, mrow[0] if len(mrow) == 1 else None,
-                                          pa_name, ia == "中", a27_addr, paddr)
+                    closed_partner = len(pm) == 1 and pm[0].honbun == "9"
+                    if closed_partner:  # 相手の行が廃校：もう1つの決まり（DATA_METHOD.md「相手の行が廃校」）
+                        a_addr = pa[0].props.get(pf.address, "") if len(pa) == 1 and pf.address else ""
+                        failed = partner_closed_rule(s["name"], pm, mrow[0] if len(mrow) == 1 else None, pa_name, ia == "中",
+                                                     a27_addr, a_addr)
+                    else:
+                        failed = partner_rule(s["name"], pm[0] if len(pm) == 1 else None, mrow[0] if len(mrow) == 1 else None,
+                                              pa_name, ia == "中", a27_addr, paddr)
+                    prow["相手ありの決まり"] = "相手が廃校" if closed_partner else "相手が存続"
                     prow.update({"相手の id": psid, "相手のコード": pcode, "相手の文科省の名前": pm[0].name if len(pm) == 1 else "",
                                  "相手の文科省の本分校": pm[0].honbun if len(pm) == 1 else "", "相手の所在地（P29）": paddr,
                                  "A27 の所在地と相手": addr_match(a27_addr, paddr) if paddr else "",
@@ -311,29 +343,31 @@ def main(argv=None) -> int:
                 r["相手ありの決まりで外れた番号"] = ";".join(map(str, f))
     for r in out:
         if r["相手の id"] and r["_cand"] and not r["相手ありの決まりで外れた番号"]:
-            r["判定"], r["直した値"], r["決められない理由"] = "名前が誤り（相手あり）", r["_cand"], ""
+            r["判定"] = "名前が誤り（相手が廃校）" if r["相手ありの決まり"] == "相手が廃校" else "名前が誤り（相手あり）"
+            r["直した値"], r["決められない理由"] = r["_cand"], ""
         elif r["相手の id"]:
-            r["決められない理由"] += "／相手ありの決まりで外れた：" + "、".join(
-                f"{n}（{PARTNER_RULES[int(n)]}）" for n in r["相手ありの決まりで外れた番号"].split(";") if n)
+            rules = PARTNER_CLOSED_RULES if r["相手ありの決まり"] == "相手が廃校" else PARTNER_RULES
+            r["決められない理由"] += f"／{r['相手ありの決まり']}の決まりで外れた：" + "、".join(
+                f"{n}（{rules[int(n)]}）" for n in r["相手ありの決まりで外れた番号"].split(";") if n)
     for r in out:
         r.pop("_cand", None)
 
     # 直したあと同じ市区町村に同じ名前の学校が2つ残る組は、組ごと直さない
     names = {sid: (v[1], v[3]["name"]) for sid, v in app.items()}
     for r in out:
-        if r["判定"] in ("名前が誤り", "名前が誤り（相手あり）"):
+        if r["判定"] in ("名前が誤り", "名前が誤り（相手あり）", "名前が誤り（相手が廃校）"):
             names[r["id"]] = (r["市区町村コード"], r["直した値"])
     count = defaultdict(list)
     for sid, k in names.items():
         count[k].append(sid)
     bad_groups = set()
     for r in out:
-        if r["判定"] in ("名前が誤り", "名前が誤り（相手あり）", "コードが誤り"):
+        if r["判定"] in ("名前が誤り", "名前が誤り（相手あり）", "名前が誤り（相手が廃校）", "コードが誤り"):
             k = names[r["id"]]
             if len(count[k]) > 1:
                 bad_groups.add(r["組"])
     for r in out:
-        if r["判定"] in ("名前が誤り", "名前が誤り（相手あり）", "コードが誤り"):
+        if r["判定"] in ("名前が誤り", "名前が誤り（相手あり）", "名前が誤り（相手が廃校）", "コードが誤り"):
             if r["組"] in bad_groups:
                 r["直したか"] = "直さない（直すと同じ市区町村に同じ名前の学校が2つ残る）"
             else:
@@ -362,8 +396,11 @@ def main(argv=None) -> int:
                          + (f"。同じ市区町村に同じ名前の学校 {r['相手の id']}（文科省「{r['相手の文科省の名前']}」本分校 {r['相手の文科省の本分校']}）があり、"
                             f"A27 の所在地は相手の所在地「{r['相手の所在地（P29）']}」と{r['A27 の所在地と相手']}（相手ありの決まり1〜5を満たす）"
                             if r["判定"] == "名前が誤り（相手あり）" else "")
+                         + (f"。同じ市区町村に同じ名前の学校 {r['相手の id']}（文科省「{r['相手の文科省の名前']}」本分校 {r['相手の文科省の本分校']}）があり、"
+                            f"A27 の所在地は (a) の所在地「{r['(a) 所在地']}」と番地まで一致（相手の行が廃校の決まり1〜5を満たす）"
+                            if r["判定"] == "名前が誤り（相手が廃校）" else "")
                          + "（2026-11-20 確認）")
-                if r["判定"] in ("名前が誤り", "名前が誤り（相手あり）"):
+                if r["判定"] in ("名前が誤り", "名前が誤り（相手あり）", "名前が誤り（相手が廃校）"):
                     w.writerow(["A27", r["学校コード"], "A27_004", r["アプリの学校名"], r["直した値"], basis])
                 else:
                     w.writerow(["A27", r["学校コード"], "A27_003", r["学校コード"], r["直した値"], basis])

@@ -63,3 +63,39 @@ def test_rule3_name_taken():
     assert nf.name_taken(names, "B", "98201", "なかよし小学校") is True    # 同じ市区町村にもうある → 外れ
     assert nf.name_taken(names, "B", "98201", "ほか小学校") is False
     assert nf.name_taken({"B": ("98201", "なかよし小学校"), "C": ("98202", "なかよし小学校")}, "B", "98201", "なかよし小学校") is False  # 別の市区町村はよい
+
+
+# ---- 相手の行が廃校（本分校 9）の学校の決まり
+
+CLOSED = dict(app_name="ためし小学校",
+              partner_rows=[mrow("みほん市立ためし小学校", honbun="9", abol="2025-05-01")],  # 相手のコードの行：廃校でもよい
+              self_mext=mrow("みほん市立なかよし小学校"),
+              p29_a_name="なかよし小学校",
+              a_inside=True,
+              a27_addr="みほん市本町1-2",
+              a_addr="ためし県みほん市本町1番2号")                                         # (a) の所在地：番地まで一致
+
+
+def test_closed_partner_all_rules_met():
+    assert nf.partner_closed_rule(**CLOSED) == []
+
+
+@pytest.mark.parametrize("kw,rule", [
+    ({"partner_rows": []}, 1),                                                               # 相手のコードが一覧に無い
+    ({"partner_rows": [mrow("みほん市立ためし小学校", "9", "2025-05-01")] * 2}, 1),         # 2行に当たる
+    ({"partner_rows": [mrow("みほん市立べつ小学校", "9", "2025-05-01")]}, 1),               # 相手の行の名前が違う
+    ({"self_mext": mrow("みほん市立なかよし小学校", honbun="9", abol="2024-05-01")}, 2),
+    ({"self_mext": mrow("みほん市立なかよし小学校", honbun="2")}, 2),
+    ({"p29_a_name": "ちがう小学校"}, 2),
+    ({"a_inside": False}, 4),
+    ({"a_addr": "ためし県みほん市本町9番9号"}, 5),                                         # 町名までしか合わない
+    ({"a_addr": "ためし県みほん市西町1番2号"}, 5),
+    ({"a_addr": ""}, 5),
+])
+def test_closed_partner_one_rule_off(kw, rule):
+    assert nf.partner_closed_rule(**{**CLOSED, **kw}) == [rule]
+
+
+def test_closed_partner_living_partner_row_is_allowed_by_rule1():
+    # 決まり1は本分校を問わない（相手が廃校かどうかで、どちらの決まりを使うかは呼ぶ側が決める）
+    assert nf.partner_closed_rule(**{**CLOSED, "partner_rows": [mrow("みほん市立ためし小学校")]}) == []
