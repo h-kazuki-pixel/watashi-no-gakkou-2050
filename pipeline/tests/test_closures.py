@@ -377,3 +377,46 @@ def test_add_closures_cli(tmp_path):
     assert cli.main(["add-closures", "--data", str(data), "--closures", str(cpath), "--new-schools", str(npath)]) == 0
     _h, obj = kana.read_pref(data / "pref_98.js")
     assert {s["id"] for c in obj["cities"] for s in c["schools"] if s.get("gone")} == {GONE, GONE2}
+
+
+# ---- 手で確かめた閉校の表（school_closures_manual.csv）
+
+MANUAL_HEAD = "市区町村コード,id,学校名,移行先の名前,移行先の id,出典,確かめた日\n"
+
+
+def _manual_setup(tmp_path, line):
+    cpath, npath = tmp_path / "c.csv", tmp_path / "n.csv"
+    cl._write_csv(cpath, cl.CLOSURES_HEADER, [])
+    cl._write_csv(npath, cl.NEW_HEADER, [])
+    mpath = tmp_path / "m.csv"
+    mpath.write_text(MANUAL_HEAD + line + "\n", encoding="utf-8")
+    data = tmp_path / "data"
+    data.mkdir()
+    kana.write_pref(data / "pref_98.js", "/* test */\n", base_pref())
+    return data, cpath, npath, mpath
+
+
+def test_manual_closure_marks_gone(tmp_path):
+    data, c, n, m = _manual_setup(tmp_path, f"98201,{GONE},ためし小学校,なかよし小学校,{TARGET},テストの出典,2026-11-20")
+    st = cl.add_closures(data, c, n, m)
+    assert st["gone"] == 1 and st["gone_manual"] == 1
+    _h, obj = kana.read_pref(data / "pref_98.js")
+    s = {x["id"]: x for cc in obj["cities"] for x in cc["schools"]}
+    assert s[GONE]["gone"] is True and s[GONE]["now"] == {"name": "なかよし小学校", "id": TARGET}
+    assert s[TARGET]["joined"] == [{"id": GONE, "name": "ためし小学校"}]
+
+
+@pytest.mark.parametrize("line", [f"98201,{GONE},ちがう小学校,,,テストの出典,2026-11-20",   # 名前が app/data と違う
+                                  "98201,98201-0099,ためし小学校,,,テストの出典,2026-11-20",  # id が無い
+                                  f"98201,{GONE},ためし小学校,,,,2026-11-20",                 # 出典が空
+                                  f"98201,{GONE},ためし小学校,,,テストの出典,2026/11/20"])     # 日付の形
+def test_manual_closure_errors_stop(tmp_path, line):
+    data, c, n, m = _manual_setup(tmp_path, line)
+    with pytest.raises(SystemExit):
+        cl.add_closures(data, c, n, m)
+
+
+def test_manual_closure_other_pref_is_skipped(tmp_path):
+    data, c, n, m = _manual_setup(tmp_path, "97201,B197220100010,どこか小学校,,,テストの出典,2026-11-20")
+    st = cl.add_closures(data, c, n, m)
+    assert st.get("gone", 0) == 0

@@ -42,6 +42,7 @@ YEARS = list(range(2025, 2075, 5))
 WARD_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "designated_city_wards.csv"
 AREA_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "fukushima_hamadori.csv"
 FIX_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "source_corrections.csv"
+NON_SCHOOL_TABLE = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "terms" / "non_school_areas.csv"
 K = 4  # メッシュ1つにつき K×K の点
 
 
@@ -261,26 +262,29 @@ def main():
     w0 = 1.0 / (K * K)
 
     all_feats = json.load(open(args.districts, encoding="utf-8"))["features"]
-    feats = [f for f in all_feats if f["properties"]["A27_001"] not in exclude]
     pts = json.load(open(args.schools, encoding="utf-8"))["features"]
     # 誤記の訂正の表（DATA_METHOD.md「元データの…誤り」の4）：学校コード（P29_002）が合う地物の項目が「元の値」なら「直した値」にする。
     # 「直した値」なら何もしない。どちらでもなければ止める。表が無ければ止める
     if not FIX_TABLE.exists():
         sys.exit(f"誤記の訂正の表がありません: {FIX_TABLE}")
     with open(FIX_TABLE, encoding="utf-8-sig", newline="") as fh:
-        fixes = [r for r in csv.DictReader(fh) if r["データ名"] == "P29"]
+        fix_rows = list(csv.DictReader(fh))
     fixed = []
-    for f in pts:
-        for r in fixes:
-            if f["properties"].get("P29_002") != r["学校コード"]:
-                continue
-            v = f["properties"].get(r["項目"])
-            if v == r["元の値"]:
-                f["properties"][r["項目"]] = r["直した値"]
-                fixed.append((r["学校コード"], r["項目"], r["直した値"]))
-            elif v != r["直した値"]:
-                sys.exit(f"誤記の訂正の表が元データと合いません: {r['学校コード']} {r['項目']} {v}")
+    # データ名 P29 は学校の位置（学校コード P29_002）、A27 は学区（学校コード A27_003。学校ごとにまとめる前）に当てる
+    for data, key, feats_ in (("P29", "P29_002", pts), ("A27", "A27_003", all_feats)):
+        fixes = [r for r in fix_rows if r["データ名"] == data]
+        for f in feats_:
+            for r in fixes:
+                if f["properties"].get(key) != r["学校コード"]:
+                    continue
+                v = f["properties"].get(r["項目"])
+                if v == r["元の値"]:
+                    f["properties"][r["項目"]] = r["直した値"]
+                    fixed.append((data, r["学校コード"], r["項目"], r["直した値"]))
+                elif v != r["直した値"]:
+                    sys.exit(f"誤記の訂正の表が元データと合いません: {data} {r['学校コード']} {r['項目']} {v}")
     print(f"誤記の訂正: {fixed}")
+    feats = [f for f in all_feats if f["properties"]["A27_001"] not in exclude]
 
     # 政令市の学区データが市のコードで入っているとき：メッシュと P29 の区のコードを市のコードに読み替える
     w2c = ward_to_city()
@@ -322,6 +326,33 @@ def main():
         w = w0 / count[ins]
         est[sid] = dict(name=info[sid][0], city=info[sid][1], approx=False,
                         e=(kids[pm[ins]] * w[:, None]).sum(0), a=(V[pm[ins], :, 0] * w[:, None]).sum(0))
+
+    # 学校ではない区域（DATA_METHOD.md「学校ではない区域」）：表の（市区町村, 学校名）の区域は、配分は学区として行い（点は数えたまま。
+    # ほかの学校にも補いにも使わない）、学校としては出さず、子どもは未配分に数える。元の値が合わない・当たる区域が無ければ止める
+    if not NON_SCHOOL_TABLE.exists():
+        sys.exit(f"学校ではない区域の表がありません: {NON_SCHOOL_TABLE}")
+    pref_here = {f["properties"]["A27_001"][:2] for f in all_feats}
+    non_school, ns_total = [], 0.0
+    with open(NON_SCHOOL_TABLE, encoding="utf-8-sig", newline="") as fh:
+        for r in csv.DictReader(fh):
+            if r["市区町村コード"][:2] not in pref_here:
+                continue
+            want = dict(part.split("=", 1) for part in r["学区データの元の値"].split("／"))
+            ks = [k for k, v in info.items() if v == (r["学校名"], r["市区町村コード"])]
+            if not ks:
+                sys.exit(f"学校ではない区域が学区データにありません: {r['市区町村コード']} {r['学校名']}")
+            for f in feats:
+                p = f["properties"]
+                if (p["A27_004"], p["A27_001"]) == (r["学校名"], r["市区町村コード"]):
+                    bad = [k for k, v in want.items() if str(p.get(k) or "") != v]
+                    if bad:
+                        sys.exit(f"学校ではない区域の表が学区データと合いません: {r['市区町村コード']} {r['学校名']} {bad}")
+            for k in ks:
+                v = float(est[k]["e"][0])
+                ns_total += v
+                non_school.append((r["市区町村コード"], r["学校名"], round(v, 1)))
+                del est[k]
+    print(f"学校ではない区域（未配分に数える。2025年）: {non_school}")
 
     # 学区データなしの市区町村：1つの市区町村だけのメッシュで、学区に配分できた子どもが5%未満
     frac = ((count > 0).reshape(n, -1) * w0).sum(1)
@@ -501,6 +532,7 @@ def main():
         no_pts_bad = rep_np != no_pts
         print(f"report の schools_without_points と: {'違う ' + str(rep_np) if no_pts_bad else '同じ'}")
 
+    unassigned += ns_total
     total = kids[:, 0].sum()
     allocated = sum(v["e"][0] for v in est.values())
     print(f"メッシュ {n}件、6〜11歳の合計（2025年）{total:.1f}、配分 {allocated:.1f}、未配分 {unassigned:.1f}（{unassigned / total:.4f}）、"

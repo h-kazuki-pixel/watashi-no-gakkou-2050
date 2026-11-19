@@ -11,7 +11,7 @@ import csv
 import pathlib
 
 DEFAULT = pathlib.Path(__file__).resolve().parents[1] / "terms" / "source_corrections.csv"
-CODE_FIELD = {"P29": "P29_002"}
+CODE_FIELD = {"P29": "P29_002", "A27": "A27_003"}  # データ名 → 学校コードの属性
 
 _applied: dict = {}  # (データ名, 学校コード, 項目) → 使った訂正。同じ build で何度読んでも1件
 

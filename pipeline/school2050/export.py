@@ -159,6 +159,8 @@ def build_pref(pref_code: str, features: list[Feature], fields: DistrictFields, 
         ages = sums[i, n_years:n_years + 12]
         name = f.props.get(fields.name, "")
         city = f.props["_city"]
+        if f.props.get("_non_school"):
+            continue  # 学校ではない区域（nonschool.py）。番号 i はそのまま進め、ほかの学校の id を変えない
         if est[0] < min_children:
             dropped.append(name)
             dropped_where.append((city, name))

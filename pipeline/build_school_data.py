@@ -39,7 +39,7 @@ from collections import Counter
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from school2050 import closures, combined, corrections, estimate, export, geo, inputs, kana, readers, shapes, terms, wards  # noqa: E402
+from school2050 import closures, combined, corrections, estimate, export, geo, inputs, kana, nonschool, readers, shapes, terms, wards  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -585,6 +585,8 @@ def cmd_build(args) -> int:
     log(f"== {export.PREF_NAMES.get(pref, pref)}（{pref}）")
 
     feats = readers.read_features(args.districts)
+    # 誤記の訂正の表（pipeline/terms/source_corrections.csv のデータ名 A27）。学校名・学校コードの誤りを、まとめる前に直す
+    corrections.apply(feats, "A27")
     fields = _fields(feats, args)
     log(f"学区 {len(feats)} 件。{fields.describe()}")
     # 乱れた図形（同じ輪の重複・外に出た穴）。利用条件で除く前の全部の学区を「ほかの学校の学区」として使う
@@ -608,6 +610,10 @@ def cmd_build(args) -> int:
         log("注意: 学区データに行政区域コードが無いため、利用条件で除く市区町村を判定できません")
     feats = export.merge_same_school(feats, fields, pref)
     log(f"同じ学校の地物をまとめて {len(feats)} 校")
+    # 学校ではない区域（pipeline/terms/non_school_areas.csv）。配分は学区として行い、学校としては出さない（子どもは未配分に数える）
+    non_school = nonschool.mark(feats, fields, pref, nonschool.load(getattr(args, "non_school", None)))
+    if non_school:
+        log("学校ではない区域（学校として出さない）: " + ", ".join(f"{e['city']} {e['name']}" for e in non_school))
     geometry_issues["overlapping_parts"] = shapes.overlapping_parts(feats, _shape_label(fields))
     for k, v in geometry_issues.items():
         if v:
@@ -785,9 +791,15 @@ def cmd_build(args) -> int:
                 filled_out[c["code"]] = n
 
     # ---- 検査（数字が保存されているか、どこが漏れたか）
+    # 学校ではない区域の子どもは、どの学校にも入らなかった子ども（未配分）に数える
+    ns_idx = [i for i, f in enumerate(feats) if f.props.get("_non_school")]
+    ns_sum = sums[ns_idx, :ny].sum(axis=0) if ns_idx else np.zeros(ny)
+    for e in non_school:
+        e["est_2025"] = round(float(sum(sums[i, 0] for i in ns_idx
+                                        if feats[i].props["_city"] == e["city"] and feats[i].props.get(fields.name) == e["name"])), 1)
     total = mt.kids.sum(axis=0)
-    got = sums[:, :ny].sum(axis=0)
-    un = alloc.unassigned[:ny]
+    got = sums[:, :ny].sum(axis=0) - ns_sum
+    un = alloc.unassigned[:ny] + ns_sum
     report = {
         "pref": pref, "schools": sum(len(c["schools"]) for c in obj["cities"]), "cities": len(obj["cities"]),
         "mesh_children_2025": round(float(total[0]), 1),
@@ -833,6 +845,8 @@ def cmd_build(args) -> int:
         # 学区データのある学校のうち、学校の位置データに見つからず学区の重心にした学校と、位置が学区の外にある学校
         "location_fallback": obj["_no_location"],
         "location_outside_district": obj["_location_outside_district"],
+        # 学校ではない区域（学校として出さず、子どもは未配分に数えた）
+        "non_school_areas": non_school,
         "seconds": round(time.time() - t0, 1),
     }
     if report["obsolete_ward_cities"]:
@@ -1122,6 +1136,7 @@ def main(argv=None) -> int:
     pb.add_argument("--opendata", help="オープンデータ用 CSV と検査レポートの出力先")
     pb.add_argument("--city-names", help="（任意）行政区域コード,名称 の CSV。市区町村名を上書きする")
     pb.add_argument("--muni-names", help="市区町村名を確かめる表（既定 pipeline/terms/muni_names.csv）")
+    pb.add_argument("--non-school", help="学校ではない区域の表（既定 pipeline/terms/non_school_areas.csv）")
     pb.add_argument("--k", type=int, default=4, help="メッシュ1辺あたりのサンプル点数（既定 4）")
     pb.add_argument("--min-children", type=float, default=1.0, help="2025年の推計がこれ未満の学区は出力しない")
     pb.add_argument("--fill-schools", help="（任意）国土数値情報「学校」。学区データの無い市区町村を、学校の位置からおおよその区域で補う")
@@ -1142,6 +1157,7 @@ def main(argv=None) -> int:
     pa.add_argument("--opendata")
     pa.add_argument("--city-names")
     pa.add_argument("--muni-names", help="市区町村名を確かめる表（既定 pipeline/terms/muni_names.csv）")
+    pa.add_argument("--non-school", help="学校ではない区域の表（既定 pipeline/terms/non_school_areas.csv）")
     pa.add_argument("--k", type=int, default=4)
     pa.add_argument("--min-children", type=float, default=1.0)
     pa.add_argument("--no-fill", action="store_true", help="学区データの無い市区町村を補わない")

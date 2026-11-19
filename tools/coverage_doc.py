@@ -30,6 +30,7 @@ def main() -> int:
     app, od = pathlib.Path(a.app), pathlib.Path(a.od)
     prefs = sorted(p.stem.split("_")[1] for p in app.glob("pref_[0-9][0-9].js"))
     rows, approx_c, nothandled, excluded, filled, closed, nopts, geom, fixes, notes = [], [], [], [], [], [], [], [], [], []
+    nonsch = []  # 学校ではない区域（report の non_school_areas）
     small = []  # 学区データに無く、補っても2025年の推計が1人未満で出ない学校
     tot = collections.Counter()
     left = []  # (県コード, 県名, どの学校にも入らなかった子ども, メッシュの子ども)
@@ -82,6 +83,8 @@ def main() -> int:
         for e in rep.get("source_corrections", []):
             fixes.append(f"| {pname} | {e['data']} | {e['code']} | {e['field']} | {e['from']} | {e['to']} |")
         left.append((p, pname, rep.get("unassigned_2025", 0.0), rep.get("mesh_children_2025", 0.0)))
+        for e in rep.get("non_school_areas") or []:
+            nonsch.append((pname, names.get(e["city"], e["city"]), e["name"], e.get("est_2025", 0.0), e["reason"]))
         nc = rep.get("note_cities") or []
         if nc:
             notes.append(f"| {pname} | " + "、".join(names.get(c, c) for c in nc) + " |")
@@ -188,6 +191,18 @@ def main() -> int:
     for x in left:
         w(f"| {x[1]} | {x[2]:,.1f} | {x[2] / x[3] * 100 if x[3] else 0:.2f}% |")
     w("")
+    if nonsch:
+        w("### 学校ではない区域")
+        w("")
+        w("学区データの区域のうち、学校名が学校を指さないもの（表 `pipeline/terms/non_school_areas.csv`。DATA_METHOD.md「学校ではない区域」）は、学校として出しません。")
+        w("区域の中の点はこの区域に入れたまま（ほかの学校にも補いにも使わない）、その子どもは上の「どの学校にも入らなかった子ども」に数えています。")
+        w("")
+        w("| 都道府県 | 市区町村 | 学区データの学校名 | 人数（2025年） | 理由 |")
+        w("|---|---|---|---|---|")
+        for x in nonsch:
+            w(f"| {x[0]} | {x[1]} | {x[2]} | {x[3]:,.1f} | {x[4]} |")
+        w(f"\n計 {len(nonsch)} 区域、{sum(x[3] for x in nonsch):,.1f}人。")
+        w("")
     cp = pathlib.Path(a.causes)
     if cp.exists():
         w("人数の多い市区町村で、どの学区にも入らなかった点を学区の図形と重ねて地図にし、原因を分けました（2026-11-17）。分類：")

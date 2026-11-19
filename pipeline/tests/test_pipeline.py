@@ -3,6 +3,7 @@
 
     python3 -m pytest pipeline/tests -q
 """
+import csv
 import json
 import pathlib
 import re
@@ -1586,3 +1587,78 @@ def test_city_names_overrides_agree_with_muni_table():
     # 名前の直しの表（city_names.csv）の名前は、町字データの名前の表（muni_names.csv）と同じでなければならない
     fixes, table = cli.city_names_table(), cli.muni_names_table()
     assert fixes and all(table.get(c) == n for c, n in fixes.items())
+
+
+# ---- 学校ではない区域（pipeline/terms/non_school_areas.csv。docs/DATA_METHOD.md「学校ではない区域」）
+
+NS_HEAD = "市区町村コード,学校名,理由,学区データの元の値\n"
+NS_ORIG = "A27_002=みほん市／A27_003=B199110000028／A27_005=テスト県みほん市東区1丁目2番3号"
+
+
+def _build99(raw, tmp_path, *extra):
+    out, od = tmp_path / "data", tmp_path / "opendata"
+    rc = cli.main(["build", "--pref", "99", "--districts", str(raw / "A27-23_99.geojson"), "--mesh", str(raw / "500m_mesh_2024_99.csv"),
+                   "--out", str(out), "--opendata", str(od), "--generated", "2026-11-17", *extra])
+    return rc, out, od
+
+
+def test_non_school_area_is_not_a_school_and_counts_as_unassigned(raw, tmp_path, capsys):
+    rc, out, _od = _build99(raw, tmp_path / "base")
+    base = json.loads(capsys.readouterr().out)
+    pb = load_registered(out / "pref_99.js", "registerPref")
+    table = tmp_path / "ns.csv"
+    table.write_text(NS_HEAD + f"99101,かさなり小学校,テスト（学校ではない）,{NS_ORIG}\n", encoding="utf-8")
+    rc, out, od = _build99(raw, tmp_path / "ns", "--non-school", str(table))
+    assert rc == 0
+    rep = json.loads(capsys.readouterr().out)
+    pref = load_registered(out / "pref_99.js", "registerPref")
+    schools = {s["name"]: s for c in pref["cities"] for s in c["schools"]}
+    assert "かさなり小学校" not in schools and rep["schools"] == base["schools"] - 1
+    # ほかの学校の数字は変えない（にし小は、かさなり小と重なる所を半分ずつのまま）
+    others = {s["name"]: s for c in pb["cities"] for s in c["schools"] if s["name"] != "かさなり小学校"}
+    assert schools == others
+    assert rep["unassigned_2025"] == base["unassigned_2025"] + 20.0
+    assert rep["allocated_2025"] == base["allocated_2025"] - 20.0 and rep["conservation_error"] < 1e-6
+    assert rep["non_school_areas"] == [{"city": "99101", "name": "かさなり小学校", "reason": "テスト（学校ではない）", "est_2025": 20.0}]
+    rows = list(csv.DictReader(open(od / "school_district_children_99.csv", encoding="utf-8-sig")))
+    assert "かさなり小学校" not in {r["school_name"] for r in rows}
+
+
+@pytest.mark.parametrize("line", ["99101,ない小学校,テスト," + NS_ORIG,                                      # 当たる区域が無い
+                                  "99101,かさなり小学校,テスト,A27_002=みほん市／A27_003=B199110000028／A27_005=ちがう",  # 元の値が違う
+                                  "99101,かさなり小学校,,"])                                                  # 空の列
+def test_non_school_table_errors_stop(raw, tmp_path, line):
+    table = tmp_path / "ns.csv"
+    table.write_text(NS_HEAD + line + "\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        _build99(raw, tmp_path, "--non-school", str(table))
+
+
+# ---- 学区データ（A27）の誤記の訂正（source_corrections.csv のデータ名 A27）
+
+def _fix_table(path, rows):
+    path.write_text("データ名,学校コード,項目,元の値,直した値,根拠\n" + "".join(",".join(r) + "\n" for r in rows), encoding="utf-8")
+    return path
+
+
+def test_a27_name_correction(raw, tmp_path, capsys, monkeypatch):
+    from school2050 import corrections
+    rc, out, _ = _build99(raw, tmp_path / "base")
+    capsys.readouterr()
+    before = {s["id"]: s for c in load_registered(out / "pref_99.js", "registerPref")["cities"] for s in c["schools"]}
+    monkeypatch.setattr(corrections, "DEFAULT", _fix_table(tmp_path / "fix.csv", [
+        ("A27", "B199110000046", "A27_004", "きた小学校", "きたの小学校", "テスト")]))
+    rc, out, _ = _build99(raw, tmp_path / "fixed")
+    rep = json.loads(capsys.readouterr().out)
+    after = {s["id"]: s for c in load_registered(out / "pref_99.js", "registerPref")["cities"] for s in c["schools"]}
+    assert after["B199110000046"]["name"] == "きたの小学校"
+    assert {k: {**v, "name": None} for k, v in after.items()} == {k: {**v, "name": None} for k, v in before.items()}
+    assert rep["source_corrections"] == [{"data": "A27", "code": "B199110000046", "field": "A27_004", "from": "きた小学校", "to": "きたの小学校"}]
+
+
+def test_a27_correction_stale_table_stops(raw, tmp_path, monkeypatch):
+    from school2050 import corrections
+    monkeypatch.setattr(corrections, "DEFAULT", _fix_table(tmp_path / "fix.csv", [
+        ("A27", "B199110000046", "A27_004", "みなみ小学校", "きたの小学校", "テスト")]))  # 元の値が元データと違う
+    with pytest.raises(SystemExit):
+        _build99(raw, tmp_path)

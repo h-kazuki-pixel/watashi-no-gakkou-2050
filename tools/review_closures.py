@@ -172,6 +172,30 @@ def main(argv=None) -> int:
         P(f"  {r[1]}：アプリ「{r[2]}」、町字データ「{r[3]}」 {r[4]}")
     P("")
 
+    # ---- 同じ市区町村に同じ名前の学校が2つ以上
+    dups = defaultdict(list)
+    for o in prefs:
+        for c in o["cities"]:
+            for s in c["schools"]:
+                dups[(o["code"], c["code"], c["name"], s["name"])].append(s)
+    dup_rows = []
+    for (pc, cc, cn, nm), ss in sorted(dups.items()):
+        if len(ss) > 1:
+            for s in ss:
+                code = next((x.code for x in res.schools if x.pref == pc and x.id == s["id"]), "")
+                mrow = [r for r in mext if r.code == code]
+                dup_rows.append([pc, cc, cn, nm, len(ss), s["id"], code, mrow[0].name if len(mrow) == 1 else "",
+                                 mrow[0].honbun if len(mrow) == 1 else "", "1" if s.get("approx") else "",
+                                 "1" if s.get("gone") else "", s["est"][0]])
+    write(out / "same_name_schools.csv", ["都道府県", "市区町村コード", "市区町村名", "学校名", "同じ名前の数", "id", "学校コード",
+                                          "文科省のそのコードの名前", "本分校", "approx", "gone", "2025年の推計"], dup_rows)
+    groups = sorted({(r[0], r[2], r[3], r[4]) for r in dup_rows})
+    P(f"■ 同じ市区町村に同じ名前の学校が2つ以上ある組：{len(groups)}組（same_name_schools.csv）")
+    for g in groups:
+        ids = [r for r in dup_rows if (r[0], r[2], r[3]) == g[:3]]
+        P(f"  {g[1]} {g[2]}（{g[3]}校）：" + "、".join(f"{r[5]}（{r[7] or 'コード不明'}{'・gone' if r[10] else ''}）" for r in ids))
+    P("")
+
     P("■ 文科省の一覧の注意（止めずに扱ったもの）")
     for x in notes:
         P(f"- {x}（移行後の学校コードが2つ以上なので now を付けない）")

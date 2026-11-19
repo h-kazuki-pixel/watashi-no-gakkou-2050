@@ -62,7 +62,7 @@ def main(argv=None) -> int:
         # export.build_pref と同じ規則で id を付け直す
         used = set()
         for i, f in enumerate(features):
-            if sums[i, 0] < min_children:
+            if f.props.get("_non_school") or sums[i, 0] < min_children:
                 continue
             raw_code = f.props.get(fields.school_code, "") if fields.school_code else ""
             sid, why = raw_code, ""

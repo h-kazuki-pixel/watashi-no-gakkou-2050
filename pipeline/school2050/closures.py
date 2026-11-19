@@ -27,6 +27,8 @@ from . import kana as kana_mod
 TERMS = pathlib.Path(__file__).resolve().parents[1] / "terms"
 CLOSURES_CSV = TERMS / "school_closures.csv"
 NEW_CSV = TERMS / "new_schools.csv"
+MANUAL_CSV = TERMS / "school_closures_manual.csv"  # 手で確かめた閉校（文科省の一覧からは決められない学校）
+MANUAL_HEADER = ["市区町村コード", "id", "学校名", "移行先の名前", "移行先の id", "出典", "確かめた日"]
 CLOSURES_HEADER = ["都道府県", "市区町村コード", "id", "アプリの学校名", "学校コード", "文科省の学校名", "本分校",
                    "属性情報廃止年月日", "移行後の学校コード", "now の名前", "now の id"]
 NEW_HEADER = ["都道府県", "市区町村コード", "学校コード", "学校名", "学校種", "属性情報設定年月日", "from の id", "読み"]
@@ -488,15 +490,37 @@ def _read_table(path, header) -> list[dict]:
 SCHOOL_KEYS = ("gone", "now", "joined")
 
 
-def add_closures(data_dir, closures_csv=CLOSURES_CSV, new_csv=NEW_CSV) -> dict:
+def _read_manual(path) -> list[dict]:
+    """手で確かめた閉校の表。出典か確かめた日が空、日付の形が違う行があれば止める。"""
+    rows = _read_table(path, MANUAL_HEADER)
+    for r in rows:
+        if not re.fullmatch(r"\d{5}", r["市区町村コード"]) or not r["id"] or not r["学校名"]:
+            raise SystemExit(f"{path}: 市区町村コード（5桁）・id・学校名は空にしない: {r}")
+        if not r["出典"]:
+            raise SystemExit(f"{path}: 出典が空の行があります: {r['市区町村コード']} {r['学校名']}")
+        if not DATE_RE.match(r["確かめた日"]):
+            raise SystemExit(f"{path}: 確かめた日は YYYY-MM-DD: {r['市区町村コード']} {r['学校名']}")
+        if r["移行先の id"] and not r["移行先の名前"]:
+            raise SystemExit(f"{path}: 移行先の id があるのに移行先の名前が空: {r['市区町村コード']} {r['学校名']}")
+    return rows
+
+
+def add_closures(data_dir, closures_csv=CLOSURES_CSV, new_csv=NEW_CSV, manual_csv=MANUAL_CSV) -> dict:
     """表から app/data に gone・now・joined・newSchools を足す（前に付けたものは一度外してから付け直す）。
-    表の行の学校が見つからない・名前が違うときは付けず、数を返す。変わった県のファイルだけ書き直す。2回かけても同じ。"""
+    表の行の学校が見つからない・名前が違うときは付けず、数を返す。変わった県のファイルだけ書き直す。2回かけても同じ。
+    手で確かめた閉校の表（manual_csv）の学校にも gone を付ける。その県のファイルがあるのに学校が無い・名前が違うときは止める。"""
     gone_rows = _read_table(closures_csv, CLOSURES_HEADER)
     new_rows = _read_table(new_csv, NEW_HEADER)
     st = Counter()
     gone_by = {(r["都道府県"], r["id"]): r for r in gone_rows}
     if len(gone_by) != len(gone_rows):
         raise SystemExit(f"{closures_csv}: 同じ学校が2行あります")
+    for r in _read_manual(manual_csv):
+        key = (r["市区町村コード"][:2], r["id"])
+        if key in gone_by:
+            raise SystemExit(f"{manual_csv}: 文科省の一覧で決めた閉校の表（{closures_csv}）と同じ学校です: {r['学校名']}")
+        gone_by[key] = {"都道府県": key[0], "市区町村コード": r["市区町村コード"], "id": r["id"], "アプリの学校名": r["学校名"],
+                        "now の名前": r["移行先の名前"], "now の id": r["移行先の id"], "_manual": True}
     new_by_pref = defaultdict(list)
     for r in new_rows:
         new_by_pref[r["都道府県"]].append(r)
@@ -519,8 +543,13 @@ def add_closures(data_dir, closures_csv=CLOSURES_CSV, new_csv=NEW_CSV) -> dict:
             seen.add((pc, sid))
             hit = index.get(sid)
             if not hit or hit[0]["code"] != r["市区町村コード"] or hit[1]["name"] != r["アプリの学校名"]:
+                if r.get("_manual"):
+                    raise SystemExit(f"手で確かめた閉校の表の学校が app/data にありません（市区町村・id・学校名が合わない）: "
+                                     f"{r['市区町村コード']} {sid} {r['アプリの学校名']}")
                 st["gone_not_found"] += 1
                 continue
+            if r.get("_manual"):
+                st["gone_manual"] += 1
             s = hit[1]
             s["gone"] = True
             st["gone"] += 1
