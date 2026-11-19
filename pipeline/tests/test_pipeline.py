@@ -1542,3 +1542,47 @@ def test_build_all_reads_retrieved_dates_per_pref(tmp_path, capsys):
     pref = load_registered(tmp_path / "d" / "pref_99.js", "registerPref")
     assert [d["retrieved"] for d in pref["source"]["datasets"]] == ["2026-11-14"] * 3   # 学校データも使ったので3つ
     capsys.readouterr()
+
+
+# ---- 市区町村名の検査（町字データの今の名前の表 pipeline/terms/muni_names.csv）
+
+def _muni_table(path, rows):
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write("市区町村コード,名称\n" + "".join(f"{c},{n}\n" for c, n in rows))
+    return path
+
+
+def test_city_names_checked_against_muni_table(raw, tmp_path, capsys):
+    out, od = tmp_path / "data", tmp_path / "opendata"
+    table = _muni_table(tmp_path / "muni.csv", [("99101", "みほん市東区"), ("99102", "みほん市西区")])
+    rc = cli.main(["build", "--pref", "99", "--districts", str(raw / "A27-23_99.geojson"), "--mesh", str(raw / "500m_mesh_2024_99.csv"),
+                   "--out", str(out), "--opendata", str(od), "--muni-names", str(table)])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["city_name_mismatch"] == []
+
+
+@pytest.mark.parametrize("rows", [[("99101", "みほん市東区"), ("99102", "みほん市にし区")],   # 名前が違う
+                                  [("99101", "みほん市東区")]])                                # 表に無いコード
+def test_city_name_mismatch_stops_and_is_reported(raw, tmp_path, rows):
+    out, od = tmp_path / "data", tmp_path / "opendata"
+    table = _muni_table(tmp_path / "muni.csv", rows)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["build", "--pref", "99", "--districts", str(raw / "A27-23_99.geojson"), "--mesh", str(raw / "500m_mesh_2024_99.csv"),
+                  "--out", str(out), "--opendata", str(od), "--muni-names", str(table)])
+    assert "99102" in str(e.value)
+    report = json.loads((od / "report_99.json").read_text(encoding="utf-8"))
+    assert report["city_name_mismatch"] == [{"code": "99102", "name": "みほん市西区",
+                                            "muni_table": dict(rows).get("99102", "")}]
+    assert not (out / "pref_99.js").exists()  # 止めたときはアプリ用データを書かない
+
+
+def test_city_name_check_skips_prefs_not_in_table():
+    obj = {"code": "98", "cities": [{"code": "98101", "name": "どこか市"}]}
+    assert cli.check_city_names(obj, {"99101": "みほん市東区"}) == []
+    assert cli.check_city_names(obj, {"98102": "べつ市"}) == [{"code": "98101", "name": "どこか市", "muni_table": ""}]
+
+
+def test_city_names_overrides_agree_with_muni_table():
+    # 名前の直しの表（city_names.csv）の名前は、町字データの名前の表（muni_names.csv）と同じでなければならない
+    fixes, table = cli.city_names_table(), cli.muni_names_table()
+    assert fixes and all(table.get(c) == n for c, n in fixes.items())

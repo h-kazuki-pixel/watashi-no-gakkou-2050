@@ -433,6 +433,40 @@ def city_names_table(path=None) -> dict:
     return out
 
 
+MUNI_NAMES_CSV = pathlib.Path(__file__).resolve().parent / "terms" / "muni_names.csv"
+
+
+def muni_names_table(path=None) -> dict:
+    """町字データの今の市区町村名の表（市区町村コード,名称。tools/make_muni_table.py が作る）→ {コード: 名称}。表が無ければ止める。"""
+    p = pathlib.Path(path) if path else MUNI_NAMES_CSV
+    if not p.exists():
+        raise SystemExit(f"市区町村名の表がありません: {p}（tools/make_muni_table.py で作る）")
+    with open(p, encoding="utf-8-sig", newline="") as fh:
+        rd = csv.DictReader(fh)
+        if (rd.fieldnames or [])[:2] != ["市区町村コード", "名称"]:
+            raise SystemExit(f"{p} の見出しは 市区町村コード,名称 にしてください")
+        out = {}
+        for r in rd:
+            code, name = (r["市区町村コード"] or "").strip(), (r["名称"] or "").strip()
+            if not (re.fullmatch(r"\d{5}", code) and name):
+                raise SystemExit(f"{p}: 市区町村コードは5桁、名称は空にしない: {r}")
+            out[code] = name
+    return out
+
+
+def check_city_names(obj: dict, table: dict) -> list[dict]:
+    """アプリの市区町村名が、町字データの今の名前（table）と同じか。違うもの（表に無いコードも）の並びを返す。
+    表に1つもコードが無い都道府県（テストの架空の県）は確かめない。"""
+    if not any(c[:2] == obj["code"] for c in table):
+        return []
+    out = []
+    for c in obj["cities"]:
+        want = table.get(c["code"])
+        if want != c["name"]:
+            out.append({"code": c["code"], "name": c["name"], "muni_table": want or ""})
+    return out
+
+
 def _no_point_entry(city, props, fields, how) -> dict:
     """割り当たる点が無かった学校の記録（report の schools_without_points）。"""
     return {"city": city, "name": props.get(fields.name, ""),
@@ -815,6 +849,18 @@ def cmd_build(args) -> int:
         if low:
             log(f"注意: 学区でカバーできていない市区町村があります（配分率 < 0.9）: {low}")
 
+    # 市区町村名が町字データの今の名前と同じか（pipeline/terms/muni_names.csv。docs/DATA_METHOD.md「市区町村の名前」）。
+    # 違えば report の city_name_mismatch に出して止める（直すときは pipeline/terms/city_names.csv に足す）
+    report["city_name_mismatch"] = check_city_names(obj, muni_names_table(getattr(args, "muni_names", None)))
+    if report["city_name_mismatch"]:
+        if args.opendata:
+            rp = pathlib.Path(args.opendata) / f"report_{pref}.json"
+            rp.parent.mkdir(parents=True, exist_ok=True)
+            rp.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+        raise SystemExit("市区町村名が町字データの名前と違います（pipeline/terms/city_names.csv で直す）: "
+                         + ", ".join(f"{e['code']} {e['name']}（表では「{e['muni_table'] or '無し'}」）"
+                                     for e in report["city_name_mismatch"]))
+
     js = export.write_pref_js(obj, args.out)
     idx = export.update_index(args.out, obj)
     log(f"書き出し: {js}（{js.stat().st_size / 1024:.0f} KB）, {idx}")
@@ -1075,6 +1121,7 @@ def main(argv=None) -> int:
     pb.add_argument("--out", default="app/data", help="アプリ用データの出力先")
     pb.add_argument("--opendata", help="オープンデータ用 CSV と検査レポートの出力先")
     pb.add_argument("--city-names", help="（任意）行政区域コード,名称 の CSV。市区町村名を上書きする")
+    pb.add_argument("--muni-names", help="市区町村名を確かめる表（既定 pipeline/terms/muni_names.csv）")
     pb.add_argument("--k", type=int, default=4, help="メッシュ1辺あたりのサンプル点数（既定 4）")
     pb.add_argument("--min-children", type=float, default=1.0, help="2025年の推計がこれ未満の学区は出力しない")
     pb.add_argument("--fill-schools", help="（任意）国土数値情報「学校」。学区データの無い市区町村を、学校の位置からおおよその区域で補う")
@@ -1094,6 +1141,7 @@ def main(argv=None) -> int:
     pa.add_argument("--out", default="app/data")
     pa.add_argument("--opendata")
     pa.add_argument("--city-names")
+    pa.add_argument("--muni-names", help="市区町村名を確かめる表（既定 pipeline/terms/muni_names.csv）")
     pa.add_argument("--k", type=int, default=4)
     pa.add_argument("--min-children", type=float, default=1.0)
     pa.add_argument("--no-fill", action="store_true", help="学区データの無い市区町村を補わない")
