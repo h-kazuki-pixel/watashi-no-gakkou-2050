@@ -46,11 +46,15 @@ python3 tools/e2e_realdata.py           # パイプライン出力 → アプリ
       est:  [2025, 2030, …, 2070 の 6〜11歳推計],   // 10個
       ages: [0〜11歳の各歳（2025年）],              // 12個。無ければアプリが est から近似
       hist: { 年: 人数 } | 無し,
-      geom: [[[lng, lat], …]] }] }],                 // 表示用に間引いた外周
+      geom: [[[lng, lat], …]],                       // 表示用に間引いた外周
+      gone: true | 無し,      // 学区データより後に閉校した学校（文科省「学校コード」。決まりは docs/DATA_METHOD.md。人数・区域はそのまま）
+      now: { name, id | 無し } | 無し,  // gone の学校の移行先。id はアプリにあるときだけ（無ければ newSchools に入るはず）
+      joined: [{ id, name }] | 無し }] }], // この学校を移行先とする gone の学校（人数は足さない）
   missing: [{ code: "13102", name: "中央区" | "",     // 学区データも学校の位置も無く、計算できなかった市区町村（空のこともある）
-              nothandled: true | 無し }] }            // このアプリでは扱わない市区町村（福島県浜通りの7町村）
+              nothandled: true | 無し }],             // このアプリでは扱わない市区町村（福島県浜通りの7町村）
+  newSchools: [{ muni: "13101", name, kana: [...] | 無し, from: [id, …] }] | 無し }  // 統合などでできた新しい学校（人数・区域なし）。add-closures が足す
 ```
 
 ## 実データ
 
-ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。全国47都道府県が実データで動作（1,808市区町村・18,681校、うち3,601校は学校の位置から補ったおおよその区域。福島県の7町村は扱わない）。全国をまとめて作り直すのは `tools/national_dryrun.py`、扱いの一覧は `tools/coverage_doc.py` → `docs/COVERAGE.md`。元データの誤記は `pipeline/terms/source_corrections.csv` で直す。学校名の読み（`kana`）は `make-kana`（町字データと辞書。Mac で）→ `add-kana`（`build-all` の最後でも呼ぶ）で足す。決まりと手順は `docs/DATA_METHOD.md`「学校名の読み」、読みのある県は `data/index.js` に `kana: true`。作り直すときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。
+ダウンロードした zip を `data_raw/` に入れて `python3 pipeline/build_school_data.py build-all --input data_raw --out app/data --opendata opendata`。列の並びは公式コード表どおりで、テストの合成データもその並び。全国47都道府県が実データで動作（1,808市区町村・18,681校、うち3,601校は学校の位置から補ったおおよその区域。福島県の7町村は扱わない）。全国をまとめて作り直すのは `tools/national_dryrun.py`、扱いの一覧は `tools/coverage_doc.py` → `docs/COVERAGE.md`。元データの誤記は `pipeline/terms/source_corrections.csv` で直す（市区町村名は `pipeline/terms/city_names.csv`）。閉校の印（`gone`・`now`・`joined`・`newSchools`）は `make-closures`（Mac。文科省「学校コード」と `tools/capture_school_codes.py` の id → 学校コードの表）→ `add-closures`（`build-all` の最後でも呼ぶ）で足す。決まりは `docs/DATA_METHOD.md`「学区データより後に閉校した学校」。今も続いている学校に印を付けないことを最優先にし、決まりを緩めない。学校名の読み（`kana`）は `make-kana`（町字データと辞書。Mac で）→ `add-kana`（`build-all` の最後でも呼ぶ）で足す。決まりと手順は `docs/DATA_METHOD.md`「学校名の読み」、読みのある県は `data/index.js` に `kana: true`。作り直すときは `docs/DATA_METHOD.md` の「まだ確かめていないこと」を上から潰す。判定が外れたら、決め打ちに書き換えるのではなく、判定ロジックとテストのフィクスチャを実物の形に合わせて直す。

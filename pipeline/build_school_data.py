@@ -17,6 +17,10 @@
   python3 pipeline/build_school_data.py make-kana --town <町字データ.csv.zip>   # 町字データと辞書が要るのはここだけ
   python3 pipeline/build_school_data.py add-kana                               # app/data の各校に kana を足す（build-all の最後でも呼ぶ）
 
+学区データより後に閉校した学校（docs/DATA_METHOD.md「学区データより後に閉校した学校」）
+  python3 pipeline/build_school_data.py make-closures --ids <ids_XX.csv のフォルダ> --mext <文科省の CSV のフォルダ> --town <町字データ>
+  python3 pipeline/build_school_data.py add-closures                           # app/data に gone・now・joined・newSchools（build-all の最後でも呼ぶ）
+
 自動判定が合わないとき
   --name-field / --city-field / --code-field / --owner-field / --address-field で学区の属性を、
   --age-columns 'PT01_{Y},PT02_{Y},PT03_{Y}'（0〜4歳,5〜9歳,10〜14歳）でメッシュの列を明示できる。
@@ -35,7 +39,7 @@ from collections import Counter
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from school2050 import combined, corrections, estimate, export, geo, inputs, kana, readers, shapes, terms, wards  # noqa: E402
+from school2050 import closures, combined, corrections, estimate, export, geo, inputs, kana, readers, shapes, terms, wards  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -405,6 +409,30 @@ def _gap_schools(path, gap_cities: set, dfields, to_city=None, city_names=None) 
     return out
 
 
+CITY_NAMES_CSV = pathlib.Path(__file__).resolve().parent / "terms" / "city_names.csv"
+
+
+def city_names_table(path=None) -> dict:
+    """市区町村名の直しの表（行政区域コード,名称,元の名前,根拠）→ {行政区域コード: 名称}。表が無ければ止める。
+    学区データの設置主体から作った名前が誤っている・古いときに使う（docs/DATA_METHOD.md「市区町村の名前」）。"""
+    p = pathlib.Path(path) if path else CITY_NAMES_CSV
+    if not p.exists():
+        raise SystemExit(f"市区町村名の表がありません: {p}")
+    out = {}
+    with open(p, encoding="utf-8-sig", newline="") as fh:
+        rd = csv.DictReader(fh)
+        if (rd.fieldnames or [])[:4] != ["行政区域コード", "名称", "元の名前", "根拠"]:
+            raise SystemExit(f"{p} の見出しは 行政区域コード,名称,元の名前,根拠 にしてください")
+        for r in rd:
+            r = {k: (v or "").strip() for k, v in r.items() if k}
+            if not r["行政区域コード"]:
+                continue
+            if not (re.fullmatch(r"\d{5}", r["行政区域コード"]) and r["名称"] and r["元の名前"] and r["根拠"]):
+                raise SystemExit(f"{p}: 行政区域コードは5桁、ほかの列も空にしない: {r}")
+            out[r["行政区域コード"]] = r["名称"]
+    return out
+
+
 def _no_point_entry(city, props, fields, how) -> dict:
     """割り当たる点が無かった学校の記録（report の schools_without_points）。"""
     return {"city": city, "name": props.get(fields.name, ""),
@@ -647,10 +675,12 @@ def cmd_build(args) -> int:
         if code_other:
             log("注意: 学区データの学校コードが、学校の位置データでは別の市区町村の学校のものです: "
                 + ", ".join(f"{e['city']} {e['name']}（{e['code']} は {e['code_city']}）" for e in code_other))
-    overrides = None
+    # 市区町村名の直し（pipeline/terms/city_names.csv）。--city-names があれば、そちらを後から重ねる
+    overrides = city_names_table() or None
     if args.city_names:
         with open(args.city_names, encoding="utf-8-sig", newline="") as fh:
-            overrides = {r[0].strip().zfill(5): r[1].strip() for r in csv.reader(fh) if len(r) >= 2 and r[0].strip().isdigit()}
+            overrides = dict(overrides or {}, **{r[0].strip().zfill(5): r[1].strip() for r in csv.reader(fh)
+                                                 if len(r) >= 2 and r[0].strip().isdigit()})
     retrieved = getattr(args, "retrieved", None)
     if not retrieved:
         log("注意: 取得日（--retrieved）がありません。出典の取得日は空のまま出します（report の retrieved_missing）")
@@ -872,7 +902,11 @@ def cmd_build_all(args) -> int:
     # 学校名の読み（kana）を足し直す。作り直した県のファイルには kana が無いため
     k = kana.add_kana(args.out, args.kana_auto, args.kana_manual)
     log(f"読み（kana）: {k.get('schools_with_kana', 0)}校に付けた")
-    print(json.dumps({"built": results, "missing": missing, "kana": k}, ensure_ascii=False, indent=1))
+    # 閉校の印（gone・now・joined・newSchools）を足し直す。作り直した県のファイルには無いため
+    cz = closures.add_closures(args.out, args.closures, args.new_schools)
+    log(f"閉校の印: gone {cz.get('gone', 0)}校、新しい学校 {cz.get('newSchools', 0)}校"
+        + (f"（表の学校が見つからない {cz['gone_not_found']}）" if cz.get("gone_not_found") else ""))
+    print(json.dumps({"built": results, "missing": missing, "kana": k, "closures": cz}, ensure_ascii=False, indent=1))
     return 0 if results and all(v == "ok" for v in results.values()) else 1
 
 
@@ -891,6 +925,27 @@ def cmd_make_kana(args) -> int:
 def cmd_add_kana(args) -> int:
     """school_kana_auto.csv と school_kana.csv から、app/data の各校に kana を足す。"""
     print(json.dumps(kana.add_kana(args.data, args.auto, args.manual), ensure_ascii=False, indent=1))
+    return 0
+
+
+def cmd_make_closures(args) -> int:
+    """文科省「学校コード」と id → 学校コードの表から、school_closures.csv と new_schools.csv を作る。"""
+    paths = sorted(pathlib.Path(args.mext).glob("*.csv"))
+    if not paths:
+        raise SystemExit(f"{args.mext} に文科省の CSV がありません")
+    res, notes = closures.make_closures(args.data, paths, args.ids, args.town, args.closures, args.new_schools)
+    for n in notes:
+        log(f"注意: {n}")
+    log(f"書き出し: {args.closures}、{args.new_schools}")
+    print(json.dumps({"gone": len(res.gone), "now": sum(1 for g in res.gone if g[2]), "joined": len(res.joined),
+                      "newSchools": len(res.new_schools), "closed_not_marked": len(res.closed_not_marked)},
+                     ensure_ascii=False, indent=1))
+    return 0
+
+
+def cmd_add_closures(args) -> int:
+    """school_closures.csv と new_schools.csv から、app/data に gone・now・joined・newSchools を足す。"""
+    print(json.dumps(closures.add_closures(args.data, args.closures, args.new_schools), ensure_ascii=False, indent=1))
     return 0
 
 
@@ -1047,6 +1102,8 @@ def main(argv=None) -> int:
                                          "省略すると --input の中の retrieved.csv を使う")
     pa.add_argument("--kana-auto", default=str(kana.AUTO_CSV), help="学校名の読み（make-kana の出力）")
     pa.add_argument("--kana-manual", default=str(kana.MANUAL_CSV), help="学校名の読みの手直しの表")
+    pa.add_argument("--closures", default=str(closures.CLOSURES_CSV), help="閉校した学校の表（make-closures の出力）")
+    pa.add_argument("--new-schools", default=str(closures.NEW_CSV), help="新しい学校の表（make-closures の出力）")
     for opt in ("name_field", "city_field", "code_field", "owner_field", "address_field", "age_columns"):
         pa.set_defaults(**{opt: None})
     pa.set_defaults(fn=cmd_build_all)
@@ -1064,6 +1121,21 @@ def main(argv=None) -> int:
     pk.add_argument("--auto", default=str(kana.AUTO_CSV))
     pk.add_argument("--manual", default=str(kana.MANUAL_CSV))
     pk.set_defaults(fn=cmd_add_kana)
+
+    pc = sub.add_parser("make-closures", help="閉校した学校と新しい学校の表を作る（文科省「学校コード」から）")
+    pc.add_argument("--data", default="app/data")
+    pc.add_argument("--ids", required=True, help="ids_XX.csv のフォルダ（tools/capture_school_codes.py）")
+    pc.add_argument("--mext", required=True, help="文科省「学校コード」の CSV のフォルダ")
+    pc.add_argument("--town", help="町字データ（新しい学校の読みに使う）")
+    pc.add_argument("--closures", default=str(closures.CLOSURES_CSV))
+    pc.add_argument("--new-schools", default=str(closures.NEW_CSV))
+    pc.set_defaults(fn=cmd_make_closures)
+
+    pz = sub.add_parser("add-closures", help="app/data に閉校の印（gone・now・joined・newSchools）を足す")
+    pz.add_argument("--data", default="app/data")
+    pz.add_argument("--closures", default=str(closures.CLOSURES_CSV))
+    pz.add_argument("--new-schools", default=str(closures.NEW_CSV))
+    pz.set_defaults(fn=cmd_add_closures)
 
     args = ap.parse_args(argv)
     if args.cmd == "build" and not (args.districts and args.mesh):
