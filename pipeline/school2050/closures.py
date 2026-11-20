@@ -427,7 +427,7 @@ def decide(prefs: list[dict], mext: list[MextRow], id_codes: dict, hamadori=HAMA
 
 def make_closures(data_dir, mext_paths, id_codes_dir, town_path=None, closures_csv=CLOSURES_CSV, new_csv=NEW_CSV,
                   dict_reader=None, ward_table=None, combined_table=None, hamadori=None,
-                  manual_csv=None) -> tuple[Result, list[str]]:
+                  manual_csv=None, name_fix_csv=None) -> tuple[Result, list[str]]:
     """決まりで表を作り、pipeline/terms の2つの CSV を書く。(判定の結果, 文科省の一覧の注意) を返す。"""
     from . import combined, wards
     combined_table = combined.load() if combined_table is None else combined_table
@@ -442,6 +442,9 @@ def make_closures(data_dir, mext_paths, id_codes_dir, town_path=None, closures_c
         all_rows = _read_manual(manual_csv)
         bad = manual_problems(check_manual([r for r in all_rows if is_mext_absence_row(r)], prefs, mext))
         bad += living_code_problems(all_rows, mext)
+        renamed = [r for r in all_rows if manual_kind(r) == "④"]
+        if renamed:
+            bad += renamed_problems(renamed, prefs, mext, read_undecided(name_fix_csv), read_name_fixed())
         if bad:
             raise SystemExit(f"手で確かめた閉校の表（{manual_csv}）に、文科省の一覧と合わない行があります（{len(bad)}件）: " + "；".join(bad))
     res = decide(prefs, mext, read_id_codes(id_codes_dir), hamadori)
@@ -513,12 +516,13 @@ def _read_manual(path) -> list[dict]:
     return rows
 
 
-MEXT_SOURCE_HEAD = "文部科学省「学校コード」"  # 出典がこれで始まる行は「② 文科省の一覧に同じ名前の学校が無い」で書いた行
+MEXT_SOURCE_HEAD = "文部科学省「学校コード」"  # 出典がこれで始まる行は②（ただし下の④の頭で始まる行は④）
+RENAMED_SOURCE_HEAD = "文部科学省「学校コード」の学校名"  # ④ 学校コードは続いているが、国の一覧で学校名が変わっている学校
 
 
 def is_mext_absence_row(r: dict) -> bool:
     """手で確かめた閉校の表の行が「② 文科省の一覧に、同じ市区町村にも同じ県内にも同じ名前の学校が無い」で書いた行か（出典の頭で見分ける）"""
-    return r["出典"].startswith(MEXT_SOURCE_HEAD)
+    return manual_kind(r) == "②"
 
 
 A27_SOURCE_HEAD = "国土数値情報"  # ① 学区データ自身が閉校と書いている行の出典の頭
@@ -526,8 +530,11 @@ A27_SOURCE_HEAD = "国土数値情報"  # ① 学区データ自身が閉校と�
 
 def manual_kind(r: dict) -> str:
     """手で確かめた閉校の表の行の決まり（docs/DATA_METHOD.md「手で確かめた表の決まり」）：
-    ①＝学区データ自身が閉校（出典が「国土数値情報」で始まる）、②＝文科省の一覧に同じ名前が無い（「文部科学省「学校コード」」で始まる）、
+    ①＝学区データ自身が閉校（出典が「国土数値情報」で始まる）、④＝学校コードは続いているが国の一覧で学校名が変わっている
+    （「文部科学省「学校コード」の学校名」で始まる）、②＝文科省の一覧に同じ名前が無い（それ以外の「文部科学省「学校コード」」で始まる）、
     ③＝市町村などの公式の資料（それ以外）"""
+    if r["出典"].startswith(RENAMED_SOURCE_HEAD):
+        return "④"
     if r["出典"].startswith(MEXT_SOURCE_HEAD):
         return "②"
     if r["出典"].startswith(A27_SOURCE_HEAD):
@@ -537,11 +544,88 @@ def manual_kind(r: dict) -> str:
 
 def living_code_problems(rows: list[dict], mext: list) -> list[str]:
     """id が文科省の一覧の存続している行（公立・B1 か C2・本分校 1 か 2・廃止年月日なし）の学校コードと同じ行は、
-    ③（公式の資料で確かめた）でなければ止める（学校コードが引き継がれて名前だけが変わった学校）。"""
+    ③（公式の資料で確かめた）か④（国の一覧で学校名が変わっている）でなければ止める（学校コードが引き継がれて名前だけが変わった学校）。"""
     living = {m.code for m in mext if m.living}
     return [f"{r['市区町村コード']} {r['id']} {r['学校名']}：学校コードが文科省の一覧の存続している学校のもの。"
-            f"印を付けられるのは公式の資料で確かめた行（③）だけ（いまは{manual_kind(r)}）"
-            for r in rows if r["id"] in living and manual_kind(r) != "③"]
+            f"印を付けられるのは③か④の行だけ（いまは{manual_kind(r)}）"
+            for r in rows if r["id"] in living and manual_kind(r) not in ("③", "④")]
+
+
+def read_undecided(name_fix_csv) -> set:
+    """name_fix.csv（tools/name_fix_review.py）の「決められない」の対象の学校 → {(都道府県, id)}。無ければ止める。"""
+    p = pathlib.Path(name_fix_csv) if name_fix_csv else None
+    if p is None or not p.exists():
+        raise SystemExit(f"④の行を確かめるには name_fix.csv（決められない学校）が要ります: {p}")
+    with p.open(encoding="utf-8-sig", newline="") as fh:
+        return {(r["都道府県"], r["id"]) for r in csv.DictReader(fh) if r["役割"] == "対象" and r["判定"] == "決められない"}
+
+
+def read_name_fixed(corrections_csv=None) -> set:
+    """誤記の表（source_corrections.csv）で学校名を直した学校の学校コード（A27_004・P29_004 の行）"""
+    p = pathlib.Path(corrections_csv) if corrections_csv else TERMS / "source_corrections.csv"
+    with p.open(encoding="utf-8-sig", newline="") as fh:
+        return {r["学校コード"] for r in csv.DictReader(fh) if r["項目"] in ("A27_004", "P29_004")}
+
+
+def renamed_problems(rows: list[dict], prefs: list[dict], mext: list, undecided: set, name_fixed: set) -> list[str]:
+    """④の行（学校コードは続いているが、国の一覧で学校名が変わっている学校）を確かめる。外れた行ごとに理由を返す。
+      0. id が文科省の一覧の存続している行（公立・B1 か C2・本分校 1 か 2・廃止年月日なし）のコードにちょうど1行当たり、
+         その行の学校名（設置者名を外す）が表の移行先の名前と同じで、アプリの学校名とそろえても違う。移行先の id は空。
+      1. 同じ市区町村（所在地で判定）に、アプリの学校名と同じ名前の存続している行が無い（所在地から市区町村が決まらない同じ名前の行も外す）。
+      2. アプリの同じ市区町村に、移行先の名前と同じ名前の学校がほかに無い。
+      3. 決められない学校（undecided）と、誤記の表で名前を直した学校（name_fixed）に入っていない。"""
+    pref_names = {o["code"]: o["name"] for o in prefs}
+    pref_cities = {o["code"]: {c["code"]: c["name"] for c in o["cities"]} for o in prefs}
+    for o in prefs:
+        for m in o.get("missing", []):
+            if m.get("name"):
+                pref_cities[o["code"]].setdefault(m["code"], m["name"])
+    app_city = {(c["code"], s["id"]): s["name"] for o in prefs for c in o["cities"] for s in c["schools"]}
+    city_names = defaultdict(list)
+    for o in prefs:
+        for c in o["cities"]:
+            for s in c["schools"]:
+                city_names[c["code"]].append((s["id"], norm_name(s["name"])))
+    by_code = defaultdict(list)
+    living_by_name = defaultdict(list)
+    for m in mext:
+        by_code[m.code].append(m)
+        if m.living:
+            living_by_name[(m.pref, norm_name(m.name))].append(m)
+    bad = []
+    for r in rows:
+        city, sid, name, now = r["市区町村コード"], r["id"], r["学校名"], r["移行先の名前"]
+        pref = city[:2]
+        lab = f"{city} {sid} {name}"
+        why = []
+        if app_city.get((city, sid)) != name:
+            why.append("app/data に市区町村・id・学校名が合う学校が無い")
+        hits = [m for m in by_code.get(sid, []) if m.living]
+        if len(hits) != 1:
+            why.append(f"学校コードが文科省の一覧の存続している行にちょうど1行当たらない（{len(hits)}行）")
+        else:
+            m = hits[0]
+            if display_name(m.name) != now:
+                why.append(f"コードの行の学校名「{display_name(m.name)}」が移行先の名前「{now}」と違う")
+            if norm_name(m.name) == norm_name(name):
+                why.append("コードの行の学校名とアプリの学校名が、そろえると同じ（名前は変わっていない）")
+        if r["移行先の id"]:
+            why.append("移行先の id は空にする（自分自身のコード）")
+        for m in living_by_name.get((pref, norm_name(name)), []):
+            c = cities_from_address(m.addr, pref_names.get(pref, ""), pref_cities.get(pref, {})) if pref in pref_names else set()
+            if len(c) != 1:
+                why.append(f"決まり1：所在地から市区町村が決まらない同じ名前の存続している行 {m.code} {m.name}")
+            elif next(iter(c)) == city:
+                why.append(f"決まり1：同じ市区町村に同じ名前の存続している行 {m.code} {m.name}")
+        others = [i for i, n in city_names.get(city, []) if n == norm_name(now) and i != sid]
+        if others:
+            why.append(f"決まり2：アプリの同じ市区町村に移行先と同じ名前の学校がある（{'、'.join(others)}）")
+        if (pref, sid) in undecided:
+            why.append("決まり3：名前と学校コードが食い違い、決められない学校")
+        if sid in name_fixed:
+            why.append("決まり3：誤記の表で名前を直した学校")
+        bad += [f"{lab}：{w}" for w in why]
+    return bad
 
 
 def check_manual(rows: list[dict], prefs: list[dict], mext: list) -> list[dict]:

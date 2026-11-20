@@ -254,7 +254,8 @@ def run_closures() -> int:
     """閉校の印（gone・now・joined）と 新しい学校（newSchools）を 実データで。いわき市 桶売小（now なし）、
     吹田市 山田第五小（now あり・えらぶ ボタン → 山田第三小の joined）、福島市「しょうりょう」→ 松陵義務教育学校、
     手で確かめた閉校の表の いわき市 三阪小（移行先 三和小学校。アプリに無いので ボタンなし）と 小清水町 北陽小（移行先なし）、
-    南あわじ市「しち」→ 三原志知小・西淡志知小（どちらも 移行先 志知小学校、ボタンなし。西淡志知小は コードが志知小に引き継がれた学校）"""
+    南あわじ市「しち」→ 三原志知小・西淡志知小（どちらも 移行先 志知小学校、ボタンなし。西淡志知小は コードが志知小に引き継がれた学校）、
+    浜田市 今市小（④ 学校コードは続いているが 国の一覧で 学校名が 旭小学校。ボタンなし）"""
     icity, oke = _school_in_data("07", "いわき市", "桶売小学校")
     suita, yama5 = _school_in_data("27", "吹田市", "山田第五小学校")
     _, yama3 = _school_in_data("27", "吹田市", "山田第三小学校")
@@ -263,8 +264,9 @@ def run_closures() -> int:
     kcity, hokuyo = _school_in_data("01", "小清水町", "北陽小学校")
     acity, mshichi = _school_in_data("28", "南あわじ市", "三原志知小学校")
     _, sshichi = _school_in_data("28", "南あわじ市", "西淡志知小学校")
+    hcity, imaichi = _school_in_data("32", "浜田市", "今市小学校")
     for s, want in ((oke, "gone"), (yama5, "gone"), (yama3, "joined"), (misaka, "gone"), (hokuyo, "gone"),
-                    (mshichi, "gone"), (sshichi, "gone")):
+                    (mshichi, "gone"), (sshichi, "gone"), (imaichi, "gone")):
         if not s.get(want):
             print(f"  飛ばした（印がまだ app/data に無い）：{s['name']}")
             return 0
@@ -353,6 +355,16 @@ def run_closures() -> int:
                     wide_ok(f"{w}px 南あわじ市 {sch['name']}")
                     print(f"  {w}px 南あわじ市「しち」→ {got}：{sch['name']}：{t}")
                 page.screenshot(path=str(OUT / f"r-closure-shichi-{w}.png"), full_page=True)
+
+                # 浜田市 今市小（④）：「いまは「旭小学校」に なって います」、ボタンなし
+                open_city("32", hcity["code"], w)
+                page.click(f'[data-school="{imaichi["id"]}"]')
+                t = _plain(page, "#school-note .note.closure")
+                assert t == ("「今市小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。いまは「旭小学校」に なって います。"
+                             "ここに 出る 数字は、もとの「今市小学校」の 区域の 人数です。"), t
+                assert page.locator("#school-note .pick-now").count() == 0
+                wide_ok(f"{w}px 浜田市 今市小")
+                print(f"  {w}px 浜田市 今市小：{t}")
 
                 # 吹田市 山田第五小：now ありの文と「「山田第三小学校」を えらぶ」→ 山田第三小が選ばれ、joined の文
                 open_city("27", suita["code"], w)

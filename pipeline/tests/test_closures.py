@@ -536,3 +536,104 @@ def test_make_closures_stops_on_living_code_row_without_official_source(tmp_path
     kw = dict(closures_csv=tmp_path / "c.csv", new_csv=tmp_path / "n.csv", manual_csv=m, hamadori=set())
     with pytest.raises(SystemExit, match="存続している学校"):
         cl.make_closures(data, [write_mext(tmp_path, base_rows())], tmp_path, **kw)
+
+
+# ---- ④ 学校コードは続いているが、国の一覧で学校名が変わっている学校（renamed_problems）
+
+SRC4 = "文部科学省「学校コード」の学校名（令和8年5月1日時点・暫定版）：この学校コードの学校は「みほん市立なかよし小学校」。"
+
+
+def _renamed(tmp_path, extra_rows=(), extra_schools=(), row_kw=None, undecided=(), name_fixed=()):
+    """アプリの TARGET の学校名を「ふるい小学校」にした形（国の一覧ではそのコードは「なかよし小学校」）"""
+    mext, _ = cl.load_mext([write_mext(tmp_path, base_rows() + list(extra_rows))])
+    pref = base_pref()
+    for s in pref["cities"][0]["schools"]:
+        if s["id"] == TARGET:
+            s["name"] = "ふるい小学校"
+    pref["cities"][0]["schools"] += [school(i, n) for i, n in extra_schools]
+    r = _mrow("98201", TARGET, "ふるい小学校", src=SRC4)
+    r["移行先の名前"] = "なかよし小学校"
+    r.update(row_kw or {})
+    return cl.renamed_problems([r], [pref], mext, set(undecided), set(name_fixed))
+
+
+def test_renamed_kind_and_living_code_allowed(tmp_path):
+    r = _mrow("98201", TARGET, "ふるい小学校", src=SRC4)
+    assert cl.manual_kind(r) == "④" and not cl.is_mext_absence_row(r)
+    mext, _ = cl.load_mext([write_mext(tmp_path, base_rows())])
+    assert cl.living_code_problems([r], mext) == []
+
+
+def test_renamed_ok(tmp_path):
+    assert _renamed(tmp_path) == []
+
+
+def test_renamed_rule1_same_name_living_in_city(tmp_path):
+    bad = _renamed(tmp_path, extra_rows=[row("B198220100047", "みほん市立ふるい小学校")])
+    assert len(bad) == 1 and "決まり1" in bad[0]
+
+
+def test_renamed_rule1_closed_row_is_not_living(tmp_path):
+    # 同じ名前でも 廃校の行は 決まり1に 当たらない
+    assert _renamed(tmp_path, extra_rows=[row("B198220100047", "みほん市立ふるい小学校", honbun="9", abol="2024-05-01")]) == []
+
+
+def test_renamed_rule1_other_city_is_ok(tmp_path):
+    assert _renamed(tmp_path, extra_rows=[row("B198220200028", "べつ市立ふるい小学校", addr="ためし県べつ市本町1")]) == []
+
+
+def test_renamed_rule2_same_name_as_now_in_app(tmp_path):
+    bad = _renamed(tmp_path, extra_schools=[("98201-0009", "なかよし小学校")])
+    assert len(bad) == 1 and "決まり2" in bad[0]
+
+
+def test_renamed_rule3_undecided(tmp_path):
+    bad = _renamed(tmp_path, undecided=[("98", TARGET)])
+    assert len(bad) == 1 and "決まり3" in bad[0] and "決められない" in bad[0]
+
+
+def test_renamed_rule3_name_fixed(tmp_path):
+    bad = _renamed(tmp_path, name_fixed=[TARGET])
+    assert len(bad) == 1 and "誤記の表" in bad[0]
+
+
+@pytest.mark.parametrize("kw,word", [({"移行先の名前": "ちがう小学校"}, "移行先の名前"),
+                                     ({"移行先の id": TARGET}, "移行先の id"),
+                                     ({"学校名": "ちがう小学校"}, "app/data")])
+def test_renamed_row_values(tmp_path, kw, word):
+    bad = _renamed(tmp_path, row_kw=kw)
+    assert any(word in b for b in bad), bad
+
+
+def test_renamed_code_must_be_living(tmp_path):
+    mext, _ = cl.load_mext([write_mext(tmp_path, base_rows())])
+    r = _mrow("98201", GONE, "ためし小学校", src=SRC4)
+    r["移行先の名前"] = "ためし小学校"
+    bad = cl.renamed_problems([r], [base_pref()], mext, set(), set())
+    assert any("存続している行" in b for b in bad), bad
+
+
+def test_renamed_same_name_after_folding_is_not_renamed(tmp_path):
+    # 書き方の違いだけ（設置者名・ヶ）は 名前が変わっていない
+    mext, _ = cl.load_mext([write_mext(tmp_path, base_rows())])
+    r = _mrow("98201", TARGET, "なかよし小学校", src=SRC4)
+    r["移行先の名前"] = "なかよし小学校"
+    bad = cl.renamed_problems([r], [base_pref()], mext, set(), set())
+    assert any("名前は変わっていない" in b for b in bad), bad
+
+
+def test_make_closures_checks_renamed_rows(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    pref = base_pref()
+    pref["cities"][0]["schools"][1]["name"] = "ふるい小学校"
+    kana.write_pref(data / "pref_98.js", "/* test */\n", pref)
+    m = tmp_path / "m.csv"
+    m.write_text(MANUAL_HEAD + f"98201,{TARGET},ふるい小学校,ちがう小学校,,{SRC4},2026-11-20\n", encoding="utf-8")
+    nf = tmp_path / "name_fix.csv"
+    nf.write_text("都道府県,id,役割,判定\n", encoding="utf-8")
+    kw = dict(closures_csv=tmp_path / "c.csv", new_csv=tmp_path / "n.csv", manual_csv=m, hamadori=set())
+    with pytest.raises(SystemExit, match="移行先の名前"):
+        cl.make_closures(data, [write_mext(tmp_path, base_rows())], tmp_path, name_fix_csv=nf, **kw)
+    with pytest.raises(SystemExit, match="name_fix.csv"):  # 決められない学校の表が無ければ止める
+        cl.make_closures(data, [write_mext(tmp_path, base_rows())], tmp_path, name_fix_csv=tmp_path / "none.csv", **kw)

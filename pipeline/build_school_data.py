@@ -995,7 +995,7 @@ def cmd_make_closures(args) -> int:
     if not paths:
         raise SystemExit(f"{args.mext} に文科省の CSV がありません")
     res, notes = closures.make_closures(args.data, paths, args.ids, args.town, args.closures, args.new_schools,
-                                        manual_csv=args.manual)
+                                        manual_csv=args.manual, name_fix_csv=args.name_fix)
     for n in notes:
         log(f"注意: {n}")
     log(f"書き出し: {args.closures}、{args.new_schools}")
@@ -1007,7 +1007,7 @@ def cmd_make_closures(args) -> int:
 
 def cmd_check_manual(args) -> int:
     """手で確かめた閉校の表（--rows があればその表）の「② 文科省の一覧に同じ名前の学校が無い」行を、文科省の一覧で確かめる。
-    id が文科省の一覧の存続している学校のコードの行は、③（公式の資料）でなければ止める。
+    id が文科省の一覧の存続している学校のコードの行は、③（公式の資料）か④でなければ止める。④の行は決まり（DATA_METHOD.md）を確かめる。
     同じ市区町村に同じ名前の行がある・所在地から市区町村が決まらない同じ名前の行がある・app/data と合わない行を出し、1つでもあれば 1 を返す。
     県内の別の市区町村の同じ名前の行は、別の学校として一覧に出す（足してよい）。"""
     paths = sorted(pathlib.Path(args.mext).glob("*.csv"))
@@ -1025,11 +1025,16 @@ def cmd_check_manual(args) -> int:
         for m, c in x["other_city"]:
             other.append(f"{r['市区町村コード']} {r['学校名']}：別の市区町村（{c}）の {m.code} {m.name}（本分校 {m.honbun}、{m.addr}）")
     bad = closures.manual_problems(checked) + closures.living_code_problems(all_rows, mext)
+    renamed = [r for r in all_rows if closures.manual_kind(r) == "④"]
+    if renamed:
+        bad += closures.renamed_problems(renamed, closures.read_app(args.data), mext,
+                                         closures.read_undecided(args.name_fix), closures.read_name_fixed())
     bad += [f"{r['市区町村コード']} {r['id']} {r['学校名']}：文科省の一覧で決めた閉校の表と同じ学校"
             for r in (x["row"] for x in checked) if (r["市区町村コード"][:2], r["id"]) in auto]
     print(json.dumps({"rows": len(checked), "ok": len(checked) - len({b.split("：")[0] for b in bad}),
                       "not_ok": bad, "other_city_same_name": other,
-                      "living_code_rows": [f"{r['市区町村コード']} {r['id']} {r['学校名']}（{closures.manual_kind(r)}）" for r in living]},
+                      "living_code_rows": [f"{r['市区町村コード']} {r['id']} {r['学校名']}（{closures.manual_kind(r)}）" for r in living],
+                      "renamed_rows": len(renamed)},
                      ensure_ascii=False, indent=1))
     return 1 if bad else 0
 
@@ -1224,7 +1229,8 @@ def main(argv=None) -> int:
     pc.add_argument("--town", help="町字データ（新しい学校の読みに使う）")
     pc.add_argument("--closures", default=str(closures.CLOSURES_CSV))
     pc.add_argument("--new-schools", default=str(closures.NEW_CSV))
-    pc.add_argument("--manual", default=str(closures.MANUAL_CSV), help="手で確かめた閉校の表（② の行を文科省の一覧で確かめ直す）")
+    pc.add_argument("--manual", default=str(closures.MANUAL_CSV), help="手で確かめた閉校の表（②・④ の行を文科省の一覧で確かめ直す）")
+    pc.add_argument("--name-fix", default="opendata/closures_review/name_fix.csv", help="tools/name_fix_review.py の name_fix.csv（④の行の「決められない学校」を見る）")
     pc.set_defaults(fn=cmd_make_closures)
 
     pm = sub.add_parser("check-manual", help="手で確かめた閉校の表の行を、文科省「学校コード」で確かめ直す")
@@ -1233,6 +1239,7 @@ def main(argv=None) -> int:
     pm.add_argument("--manual", default=str(closures.MANUAL_CSV))
     pm.add_argument("--rows", help="確かめる行の表（手で確かめた閉校の表と同じ見出し）。無ければ --manual")
     pm.add_argument("--closures", default=str(closures.CLOSURES_CSV))
+    pm.add_argument("--name-fix", default="opendata/closures_review/name_fix.csv", help="tools/name_fix_review.py の name_fix.csv（④の行の「決められない学校」を見る）")
     pm.set_defaults(fn=cmd_check_manual)
 
     pz = sub.add_parser("add-closures", help="app/data に閉校の印（gone・now・joined・newSchools）を足す")
