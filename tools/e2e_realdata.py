@@ -252,12 +252,15 @@ def _plain(page, sel):
 
 def run_closures() -> int:
     """閉校の印（gone・now・joined）と 新しい学校（newSchools）を 実データで。いわき市 桶売小（now なし）、
-    吹田市 山田第五小（now あり・えらぶ ボタン → 山田第三小の joined）、福島市「しょうりょう」→ 松陵義務教育学校"""
+    吹田市 山田第五小（now あり・えらぶ ボタン → 山田第三小の joined）、福島市「しょうりょう」→ 松陵義務教育学校、
+    手で確かめた閉校の表の いわき市 三阪小（移行先 三和小学校。アプリに無いので ボタンなし）と 小清水町 北陽小（移行先なし）"""
     icity, oke = _school_in_data("07", "いわき市", "桶売小学校")
     suita, yama5 = _school_in_data("27", "吹田市", "山田第五小学校")
     _, yama3 = _school_in_data("27", "吹田市", "山田第三小学校")
     fcity, _ = _school_in_data("07", "福島市")
-    for s, want in ((oke, "gone"), (yama5, "gone"), (yama3, "joined")):
+    _, misaka = _school_in_data("07", "いわき市", "三阪小学校")
+    kcity, hokuyo = _school_in_data("01", "小清水町", "北陽小学校")
+    for s, want in ((oke, "gone"), (yama5, "gone"), (yama3, "joined"), (misaka, "gone"), (hokuyo, "gone")):
         if not s.get(want):
             print(f"  飛ばした（印がまだ app/data に無い）：{s['name']}")
             return 0
@@ -285,6 +288,12 @@ def run_closures() -> int:
             def wide_ok(where):
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), f"{where}：横に はみ出す"
 
+            def note_height(where):
+                """注意（#school-note）の高さと、学校の一覧の上端が画面の上から どれだけ下か（押し下げすぎないかを見る）"""
+                h = page.evaluate("""() => ({note: Math.round(document.getElementById('school-note').getBoundingClientRect().height),
+                  list: Math.round(document.getElementById('school-list').getBoundingClientRect().top + scrollY)})""")
+                print(f"    {where}：注意の高さ {h['note']}px、学校の一覧の上端 {h['list']}px")
+
             def shot_note(name):
                 page.locator("#school-note").scroll_into_view_if_needed()
                 page.screenshot(path=str(OUT / name), full_page=True)
@@ -299,8 +308,29 @@ def run_closures() -> int:
                 assert t == "「桶売小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。ほかの 学校と いっしょに なったり、学校の 名前が かわったり したのかも しれません。どうしてか、おうちの 人や 先生に きいて みよう。ここに 出る 数字は、もとの「桶売小学校」の 区域の 人数です。", t
                 assert page.locator("#school-note .pick-now").count() == 0
                 wide_ok(f"{w}px いわき市")
+                note_height(f"{w}px 桶売小")
                 shot_note(f"r-closure-okeuri-{w}.png")
                 print(f"  {w}px いわき市 桶売小：{t}")
+
+                # いわき市 三阪小（手で確かめた表。移行先 三和小学校はアプリに無いので、えらぶ ボタンは出ない）
+                page.click(f'[data-school="{misaka["id"]}"]')
+                t = _plain(page, "#school-note .note.closure")
+                assert t == ("「三阪小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。いまは「三和小学校」に なって います。"
+                             "ここに 出る 数字は、もとの「三阪小学校」の 区域の 人数です。"), t
+                assert page.locator("#school-note .pick-now").count() == 0
+                wide_ok(f"{w}px いわき市 三阪小")
+                print(f"  {w}px いわき市 三阪小：{t}")
+
+                # 小清水町 北陽小（手で確かめた表。移行先なし）
+                open_city("01", kcity["code"], w)
+                page.click(f'[data-school="{hokuyo["id"]}"]')
+                t = _plain(page, "#school-note .note.closure")
+                assert t == ("「北陽小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。ほかの 学校と いっしょに なったり、"
+                             "学校の 名前が かわったり したのかも しれません。どうしてか、おうちの 人や 先生に きいて みよう。"
+                             "ここに 出る 数字は、もとの「北陽小学校」の 区域の 人数です。"), t
+                assert page.locator("#school-note .pick-now").count() == 0
+                wide_ok(f"{w}px 小清水町")
+                print(f"  {w}px 小清水町 北陽小：{t}")
 
                 # 吹田市 山田第五小：now ありの文と「「山田第三小学校」を えらぶ」→ 山田第三小が選ばれ、joined の文
                 open_city("27", suita["code"], w)
