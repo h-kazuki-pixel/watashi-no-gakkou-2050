@@ -324,11 +324,12 @@
       var now = school.now;
       if (now && now.name) {
         return [{ kind: "now", pick: now.id && (!inCity || inCity(now.id)) ? { id: now.id, name: now.name } : null,
-          parts: ["「", { name: nm }, "」という 名前の 学校は、いまは ありません。国の 学校の 一覧では、いまは「", { name: now.name },
+          parts: ["「", { name: nm }, "」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。いまは「", { name: now.name },
             "」に なって います。ここに 出る 数字は、もとの「", { name: nm }, "」の 区域の 人数です。"] }];
       }
       return [{ kind: "gone", pick: null,
-        parts: ["「", { name: nm }, "」という 名前の 学校は、いまは ありません（国の 学校の 一覧より）。ここに 出る 数字は、もとの「",
+        parts: ["「", { name: nm }, "」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。ほかの 学校と いっしょに なったり、" +
+          "学校の 名前が かわったり したのかも しれません。どうしてか、おうちの 人や 先生に きいて みよう。ここに 出る 数字は、もとの「",
           { name: nm }, "」の 区域の 人数です。"] }];
     }
     var joined = (school.joined || []).filter(function (j) { return j && j.name; });

@@ -624,7 +624,7 @@ test("閉校の印の注意：gone＋now＋id（移行先がこの市区町村�
   const s = { id: "A", name: "あさひ小学校", gone: true, now: { name: "ひかり学園", id: "B" } };
   const n = M.closureNotes(s, (id) => id === "B");
   assert.equal(n.length, 1);
-  assert.equal(T(n[0]), "「あさひ小学校」という 名前の 学校は、いまは ありません。国の 学校の 一覧では、いまは「ひかり学園」に なって います。ここに 出る 数字は、もとの「あさひ小学校」の 区域の 人数です。");
+  assert.equal(T(n[0]), "「あさひ小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。いまは「ひかり学園」に なって います。ここに 出る 数字は、もとの「あさひ小学校」の 区域の 人数です。");
   assert.deepEqual(n[0].pick, { id: "B", name: "ひかり学園" });
   assert.equal(M.partsText(M.pickParts("ひかり学園")), "「ひかり学園」を えらぶ");
   // 学校名は { name } で返す（画面で UG.nr() に通す）。文の部分に学校名を混ぜない
@@ -639,12 +639,12 @@ test("閉校の印の注意：gone＋now で id なし（ボタンなし）", ()
   const n = M.closureNotes({ name: "あさひ小学校", gone: true, now: { name: "ひかり義務教育学校" } }, () => true);
   assert.equal(n.length, 1);
   assert.equal(n[0].pick, null);
-  assert.ok(T(n[0]).includes("いまは「ひかり義務教育学校」に なって います。"));
+  assert.ok(T(n[0]).includes("ありません。いまは「ひかり義務教育学校」に なって います。"));
 });
 
 test("閉校の印の注意：gone だけ（移行先なし）", () => {
   const n = M.closureNotes({ name: "あさひ小学校", gone: true }, () => true);
-  assert.deepEqual(n.map(T), ["「あさひ小学校」という 名前の 学校は、いまは ありません（国の 学校の 一覧より）。ここに 出る 数字は、もとの「あさひ小学校」の 区域の 人数です。"]);
+  assert.deepEqual(n.map(T), ["「あさひ小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。ほかの 学校と いっしょに なったり、学校の 名前が かわったり したのかも しれません。どうしてか、おうちの 人や 先生に きいて みよう。ここに 出る 数字は、もとの「あさひ小学校」の 区域の 人数です。"]);
   assert.equal(n[0].pick, null);
   // 日付や「廃校」「なくなった」は出さない
   assert.ok(!/廃校|なくなった|つぶれた|閉校|\d{4}/.test(T(n[0])));

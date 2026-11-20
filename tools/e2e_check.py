@@ -124,8 +124,8 @@ MARKS_ON = """() => { const c = UG.prefs['00'].cities[0], by = {}; c.schools.for
   UG.render(); }"""
 MARKS_OFF = """() => { const c = UG.prefs['00'].cities[0];
   c.schools.forEach(s => { delete s.gone; delete s.now; delete s.joined; }); delete UG.prefs['00'].newSchools; UG.render(); }"""
-NOTE_GONE_NOW = "「中央小学校」という 名前の 学校は、いまは ありません。国の 学校の 一覧では、いまは「川ぞえ小学校」に なって います。ここに 出る 数字は、もとの「中央小学校」の 区域の 人数です。"
-NOTE_GONE = "「山の上小学校」という 名前の 学校は、いまは ありません（国の 学校の 一覧より）。ここに 出る 数字は、もとの「山の上小学校」の 区域の 人数です。"
+NOTE_GONE_NOW = "「中央小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。いまは「川ぞえ小学校」に なって います。ここに 出る 数字は、もとの「中央小学校」の 区域の 人数です。"
+NOTE_GONE = "「山の上小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。ほかの 学校と いっしょに なったり、学校の 名前が かわったり したのかも しれません。どうしてか、おうちの 人や 先生に きいて みよう。ここに 出る 数字は、もとの「山の上小学校」の 区域の 人数です。"
 NOTE_JOINED = "「中央小学校」だった 区域の 子どもは、この 数字に 入って いません。"
 NEW_TAG = "あたらしい 学校。人数は まだ 計算できないよ"
 NO_HSCROLL = "() => document.documentElement.scrollWidth <= innerWidth"

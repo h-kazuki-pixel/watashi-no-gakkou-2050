@@ -296,7 +296,7 @@ def run_closures() -> int:
                 assert _plain(page, btn + " .gone-tg") == "いまは この 名前では ないよ", _plain(page, btn)
                 page.click(btn)
                 t = _plain(page, "#school-note .note.closure")
-                assert t == "「桶売小学校」という 名前の 学校は、いまは ありません（国の 学校の 一覧より）。ここに 出る 数字は、もとの「桶売小学校」の 区域の 人数です。", t
+                assert t == "「桶売小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。ほかの 学校と いっしょに なったり、学校の 名前が かわったり したのかも しれません。どうしてか、おうちの 人や 先生に きいて みよう。ここに 出る 数字は、もとの「桶売小学校」の 区域の 人数です。", t
                 assert page.locator("#school-note .pick-now").count() == 0
                 wide_ok(f"{w}px いわき市")
                 shot_note(f"r-closure-okeuri-{w}.png")
@@ -306,7 +306,7 @@ def run_closures() -> int:
                 open_city("27", suita["code"], w)
                 page.click(f'[data-school="{yama5["id"]}"]')
                 t = _plain(page, "#school-note .note.closure")
-                assert t == ("「山田第五小学校」という 名前の 学校は、いまは ありません。国の 学校の 一覧では、いまは「山田第三小学校」に なって います。"
+                assert t == ("「山田第五小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。いまは「山田第三小学校」に なって います。"
                              "ここに 出る 数字は、もとの「山田第五小学校」の 区域の 人数です。"), t
                 b = _plain(page, "#school-note .pick-now button")
                 assert b == "「山田第三小学校」を えらぶ", b
