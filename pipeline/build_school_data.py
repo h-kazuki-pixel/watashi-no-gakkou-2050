@@ -19,6 +19,7 @@
 
 学区データより後に閉校した学校（docs/DATA_METHOD.md「学区データより後に閉校した学校」）
   python3 pipeline/build_school_data.py make-closures --ids <ids_XX.csv のフォルダ> --mext <文科省の CSV のフォルダ> --town <町字データ>
+  python3 pipeline/build_school_data.py check-manual --mext <文科省の CSV のフォルダ> [--rows 足す行の表]  # 手で確かめた閉校の表を確かめ直す
   python3 pipeline/build_school_data.py add-closures                           # app/data に gone・now・joined・newSchools（build-all の最後でも呼ぶ）
 
 自動判定が合わないとき
@@ -993,7 +994,8 @@ def cmd_make_closures(args) -> int:
     paths = sorted(pathlib.Path(args.mext).glob("*.csv"))
     if not paths:
         raise SystemExit(f"{args.mext} に文科省の CSV がありません")
-    res, notes = closures.make_closures(args.data, paths, args.ids, args.town, args.closures, args.new_schools)
+    res, notes = closures.make_closures(args.data, paths, args.ids, args.town, args.closures, args.new_schools,
+                                        manual_csv=args.manual)
     for n in notes:
         log(f"注意: {n}")
     log(f"書き出し: {args.closures}、{args.new_schools}")
@@ -1001,6 +1003,30 @@ def cmd_make_closures(args) -> int:
                       "newSchools": len(res.new_schools), "closed_not_marked": len(res.closed_not_marked)},
                      ensure_ascii=False, indent=1))
     return 0
+
+
+def cmd_check_manual(args) -> int:
+    """手で確かめた閉校の表（--rows があればその表）の「② 文科省の一覧に同じ名前の学校が無い」行を、文科省の一覧で確かめる。
+    同じ市区町村に同じ名前の行がある・所在地から市区町村が決まらない同じ名前の行がある・app/data と合わない行を出し、1つでもあれば 1 を返す。
+    県内の別の市区町村の同じ名前の行は、別の学校として一覧に出す（足してよい）。"""
+    paths = sorted(pathlib.Path(args.mext).glob("*.csv"))
+    if not paths:
+        raise SystemExit(f"{args.mext} に文科省の CSV がありません")
+    mext, _notes = closures.load_mext(paths)
+    rows = [r for r in closures._read_manual(args.rows or args.manual) if closures.is_mext_absence_row(r)]
+    checked = closures.check_manual(rows, closures.read_app(args.data), mext)
+    auto = {(r["都道府県"], r["id"]) for r in closures._read_table(args.closures, closures.CLOSURES_HEADER)}
+    other = []
+    for x in checked:
+        r = x["row"]
+        for m, c in x["other_city"]:
+            other.append(f"{r['市区町村コード']} {r['学校名']}：別の市区町村（{c}）の {m.code} {m.name}（本分校 {m.honbun}、{m.addr}）")
+    bad = closures.manual_problems(checked)
+    bad += [f"{r['市区町村コード']} {r['id']} {r['学校名']}：文科省の一覧で決めた閉校の表と同じ学校"
+            for r in (x["row"] for x in checked) if (r["市区町村コード"][:2], r["id"]) in auto]
+    print(json.dumps({"rows": len(checked), "ok": len(checked) - len({b.split("：")[0] for b in bad}),
+                      "not_ok": bad, "other_city_same_name": other}, ensure_ascii=False, indent=1))
+    return 1 if bad else 0
 
 
 def cmd_add_closures(args) -> int:
@@ -1193,7 +1219,16 @@ def main(argv=None) -> int:
     pc.add_argument("--town", help="町字データ（新しい学校の読みに使う）")
     pc.add_argument("--closures", default=str(closures.CLOSURES_CSV))
     pc.add_argument("--new-schools", default=str(closures.NEW_CSV))
+    pc.add_argument("--manual", default=str(closures.MANUAL_CSV), help="手で確かめた閉校の表（② の行を文科省の一覧で確かめ直す）")
     pc.set_defaults(fn=cmd_make_closures)
+
+    pm = sub.add_parser("check-manual", help="手で確かめた閉校の表の行を、文科省「学校コード」で確かめ直す")
+    pm.add_argument("--data", default="app/data")
+    pm.add_argument("--mext", required=True, help="文科省「学校コード」の CSV のフォルダ")
+    pm.add_argument("--manual", default=str(closures.MANUAL_CSV))
+    pm.add_argument("--rows", help="確かめる行の表（手で確かめた閉校の表と同じ見出し）。無ければ --manual")
+    pm.add_argument("--closures", default=str(closures.CLOSURES_CSV))
+    pm.set_defaults(fn=cmd_check_manual)
 
     pz = sub.add_parser("add-closures", help="app/data に閉校の印（gone・now・joined・newSchools）を足す")
     pz.add_argument("--data", default="app/data")

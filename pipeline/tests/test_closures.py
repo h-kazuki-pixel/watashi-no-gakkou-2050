@@ -420,3 +420,84 @@ def test_manual_closure_other_pref_is_skipped(tmp_path):
     data, c, n, m = _manual_setup(tmp_path, "97201,B197220100010,どこか小学校,,,テストの出典,2026-11-20")
     st = cl.add_closures(data, c, n, m)
     assert st.get("gone", 0) == 0
+
+
+# ---- 手で確かめた閉校の表の「② 文科省の一覧に同じ名前の学校が無い」行を、一覧で確かめ直す（check_manual）
+
+SRC2 = "文部科学省「学校コード」（令和8年5月1日時点・暫定版）に、同じ県内に同じ名前の公立の小学校・義務教育学校が無い"
+
+
+def _mrow(city, sid, name, src=SRC2):
+    return {"市区町村コード": city, "id": sid, "学校名": name, "移行先の名前": "", "移行先の id": "", "出典": src, "確かめた日": "2026-11-20"}
+
+
+def _check(tmp_path, rows, mrows):
+    mext, _ = cl.load_mext([write_mext(tmp_path, rows)])
+    pref = base_pref()
+    pref["cities"][0]["schools"].append(school("98201-0001", "まぼろし小学校"))
+    pref["cities"][1]["schools"].append(school("98202-0001", "まぼろし小学校"))
+    return cl.check_manual(mrows, [pref], mext)
+
+
+def test_check_manual_no_same_name_is_ok(tmp_path):
+    x = _check(tmp_path, base_rows(), [_mrow("98201", "98201-0001", "まぼろし小学校")])
+    assert cl.manual_problems(x) == [] and x[0]["other_city"] == [] and x[0]["app"]
+
+
+@pytest.mark.parametrize("honbun,abol", [("1", ""), ("2", ""), ("9", "2024-05-01")])  # 本分校を問わない（廃校の行も）
+def test_check_manual_same_city_row_stops(tmp_path, honbun, abol):
+    rows = base_rows() + [row("B198220100047", "みほん市立まぼろし小学校", honbun=honbun, abol=abol)]
+    x = _check(tmp_path, rows, [_mrow("98201", "98201-0001", "まぼろし小学校")])
+    assert len(x[0]["same_city"]) == 1 and len(cl.manual_problems(x)) == 1
+
+
+def test_check_manual_same_city_c2_and_table_name(tmp_path):
+    # 義務教育学校（C2）の行も、名前のそろえ方（ヶ＝ケ・設置者名を外す）も印の決まり5と同じ
+    rows = base_rows() + [row("C298220100024", "みほん市立まぼろしケ丘小学校")]
+    x = _check(tmp_path, rows, [_mrow("98201", "98201-0001", "まぼろしヶ丘小学校")])
+    assert len(x[0]["same_city"]) == 1
+
+
+def test_check_manual_private_or_other_kind_is_ignored(tmp_path):
+    rows = base_rows() + [row("B198320100013", "私立まぼろし小学校"), row("C198220100011", "みほん市立まぼろし小学校")]
+    x = _check(tmp_path, rows, [_mrow("98201", "98201-0001", "まぼろし小学校")])
+    assert cl.manual_problems(x) == [] and x[0]["other_city"] == []
+
+
+def test_check_manual_other_city_is_reported_not_stopped(tmp_path):
+    rows = base_rows() + [row("B198220200028", "べつ市立まぼろし小学校", addr="ためし県べつ市本町1")]
+    x = _check(tmp_path, rows, [_mrow("98201", "98201-0001", "まぼろし小学校")])
+    assert cl.manual_problems(x) == [] and [c for _m, c in x[0]["other_city"]] == ["98202"]
+    # 逆に、べつ市の まぼろし小 から見れば同じ市区町村なので止まる
+    y = _check(tmp_path, rows, [_mrow("98202", "98202-0001", "まぼろし小学校")])
+    assert len(cl.manual_problems(y)) == 1
+
+
+def test_check_manual_undecided_city_stops(tmp_path):
+    rows = base_rows() + [row("B198220100056", "みほん市立まぼろし小学校", addr="ためし県どこか村1")]
+    x = _check(tmp_path, rows, [_mrow("98201", "98201-0001", "まぼろし小学校")])
+    assert len(x[0]["undecided"]) == 1 and len(cl.manual_problems(x)) == 1
+
+
+def test_check_manual_app_mismatch_stops(tmp_path):
+    x = _check(tmp_path, base_rows(), [_mrow("98201", "98201-0001", "ちがう小学校")])
+    assert not x[0]["app"] and len(cl.manual_problems(x)) == 1
+
+
+def test_make_closures_stops_on_bad_manual_row(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    pref = base_pref()
+    pref["cities"][0]["schools"].append(school("98201-0001", "まぼろし小学校"))
+    kana.write_pref(data / "pref_98.js", "/* test */\n", pref)
+    m = tmp_path / "m.csv"
+    m.write_text(MANUAL_HEAD + f"98201,98201-0001,まぼろし小学校,,,{SRC2},2026-11-20\n", encoding="utf-8")
+    kw = dict(closures_csv=tmp_path / "c.csv", new_csv=tmp_path / "n.csv", manual_csv=m, hamadori=set())
+    bad = write_mext(tmp_path, base_rows() + [row("B198220100047", "みほん市立まぼろし小学校")])
+    with pytest.raises(SystemExit, match="手で確かめた閉校の表"):
+        cl.make_closures(data, [bad], tmp_path, **kw)
+
+
+def test_is_mext_absence_row():
+    assert cl.is_mext_absence_row(_mrow("98201", "x", "y"))
+    assert not cl.is_mext_absence_row(_mrow("98201", "x", "y", src="国土数値情報 小学校区データ 令和5年度（A27-23_08）の学校コードの欄（A27_003）が「閉校」"))

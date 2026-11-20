@@ -426,7 +426,8 @@ def decide(prefs: list[dict], mext: list[MextRow], id_codes: dict, hamadori=HAMA
 # make-closures
 
 def make_closures(data_dir, mext_paths, id_codes_dir, town_path=None, closures_csv=CLOSURES_CSV, new_csv=NEW_CSV,
-                  dict_reader=None, ward_table=None, combined_table=None, hamadori=None) -> tuple[Result, list[str]]:
+                  dict_reader=None, ward_table=None, combined_table=None, hamadori=None,
+                  manual_csv=None) -> tuple[Result, list[str]]:
     """決まりで表を作り、pipeline/terms の2つの CSV を書く。(判定の結果, 文科省の一覧の注意) を返す。"""
     from . import combined, wards
     combined_table = combined.load() if combined_table is None else combined_table
@@ -436,6 +437,11 @@ def make_closures(data_dir, mext_paths, id_codes_dir, town_path=None, closures_c
             raise SystemExit(f"浜通りの扱わない町村が、表（fukushima_hamadori.csv）と closures.py で違います: {sorted(hamadori)}")
     prefs = read_app(data_dir)
     mext, notes = load_mext(mext_paths)
+    if manual_csv is not None and pathlib.Path(manual_csv).exists():
+        # 手で確かめた閉校の表のうち「② 文科省の一覧に同じ名前の学校が無い」で書いた行を、いまの一覧でもう一度確かめる
+        bad = manual_problems(check_manual([r for r in _read_manual(manual_csv) if is_mext_absence_row(r)], prefs, mext))
+        if bad:
+            raise SystemExit(f"手で確かめた閉校の表（{manual_csv}）に、文科省の一覧と合わない行があります（{len(bad)}件）: " + "；".join(bad))
     res = decide(prefs, mext, read_id_codes(id_codes_dir), hamadori)
 
     rows = []
@@ -503,6 +509,64 @@ def _read_manual(path) -> list[dict]:
         if r["移行先の id"] and not r["移行先の名前"]:
             raise SystemExit(f"{path}: 移行先の id があるのに移行先の名前が空: {r['市区町村コード']} {r['学校名']}")
     return rows
+
+
+MEXT_SOURCE_HEAD = "文部科学省「学校コード」"  # 出典がこれで始まる行は「② 文科省の一覧に同じ名前の学校が無い」で書いた行
+
+
+def is_mext_absence_row(r: dict) -> bool:
+    """手で確かめた閉校の表の行が「② 文科省の一覧に、同じ市区町村にも同じ県内にも同じ名前の学校が無い」で書いた行か（出典の頭で見分ける）"""
+    return r["出典"].startswith(MEXT_SOURCE_HEAD)
+
+
+def check_manual(rows: list[dict], prefs: list[dict], mext: list) -> list[dict]:
+    """手で確かめた閉校の表の行を、文科省の一覧（公立・B1 か C2・本分校を問わない。廃校の行も）と名前で突き合わせる。
+    名前のそろえ方は norm_name（印の決まり5と同じ）。行ごとに返す：
+      app：app/data に 市区町村・id・学校名が合う学校があるか
+      same_city：同じ市区町村（所在地で判定）の同じ名前の行（あれば足さない）
+      other_city：同じ都道府県の別の市区町村の同じ名前の行（別の学校として報告し、足す）
+      undecided：同じ都道府県で、所在地から市区町村が決まらない同じ名前の行（あれば足さない）
+    """
+    pref_names = {o["code"]: o["name"] for o in prefs}
+    pref_cities = {o["code"]: {c["code"]: c["name"] for c in o["cities"]} for o in prefs}
+    for o in prefs:
+        for m in o.get("missing", []):
+            if m.get("name"):
+                pref_cities[o["code"]].setdefault(m["code"], m["name"])
+    app = {(c["code"], s["id"]): s["name"] for o in prefs for c in o["cities"] for s in c["schools"]}
+    by_pref_name = defaultdict(list)
+    for m in mext:
+        if m.setchi == "2" and m.kind in SCHOOL_KINDS:
+            by_pref_name[(m.pref, norm_name(m.name))].append(m)
+    out = []
+    for r in rows:
+        pref, city = r["市区町村コード"][:2], r["市区町村コード"]
+        res = {"row": r, "app": app.get((city, r["id"])) == r["学校名"], "same_city": [], "other_city": [], "undecided": []}
+        for m in by_pref_name.get((pref, norm_name(r["学校名"])), []):
+            hits = cities_from_address(m.addr, pref_names.get(pref, ""), pref_cities.get(pref, {})) if pref in pref_names else set()
+            if len(hits) != 1:
+                res["undecided"].append((m, sorted(hits)))
+            elif next(iter(hits)) == city:
+                res["same_city"].append((m, city))
+            else:
+                res["other_city"].append((m, next(iter(hits))))
+        out.append(res)
+    return out
+
+
+def manual_problems(checked: list[dict]) -> list[str]:
+    """check_manual の結果のうち、足してはいけない行（app/data と合わない・同じ市区町村か決まらない所に同じ名前の行がある）"""
+    bad = []
+    for x in checked:
+        r = x["row"]
+        lab = f"{r['市区町村コード']} {r['id']} {r['学校名']}"
+        if not x["app"]:
+            bad.append(f"{lab}：app/data に市区町村・id・学校名が合う学校が無い")
+        for m, c in x["same_city"]:
+            bad.append(f"{lab}：同じ市区町村に同じ名前の行 {m.code} {m.name}（本分校 {m.honbun}、{m.addr}）")
+        for m, hits in x["undecided"]:
+            bad.append(f"{lab}：所在地から市区町村が決まらない同じ名前の行 {m.code} {m.name}（{m.addr}、候補 {hits}）")
+    return bad
 
 
 def add_closures(data_dir, closures_csv=CLOSURES_CSV, new_csv=NEW_CSV, manual_csv=MANUAL_CSV) -> dict:
