@@ -439,7 +439,9 @@ def make_closures(data_dir, mext_paths, id_codes_dir, town_path=None, closures_c
     mext, notes = load_mext(mext_paths)
     if manual_csv is not None and pathlib.Path(manual_csv).exists():
         # 手で確かめた閉校の表のうち「② 文科省の一覧に同じ名前の学校が無い」で書いた行を、いまの一覧でもう一度確かめる
-        bad = manual_problems(check_manual([r for r in _read_manual(manual_csv) if is_mext_absence_row(r)], prefs, mext))
+        all_rows = _read_manual(manual_csv)
+        bad = manual_problems(check_manual([r for r in all_rows if is_mext_absence_row(r)], prefs, mext))
+        bad += living_code_problems(all_rows, mext)
         if bad:
             raise SystemExit(f"手で確かめた閉校の表（{manual_csv}）に、文科省の一覧と合わない行があります（{len(bad)}件）: " + "；".join(bad))
     res = decide(prefs, mext, read_id_codes(id_codes_dir), hamadori)
@@ -517,6 +519,29 @@ MEXT_SOURCE_HEAD = "文部科学省「学校コード」"  # 出典がこれで�
 def is_mext_absence_row(r: dict) -> bool:
     """手で確かめた閉校の表の行が「② 文科省の一覧に、同じ市区町村にも同じ県内にも同じ名前の学校が無い」で書いた行か（出典の頭で見分ける）"""
     return r["出典"].startswith(MEXT_SOURCE_HEAD)
+
+
+A27_SOURCE_HEAD = "国土数値情報"  # ① 学区データ自身が閉校と書いている行の出典の頭
+
+
+def manual_kind(r: dict) -> str:
+    """手で確かめた閉校の表の行の決まり（docs/DATA_METHOD.md「手で確かめた表の決まり」）：
+    ①＝学区データ自身が閉校（出典が「国土数値情報」で始まる）、②＝文科省の一覧に同じ名前が無い（「文部科学省「学校コード」」で始まる）、
+    ③＝市町村などの公式の資料（それ以外）"""
+    if r["出典"].startswith(MEXT_SOURCE_HEAD):
+        return "②"
+    if r["出典"].startswith(A27_SOURCE_HEAD):
+        return "①"
+    return "③"
+
+
+def living_code_problems(rows: list[dict], mext: list) -> list[str]:
+    """id が文科省の一覧の存続している行（公立・B1 か C2・本分校 1 か 2・廃止年月日なし）の学校コードと同じ行は、
+    ③（公式の資料で確かめた）でなければ止める（学校コードが引き継がれて名前だけが変わった学校）。"""
+    living = {m.code for m in mext if m.living}
+    return [f"{r['市区町村コード']} {r['id']} {r['学校名']}：学校コードが文科省の一覧の存続している学校のもの。"
+            f"印を付けられるのは公式の資料で確かめた行（③）だけ（いまは{manual_kind(r)}）"
+            for r in rows if r["id"] in living and manual_kind(r) != "③"]
 
 
 def check_manual(rows: list[dict], prefs: list[dict], mext: list) -> list[dict]:

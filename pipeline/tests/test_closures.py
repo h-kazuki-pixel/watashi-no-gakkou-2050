@@ -501,3 +501,38 @@ def test_make_closures_stops_on_bad_manual_row(tmp_path):
 def test_is_mext_absence_row():
     assert cl.is_mext_absence_row(_mrow("98201", "x", "y"))
     assert not cl.is_mext_absence_row(_mrow("98201", "x", "y", src="国土数値情報 小学校区データ 令和5年度（A27-23_08）の学校コードの欄（A27_003）が「閉校」"))
+
+
+# ---- 学校コードが引き継がれて名前だけが変わった学校（存続しているコードの学校）は、③（公式の資料）の行だけ
+
+SRC3 = "広報みほん「ためし小学校で閉校式」 https://example.invalid/kouhou.pdf"
+SRC1 = "国土数値情報 小学校区データ 令和5年度（A27-23_98）の学校コードの欄（A27_003）が「閉校」"
+
+
+def test_manual_kind():
+    assert cl.manual_kind(_mrow("98201", "x", "y")) == "②"
+    assert cl.manual_kind(_mrow("98201", "x", "y", src=SRC1)) == "①"
+    assert cl.manual_kind(_mrow("98201", "x", "y", src=SRC3)) == "③"
+
+
+@pytest.mark.parametrize("src,stops", [(SRC3, False), (SRC1, True), (SRC2, True)])
+def test_living_code_row_needs_official_source(tmp_path, src, stops):
+    mext, _ = cl.load_mext([write_mext(tmp_path, base_rows())])
+    rows = [_mrow("98201", TARGET, "なかよし小学校", src=src)]  # TARGET は存続している行のコード
+    assert bool(cl.living_code_problems(rows, mext)) is stops
+
+
+def test_closed_code_row_is_not_living_code(tmp_path):
+    mext, _ = cl.load_mext([write_mext(tmp_path, base_rows())])
+    assert cl.living_code_problems([_mrow("98201", GONE, "ためし小学校", src=SRC1)], mext) == []  # GONE は廃校の行
+
+
+def test_make_closures_stops_on_living_code_row_without_official_source(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    kana.write_pref(data / "pref_98.js", "/* test */\n", base_pref())
+    m = tmp_path / "m.csv"
+    m.write_text(MANUAL_HEAD + f"98201,{TARGET},なかよし小学校,,,{SRC1},2026-11-20\n", encoding="utf-8")
+    kw = dict(closures_csv=tmp_path / "c.csv", new_csv=tmp_path / "n.csv", manual_csv=m, hamadori=set())
+    with pytest.raises(SystemExit, match="存続している学校"):
+        cl.make_closures(data, [write_mext(tmp_path, base_rows())], tmp_path, **kw)

@@ -1007,25 +1007,30 @@ def cmd_make_closures(args) -> int:
 
 def cmd_check_manual(args) -> int:
     """手で確かめた閉校の表（--rows があればその表）の「② 文科省の一覧に同じ名前の学校が無い」行を、文科省の一覧で確かめる。
+    id が文科省の一覧の存続している学校のコードの行は、③（公式の資料）でなければ止める。
     同じ市区町村に同じ名前の行がある・所在地から市区町村が決まらない同じ名前の行がある・app/data と合わない行を出し、1つでもあれば 1 を返す。
     県内の別の市区町村の同じ名前の行は、別の学校として一覧に出す（足してよい）。"""
     paths = sorted(pathlib.Path(args.mext).glob("*.csv"))
     if not paths:
         raise SystemExit(f"{args.mext} に文科省の CSV がありません")
     mext, _notes = closures.load_mext(paths)
-    rows = [r for r in closures._read_manual(args.rows or args.manual) if closures.is_mext_absence_row(r)]
+    all_rows = closures._read_manual(args.rows or args.manual)
+    rows = [r for r in all_rows if closures.is_mext_absence_row(r)]
     checked = closures.check_manual(rows, closures.read_app(args.data), mext)
+    living = [r for r in all_rows if r["id"] in {m.code for m in mext if m.living}]
     auto = {(r["都道府県"], r["id"]) for r in closures._read_table(args.closures, closures.CLOSURES_HEADER)}
     other = []
     for x in checked:
         r = x["row"]
         for m, c in x["other_city"]:
             other.append(f"{r['市区町村コード']} {r['学校名']}：別の市区町村（{c}）の {m.code} {m.name}（本分校 {m.honbun}、{m.addr}）")
-    bad = closures.manual_problems(checked)
+    bad = closures.manual_problems(checked) + closures.living_code_problems(all_rows, mext)
     bad += [f"{r['市区町村コード']} {r['id']} {r['学校名']}：文科省の一覧で決めた閉校の表と同じ学校"
             for r in (x["row"] for x in checked) if (r["市区町村コード"][:2], r["id"]) in auto]
     print(json.dumps({"rows": len(checked), "ok": len(checked) - len({b.split("：")[0] for b in bad}),
-                      "not_ok": bad, "other_city_same_name": other}, ensure_ascii=False, indent=1))
+                      "not_ok": bad, "other_city_same_name": other,
+                      "living_code_rows": [f"{r['市区町村コード']} {r['id']} {r['学校名']}（{closures.manual_kind(r)}）" for r in living]},
+                     ensure_ascii=False, indent=1))
     return 1 if bad else 0
 
 
