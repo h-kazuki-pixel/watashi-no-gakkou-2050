@@ -231,6 +231,43 @@ def closures(page, shot, bare, plain, problems):
         page.click(f'[data-school="{sel}"]')
 
 
+CMP_TAGS = """() => [...document.querySelectorAll('#cmp-list li')].map(li => { const c = li.cloneNode(true);
+  c.querySelectorAll('rt').forEach(r => r.remove());
+  return [c.querySelector('.nm').textContent, [...c.querySelectorAll('.tg')].map(t => t.textContent)]; })"""
+CMP_HTML = "() => document.getElementById('cmp-list').innerHTML"
+CMP_HTML_NO_GONE = """() => { const c = document.getElementById('cmp-list').cloneNode(true);
+  c.querySelectorAll('.gone-tg').forEach(t => t.remove()); return c.innerHTML; }"""
+
+
+def cmp_closures(page, shot, bare, problems):
+    """ステップ4の比較の一覧：gone の学校に ホームと同じ札。s.tag もあれば両方。印の無い学校は 今と同じ"""
+    before = page.evaluate(CMP_HTML)
+    assert "gone-tg" not in before and page.locator("#cmp-list .gone-tg").count() == 0
+    page.evaluate("""() => { const c = UG.prefs['00'].cities[0];
+      c.schools.forEach(s => { if (s.id === 'S3' || s.id === 'S5') s.gone = true; }); UG.render(); }""")
+    page.wait_for_selector("#cmp-list li")
+    tags = dict(page.evaluate(CMP_TAGS))
+    gone_tag = page.evaluate("UG.GONE_TAG")
+    assert gone_tag == "いまは この 名前では ないよ"
+    for nm in ("中央小学校", "山の上小学校"):
+        assert tags[nm][-1] == gone_tag and len(tags[nm]) == 2, (nm, tags[nm])  # s.tag と 両方
+    for nm in ("みなと小学校", "さくら台小学校", "川ぞえ小学校", "ひがし小学校"):
+        assert gone_tag not in tags[nm], (nm, tags[nm])
+    # 札を 除けば 印を 付ける 前と 1文字も 同じ（並び・数字・ほかの 札は 変えない）
+    assert page.evaluate(CMP_HTML_NO_GONE) == before, "比較の一覧が 札の ほかにも 変わった"
+    bare("step4-gone")
+    for w in (390, 820):
+        page.set_viewport_size({"width": w, "height": 820}); page.wait_for_timeout(400)
+        if not page.evaluate("() => document.documentElement.scrollWidth <= innerWidth"):
+            problems.append(f"{w}px 幅で ステップ4の 比較の一覧が 横に はみ出す")
+        page.locator("#cmp-list").scroll_into_view_if_needed()
+        shot(f"4-naze-cmp-gone-{w}", full=False)
+    page.set_viewport_size({"width": 1180, "height": 820}); page.wait_for_timeout(400)
+    page.evaluate("""() => { UG.prefs['00'].cities[0].schools.forEach(s => { delete s.gone; }); UG.render(); }""")
+    page.wait_for_selector("#cmp-list li")
+    assert page.evaluate(CMP_HTML) == before, "印を 消しても 比較の一覧が 元に もどらない"
+
+
 def main() -> int:
     problems = []
     with sync_playwright() as pw:
@@ -582,6 +619,7 @@ def main() -> int:
         page.click('.opt[data-q="q2"][data-o="1"]')
         page.click('.opt[data-q="q3"][data-o="1"]')
         shot("4-naze"); bare("step4")
+        cmp_closures(page, shot, bare, problems)
         page.click("#next-btn")
 
         page.wait_for_selector("#card svg")

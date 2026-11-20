@@ -159,7 +159,8 @@
             return '<li class="' + (o.s.id === c.school.id ? "me" : "") + '"><span class="nm">' + nr(o.s.name) + "</span>" +
               '<span class="bar"><i class="lv' + level(o.pct) + '" style="width:' + w.toFixed(1) + '%"></i></span>' +
               '<span class="pv">' + (Math.round(o.pct) > 0 ? "+" : Math.round(o.pct) < 0 ? "−" : "") + Math.abs(Math.round(o.pct)) + "%</span>" +
-              (o.s.tag ? '<span class="tg">' + o.s.tag + "</span>" : "") + "</li>";
+              (o.s.tag ? '<span class="tg">' + o.s.tag + "</span>" : "") +
+              (o.s.gone ? '<span class="tg gone-tg">' + UG.GONE_TAG + "</span>" : "") + "</li>"; // ホームの 一覧と 同じ 札
           }).join("") +
         "</ol></div>" +
         '<ul class="map-legend" aria-label="色の 意味"><li><i class="lv0"></i>ふえる・同じ</li><li><i class="lv1"></i>20%まで へる</li><li><i class="lv2"></i>40%まで へる</li><li><i class="lv3"></i>60%まで へる</li><li><i class="lv4"></i>60%より へる</li></ul>' +
