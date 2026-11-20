@@ -99,6 +99,138 @@ def check_http(browser):
     return out + [f"[http] 外部への通信: {u}" for u in ext]
 
 
+# 印の無い学校の 一覧と 注意（閉校の印を足す前の 作り方。今と1文字も変わらないことを比べる）
+OLD_HOME = """() => { const st = UG.state, p = UG.prefs[st.prefCode], c = p.cities.find(x => x.code === st.cityCode);
+  const nr = UG.nr, esc = UG.esc, num = UG.num;
+  const list = c.schools.map(s => '<button type="button" class="school-btn' + (s.id === st.schoolId ? " on" : "") + '" data-school="' + esc(s.id) + '" aria-pressed="' + (s.id === st.schoolId) + '">' +
+    '<span class="nm">' + nr(s.name) + "</span>" + (s.tag ? '<span class="tg">' + s.tag + "</span>" : "") +
+    '<span class="ct">' + num(s.est[0]) + "人</span></button>").join("");
+  const sc = c.schools.find(s => s.id === st.schoolId) || null;
+  const t = c.approx ? "" : UG.approxNote(c, sc);
+  const note = t ? '<p class="note">' + t + "</p>" : "";
+  const html = h => { const d = document.createElement('div'); d.innerHTML = UG.ruby(h); return d.innerHTML; };  // ブラウザの書き出し方にそろえる
+  return [html(list) === document.getElementById('school-list').innerHTML, html(note) === document.getElementById('school-note').innerHTML]; }"""
+
+# 合成の印（みらい市。テストの間だけ。練習用の数字は変えない）
+MARKS_ON = """() => { const c = UG.prefs['00'].cities[0], by = {}; c.schools.forEach(s => by[s.id] = s);
+  by.S3.gone = true; by.S3.now = { name: by.S4.name, id: 'S4' };
+  by.S4.joined = [{ id: 'S3', name: by.S3.name }];
+  by.S5.gone = true;
+  by.S1.gone = true; by.S1.now = { name: 'みらい義務教育学校' };
+  UG.prefs['00'].newSchools = [
+    { muni: c.code, name: 'みらい義務教育学校', kana: ['みらいぎむきょういくがっこう'], from: ['S1', 'S9'] },
+    { muni: c.code, name: 'あおば学園', kana: ['あおばがくえん'], from: [] },
+    { muni: 'zz', name: 'ほかの まちの 学校', from: ['S3'] }];
+  UG.render(); }"""
+MARKS_OFF = """() => { const c = UG.prefs['00'].cities[0];
+  c.schools.forEach(s => { delete s.gone; delete s.now; delete s.joined; }); delete UG.prefs['00'].newSchools; UG.render(); }"""
+NOTE_GONE_NOW = "「中央小学校」という 名前の 学校は、いまは ありません。国の 学校の 一覧では、いまは「川ぞえ小学校」に なって います。ここに 出る 数字は、もとの「中央小学校」の 区域の 人数です。"
+NOTE_GONE = "「山の上小学校」という 名前の 学校は、いまは ありません（国の 学校の 一覧より）。ここに 出る 数字は、もとの「山の上小学校」の 区域の 人数です。"
+NOTE_JOINED = "「中央小学校」だった 区域の 子どもは、この 数字に 入って いません。"
+NEW_TAG = "あたらしい 学校。人数は まだ 計算できないよ"
+NO_HSCROLL = "() => document.documentElement.scrollWidth <= innerWidth"
+
+
+def closures(page, shot, bare, plain, problems):
+    """閉校の印（gone・now・joined）と 新しい学校（newSchools）。みらい市は印なし → 今と同じ。合成の印 → 札・注意・ボタン・新しい学校の行"""
+    # 印の無い みらい市：一覧と注意が 今と1文字も変わらない（えらぶ前・えらんだ後）
+    sel = page.evaluate("UG.state.schoolId")
+    page.evaluate("UG.state.schoolId = null; UG.render()")
+    assert page.evaluate(OLD_HOME) == [True, True], "印の無い一覧・注意が変わった（えらぶ前）"
+    page.click('[data-school="S3"]')
+    assert page.evaluate(OLD_HOME) == [True, True], "印の無い一覧・注意が変わった（えらんだ後）"
+    assert page.locator(".gone-tg, .new-school, .note.closure, .pick-now").count() == 0
+
+    page.evaluate(MARKS_ON)
+    tags = page.evaluate("""() => [...document.querySelectorAll('#school-list .school-btn')].map(b => {
+      const c = b.cloneNode(true); c.querySelectorAll('rt').forEach(r => r.remove());
+      return [b.dataset.school, [...c.querySelectorAll('.tg')].map(t => t.textContent)]; })""")
+    by = dict(tags)
+    assert by["S3"][-1] == "いまは この 名前では ないよ" and len(by["S3"]) == 2, by["S3"]  # s.tag と 両方
+    assert by["S5"][-1] == "いまは この 名前では ないよ" and by["S1"][-1] == "いまは この 名前では ないよ", by
+    assert "いまは この 名前では ないよ" not in by["S2"] + by["S4"] + by["S6"], by
+    assert [t[0] for t in tags] == ["S1", "S2", "S3", "S4", "S5", "S6"], tags  # 並び順は 変えない
+    # 中央小（gone＋now＋id）：注意と「「川ぞえ小学校」を えらぶ」
+    assert plain("#school-note .note.closure") == NOTE_GONE_NOW, plain("#school-note .note.closure")
+    assert plain("#school-note .pick-now button") == "「川ぞえ小学校」を えらぶ", plain("#school-note .pick-now button")
+    bare("home-gone-now")
+    # 新しい学校の行：一覧の最後。選べない（ボタンではない）。人数は「—」。from は この まちの 学校だけ
+    rows = page.evaluate("""() => [...document.querySelectorAll('#school-list .new-school')].map(r => {
+      const c = r.cloneNode(true); c.querySelectorAll('rt').forEach(x => x.remove());
+      return { nm: c.querySelector('.nm').textContent, tg: c.querySelector('.tg').textContent, ct: c.querySelector('.ct').textContent,
+               tag: r.tagName, from: [...c.querySelectorAll('[data-pick]')].map(b => [b.dataset.pick, b.textContent]),
+               lab: (c.querySelector('.from .lab') || {}).textContent || null, last: !r.nextElementSibling }; })""")
+    assert [r["nm"] for r in rows] == ["みらい義務教育学校", "あおば学園"], rows
+    assert all(r["tg"] == NEW_TAG and r["ct"] == "—" and r["tag"] == "DIV" for r in rows), rows
+    assert rows[0]["from"] == [["S1", "みなと小学校"]] and rows[0]["lab"] == "もとの 学校で しらべる：", rows[0]
+    assert rows[1]["from"] == [] and rows[1]["lab"] is None and rows[1]["last"], rows[1]
+    assert page.evaluate("document.querySelector('#school-list').lastElementChild.classList.contains('new-school')")
+    shot("0-home-closure-gone-now")
+    for w in (390, 820):
+        page.set_viewport_size({"width": w, "height": 820}); page.wait_for_timeout(300)
+        if not page.evaluate(NO_HSCROLL):
+            problems.append(f"{w}px 幅で 閉校の印の ホームが 横に はみ出す")
+        page.locator("#school-note").scroll_into_view_if_needed()
+        shot(f"0-home-closure-{w}")
+    page.set_viewport_size({"width": 1180, "height": 820}); page.wait_for_timeout(300)
+    # 「えらぶ」を押すと 川ぞえ小が 選ばれ、joined の文が出る
+    page.click("#school-note .pick-now button")
+    assert page.evaluate("UG.state.schoolId") == "S4"
+    assert plain("#school-note .note.closure") == NOTE_JOINED, plain("#school-note .note.closure")
+    assert page.locator("#school-note .pick-now").count() == 0
+    bare("home-joined")
+    # 山の上小（gone だけ）
+    page.click('[data-school="S5"]')
+    assert plain("#school-note .note.closure") == NOTE_GONE, plain("#school-note .note.closure")
+    assert page.locator("#school-note .pick-now").count() == 0
+    bare("home-gone")
+    # みなと小（gone＋now で id なし）：ボタンなし
+    page.click('[data-school="S1"]')
+    assert "いまは「みらい義務教育学校」に なって います。" in plain("#school-note .note.closure")
+    assert page.locator("#school-note .pick-now").count() == 0
+    # さがす：新しい学校だけ当たるときは「見つからなかったよ」を出さない。ひらがなは読みで
+    page.fill("#q-school", "あおば")
+    assert page.locator("#school-list .school-btn").count() == 0 and page.locator("#school-list .empty").count() == 0
+    assert page.locator("#school-list .new-school").count() == 1
+    page.fill("#q-school", "みらいぎむ")
+    assert [t.strip() for t in page.locator("#school-list .new-school .nm").all_inner_texts()] == ["みらい義務教育学校"]
+    bare("home-new-search")
+    for w in (390, 820):
+        page.set_viewport_size({"width": w, "height": 820}); page.wait_for_timeout(300)
+        if not page.evaluate(NO_HSCROLL):
+            problems.append(f"{w}px 幅で 新しい学校の行が 横に はみ出す")
+        page.fill("#q-school", "みらいぎむ")  # 幅を変えると 画面を 作り直すので、さがす 文字を 入れ直す
+        page.locator("#school-list").scroll_into_view_if_needed()
+        shot(f"0-home-new-school-{w}")
+    page.set_viewport_size({"width": 1180, "height": 820}); page.wait_for_timeout(300)
+    page.fill("#q-school", "ぞぞぞ")
+    assert page.locator("#school-list .empty").count() == 1
+    # もとの 学校を 押すと その学校が 選ばれ、さがす欄は 空になる
+    page.fill("#q-school", "みらいぎむ")
+    page.click('#school-list .new-school [data-pick="S1"]')
+    assert page.evaluate("UG.state.schoolId") == "S1" and page.input_value("#q-school") == ""
+    assert page.locator("#school-list .school-btn.on").count() == 1
+    # ステップ1：同じ注意を出し、ボタンは出さない
+    page.click('[data-school="S3"]')
+    page.click("#start"); page.wait_for_selector(".now-card")
+    assert plain(".now-card .note.closure") == NOTE_GONE_NOW, plain(".now-card .note.closure")
+    assert page.locator(".now-card [data-pick], .now-card .pick-now").count() == 0
+    bare("step1-gone-now")
+    for w in (390, 820):
+        page.set_viewport_size({"width": w, "height": 820}); page.wait_for_timeout(300)
+        if not page.evaluate(NO_HSCROLL):
+            problems.append(f"{w}px 幅で ステップ1の 閉校の注意が 横に はみ出す")
+    page.set_viewport_size({"width": 1180, "height": 820}); page.wait_for_timeout(300)
+    shot("1-gimon-closure")
+    page.evaluate("UG.go('home')"); page.wait_for_selector(".school-btn")
+    page.evaluate(MARKS_OFF)
+    assert page.locator(".gone-tg, .new-school, .note.closure, .pick-now").count() == 0
+    page.evaluate("UG.state.schoolId = null; UG.render()")
+    assert page.evaluate(OLD_HOME) == [True, True], "印を消しても 一覧・注意が 元に もどらない"
+    if sel:
+        page.click(f'[data-school="{sel}"]')
+
+
 def main() -> int:
     problems = []
     with sync_playwright() as pw:
@@ -234,6 +366,8 @@ def main() -> int:
                 v.querySelectorAll('rt').forEach(r => r.remove()); return v.textContent; }""")
             if step != "step3":  # 注意はホームとステップ1に出す
                 assert "地図データに 入って いません" in plain, f"[{step}] 補った学校の注意が出ない"
+            if step == "home":  # 印の無い学校では、注意の HTML は閉校の印を足す前と同じ
+                assert page.evaluate(OLD_HOME) == [True, True], "[home] 補った学校の注意が変わった"
             assert "この まちは 学区の 地図データが ない" not in plain, f"[{step}] まち全体の注意が出ている"
             if step == "step3":  # 「この 数字は どこから 来たの？」の箱はステップ3にある
                 assert "この 学校に 近い ますめを たしている" in plain, f"[{step}] 「どこから 来たの？」の文が出ない"
@@ -244,6 +378,8 @@ def main() -> int:
             assert "地図データに 入って いません" not in plain and "この 学校に 近い ますめ" not in plain, \
                 f"[{step}] approx が無いのに注意が出る"
         with_school_approx("home")
+        closures(page, shot, bare, plain, problems)
+        page.click('[data-school="S2"]')
         page.click("#start")
 
         page.wait_for_selector(".now-card")

@@ -23,6 +23,35 @@
     if (school && school.approx) return UG.APPROX_SCHOOL_NOTE;
     return "";
   };
+  // 閉校の印（gone）の学校の一覧の札。日付は出さない。「閉校」と言い切らない（docs/DATA_METHOD.md「学区データより後に閉校した学校」）
+  UG.GONE_TAG = "いまは この 名前では ないよ";
+  UG.NEW_SCHOOL_TAG = "あたらしい 学校。人数は まだ 計算できないよ";
+  UG.NEW_SCHOOL_FROM = "もとの 学校で しらべる：";
+  /** model の parts（文字列と { name }）を HTML に。学校名は UG.nr() でふりがな処理から外す */
+  UG.partsHtml = function (parts) {
+    return parts.map(function (p) { return typeof p === "string" ? p : nr(p.name); }).join("");
+  };
+  /**
+   * 学校を選んだときの注意：おおよその区域の注意（UG.approxNote）のあとに、閉校の印の注意（M.closureNotes）。
+   * opts.skipCityApprox：まち全体の おおよその区域の注意を ほかで出しているので出さない（ホーム）
+   * opts.pick：移行先の学校が この市区町村に あるとき「「○○」を えらぶ」の ボタン（data-pick）を出す（ホームだけ）
+   * 印の無い学校では、今までの approxNote と同じ HTML になる。
+   */
+  UG.schoolNotes = function (city, school, opts) {
+    opts = opts || {};
+    var out = "";
+    var t = opts.skipCityApprox && city && city.approx ? "" : UG.approxNote(city, school);
+    if (t) out += '<p class="note">' + t + "</p>";
+    var inCity = function (id) { return !!city && city.schools.some(function (s) { return s.id === id; }); };
+    M.closureNotes(school, inCity).forEach(function (n) {
+      out += '<p class="note closure">' + UG.partsHtml(n.parts) + "</p>";
+      if (opts.pick && n.pick) {
+        out += '<p class="pick-now"><button type="button" class="btn small" data-pick="' + esc(n.pick.id) + '">' +
+          UG.partsHtml(M.pickParts(n.pick.name)) + "</button></p>";
+      }
+    });
+    return out;
+  };
 
   UG.STEPS = [
     { id: "step1", no: 1, name: "ぎもん", desc: "「何人に なる？」と 問いを 立てる" },
@@ -164,12 +193,24 @@
     }
     function listHtml() {
       var items = city.schools.filter(function (s) { return M.matchSchool(s, filter); }); // ひらがなは 読み（kana）でも さがす。読みは 画面に 出さない
-      if (!items.length) return '<p class="empty">見つからなかったよ。もう 少し みじかく 入れるか、けして 一覧から えらんでね。</p>';
+      // 統合などで できた 新しい 学校（pref.newSchools）。人数も 区域も 無いので 選べない 行にして、一覧の 最後に 出す
+      var fresh = M.newSchoolRows(pref.newSchools, city, filter);
+      if (!items.length && !fresh.length) return '<p class="empty">見つからなかったよ。もう 少し みじかく 入れるか、けして 一覧から えらんでね。</p>';
       return items.map(function (s) {
-        return '<button type="button" class="school-btn' + (s.id === st.schoolId ? " on" : "") + '" data-school="' + esc(s.id) + '" aria-pressed="' + (s.id === st.schoolId) + '">' +
+        return '<button type="button" class="school-btn' + (s.id === st.schoolId ? " on" : "") + (s.tag && s.gone ? " two-tg" : "") + '" data-school="' + esc(s.id) + '" aria-pressed="' + (s.id === st.schoolId) + '">' +
           '<span class="nm">' + nr(s.name) + "</span>" +
           (s.tag ? '<span class="tg">' + s.tag + "</span>" : "") +
+          (s.gone ? '<span class="tg gone-tg">' + UG.GONE_TAG + "</span>" : "") +
           '<span class="ct">' + num(s.est[0]) + "人</span></button>";
+      }).join("") + fresh.map(function (n) {
+        return '<div class="new-school">' +
+          '<span class="nm">' + nr(n.name) + "</span>" +
+          '<span class="tg">' + UG.NEW_SCHOOL_TAG + "</span>" +
+          '<span class="ct" aria-hidden="true">—</span>' +
+          (n.from.length ? '<span class="from"><span class="lab">' + UG.NEW_SCHOOL_FROM + "</span>" + n.from.map(function (f) {
+            return '<button type="button" class="btn small" data-pick="' + esc(f.id) + '">' + nr(f.name) + "</button>";
+          }).join("") + "</span>" : "") +
+        "</div>";
       }).join("");
     }
     function ageHtml() {
@@ -224,13 +265,11 @@
         onSelect: function (id) { select(id); }
       });
     }
-    /** 学区データのある まちで、えらんだ 学校が「おおよその 区域」の とき だけ 出す */
+    /** えらんだ 学校の 注意。学区データのある まちで「おおよその 区域」の 学校の 注意（まち全体の 注意は 上に 出す）と、閉校の 印の 注意 */
     function schoolNoteHtml() {
-      if (city.approx) return "";
       var sc = null;
       city.schools.forEach(function (s) { if (s.id === st.schoolId) sc = s; });
-      var t = UG.approxNote(city, sc);
-      return t ? '<p class="note">' + t + "</p>" : "";
+      return UG.schoolNotes(city, sc, { skipCityApprox: true, pick: true });
     }
     function select(id) {
       if (st.schoolId !== id) {
@@ -251,6 +290,14 @@
     drawMap();
 
     UG.on(root, "click", "[data-school]", function (ev, el) { select(el.getAttribute("data-school")); });
+    // 移行先の 学校・新しい 学校の もとの 学校を えらぶ。さがす 欄は 空に して、えらんだ 学校が 一覧に 見えるように する
+    UG.on(root, "click", "[data-pick]", function (ev, el) {
+      var id = el.getAttribute("data-pick"), q = UG.$("#q-school", root);
+      filter = ""; if (q) q.value = "";
+      select(id);
+      var list = UG.$("#school-list", root), on = UG.$("#school-list .school-btn.on", root);
+      if (list && on) list.scrollTop += on.getBoundingClientRect().top - list.getBoundingClientRect().top - 8;
+    });
     UG.on(root, "click", "[data-grade]", function (ev, el) {
       st.grade = el.getAttribute("data-grade"); UG.save();
       UG.$$("[data-grade]", root).forEach(function (b) {
@@ -300,7 +347,7 @@
         '<p class="big">' + nowLine + "</p>" +
         '<div class="dots" aria-hidden="true">' + dots(c.now) + "</div>" +
         '<p class="fine">● 1つ ＝ ' + unit + "人" + (c.sample ? "" : "（国の データから 計算した 2025年の 人数）") + "</p>" +
-        (UG.approxNote(c.city, c.school) ? '<p class="note">' + UG.approxNote(c.city, c.school) + "</p>" : "") +
+        UG.schoolNotes(c.city, c.school) +
         (c.city.note ? '<p class="note">' + UG.TERMS_NOTE + "</p>" : "") +
         (c.city.combined ? '<p class="note">' + UG.COMBINED_NOTE + "</p>" : "") +
         (c.sample ? "" :

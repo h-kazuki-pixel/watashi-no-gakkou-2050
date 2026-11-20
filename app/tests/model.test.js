@@ -616,3 +616,82 @@ test("見本のクラス：もっと 知りたい データが 入る。よそ�
   assert.ok(r.filter((d) => !d.prop).every((d) => d.prop === null)); // 提案の ない 子には 付けない
 });
 
+
+/* ---------------- 閉校の印（gone・now・joined）と 新しい学校 ---------------- */
+const T = (n) => M.partsText(n.parts);
+
+test("閉校の印の注意：gone＋now＋id（移行先がこの市区町村にあれば えらぶ ボタン）", () => {
+  const s = { id: "A", name: "あさひ小学校", gone: true, now: { name: "ひかり学園", id: "B" } };
+  const n = M.closureNotes(s, (id) => id === "B");
+  assert.equal(n.length, 1);
+  assert.equal(T(n[0]), "「あさひ小学校」という 名前の 学校は、いまは ありません。国の 学校の 一覧では、いまは「ひかり学園」に なって います。ここに 出る 数字は、もとの「あさひ小学校」の 区域の 人数です。");
+  assert.deepEqual(n[0].pick, { id: "B", name: "ひかり学園" });
+  assert.equal(M.partsText(M.pickParts("ひかり学園")), "「ひかり学園」を えらぶ");
+  // 学校名は { name } で返す（画面で UG.nr() に通す）。文の部分に学校名を混ぜない
+  assert.deepEqual(n[0].parts.filter((p) => typeof p !== "string").map((p) => p.name), ["あさひ小学校", "ひかり学園", "あさひ小学校"]);
+  // 移行先が この市区町村に 無ければ ボタンは出さない（文は同じ）
+  const m = M.closureNotes(s, () => false);
+  assert.equal(m[0].pick, null);
+  assert.equal(T(m[0]), T(n[0]));
+});
+
+test("閉校の印の注意：gone＋now で id なし（ボタンなし）", () => {
+  const n = M.closureNotes({ name: "あさひ小学校", gone: true, now: { name: "ひかり義務教育学校" } }, () => true);
+  assert.equal(n.length, 1);
+  assert.equal(n[0].pick, null);
+  assert.ok(T(n[0]).includes("いまは「ひかり義務教育学校」に なって います。"));
+});
+
+test("閉校の印の注意：gone だけ（移行先なし）", () => {
+  const n = M.closureNotes({ name: "あさひ小学校", gone: true }, () => true);
+  assert.deepEqual(n.map(T), ["「あさひ小学校」という 名前の 学校は、いまは ありません（国の 学校の 一覧より）。ここに 出る 数字は、もとの「あさひ小学校」の 区域の 人数です。"]);
+  assert.equal(n[0].pick, null);
+  // 日付や「廃校」「なくなった」は出さない
+  assert.ok(!/廃校|なくなった|つぶれた|閉校|\d{4}/.test(T(n[0])));
+});
+
+test("閉校の印の注意：joined（1校・2校）。gone の学校には joined の文を出さない", () => {
+  const one = M.closureNotes({ name: "ひかり小学校", joined: [{ id: "A", name: "あさひ小学校" }] });
+  assert.deepEqual(one.map(T), ["「あさひ小学校」だった 区域の 子どもは、この 数字に 入って いません。"]);
+  const two = M.closureNotes({ name: "ひかり小学校", joined: [{ id: "A", name: "あさひ小学校" }, { id: "C", name: "つばさ小学校" }] });
+  assert.deepEqual(two.map(T), ["「あさひ小学校」「つばさ小学校」だった 区域の 子どもは、この 数字に 入って いません。"]);
+  assert.equal(two[0].pick, null);
+  const both = M.closureNotes({ name: "ひかり小学校", gone: true, joined: [{ id: "A", name: "あさひ小学校" }] });
+  assert.equal(both.length, 1);
+  assert.equal(both[0].kind, "gone");
+});
+
+test("閉校の印の注意：どれも無い学校・学校なしは []", () => {
+  assert.deepEqual(M.closureNotes({ name: "ひかり小学校" }), []);
+  assert.deepEqual(M.closureNotes({ name: "ひかり小学校", joined: [] }), []);
+  assert.deepEqual(M.closureNotes(null), []);
+});
+
+test("新しい学校：選んでいる市区町村だけ。from は その市区町村に ある学校だけ（無ければ []）", () => {
+  const city = { code: "99101", schools: [{ id: "A", name: "あさひ小学校" }, { id: "C", name: "つばさ小学校" }] };
+  const news = [
+    { muni: "99101", name: "ひかり学園", kana: ["ひかりがくえん"], from: ["A", "C", "Z"] },
+    { muni: "99101", name: "そら義務教育学校", kana: ["そらぎむきょういくがっこう"], from: [] },
+    { muni: "99101", name: "うみ学園" },
+    { muni: "99102", name: "ほし学園", from: ["A"] }
+  ];
+  const rows = M.newSchoolRows(news, city, "");
+  assert.deepEqual(rows.map((r) => r.name), ["ひかり学園", "そら義務教育学校", "うみ学園"]);
+  assert.deepEqual(rows[0].from, [{ id: "A", name: "あさひ小学校" }, { id: "C", name: "つばさ小学校" }]);
+  assert.deepEqual(rows[1].from, []);
+  assert.deepEqual(rows[2].from, []);
+  assert.deepEqual(M.newSchoolRows(undefined, city, ""), []);
+  assert.deepEqual(M.newSchoolRows(news, null, ""), []);
+});
+
+test("新しい学校：さがす欄は matchSchool と同じ決まり（名前・ひらがなは読み・片仮名）", () => {
+  const city = { code: "07201", schools: [] };
+  const news = [{ muni: "07201", name: "松陵義務教育学校", kana: ["しょうりょうぎむきょういくがっこう"], from: [] },
+    { muni: "07201", name: "西学園", from: [] }];
+  assert.deepEqual(M.newSchoolRows(news, city, "しょうりょう").map((r) => r.name), ["松陵義務教育学校"]);
+  assert.deepEqual(M.newSchoolRows(news, city, "ショウリョウ").map((r) => r.name), ["松陵義務教育学校"]);
+  assert.deepEqual(M.newSchoolRows(news, city, "松陵").map((r) => r.name), ["松陵義務教育学校"]);
+  assert.deepEqual(M.newSchoolRows(news, city, "ぎむ").map((r) => r.name), ["松陵義務教育学校"]);
+  assert.deepEqual(M.newSchoolRows(news, city, "にし").map((r) => r.name), []); // 読みの無い学校は 名前だけ
+  assert.deepEqual(M.newSchoolRows(news, city, "ぞぞ"), []);
+});

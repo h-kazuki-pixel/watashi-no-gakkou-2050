@@ -308,6 +308,60 @@
     return false;
   }
 
+  /* ---------------- 閉校の印（gone・now・joined）と 新しい学校（newSchools） ----------------
+   * 文は「国の 学校の 一覧に そう 書いて ある」という事実として書く。日付は出さない（データの日付は閉校した日ではない）。
+   * 「閉校」と言い切らない（同じ場所で義務教育学校などに変わった学校も入る）。
+   * 返す文は parts の配列：文字列は そのままの文（画面で ふりがなを 付ける）、{ name } は学校名（画面で UG.nr() に通す）。
+   */
+  /**
+   * 学校の印の注意。school.gone → 移行先（now）の有無で1つ。gone でなく joined があれば1つ。どれも無ければ []。
+   * pick：移行先がアプリにある（now.id が inCity(id) で真）ときの { id, name }。ボタンを出すかは画面が決める。
+   */
+  function closureNotes(school, inCity) {
+    if (!school) return [];
+    var nm = school.name;
+    if (school.gone) {
+      var now = school.now;
+      if (now && now.name) {
+        return [{ kind: "now", pick: now.id && (!inCity || inCity(now.id)) ? { id: now.id, name: now.name } : null,
+          parts: ["「", { name: nm }, "」という 名前の 学校は、いまは ありません。国の 学校の 一覧では、いまは「", { name: now.name },
+            "」に なって います。ここに 出る 数字は、もとの「", { name: nm }, "」の 区域の 人数です。"] }];
+      }
+      return [{ kind: "gone", pick: null,
+        parts: ["「", { name: nm }, "」という 名前の 学校は、いまは ありません（国の 学校の 一覧より）。ここに 出る 数字は、もとの「",
+          { name: nm }, "」の 区域の 人数です。"] }];
+    }
+    var joined = (school.joined || []).filter(function (j) { return j && j.name; });
+    if (joined.length) {
+      var parts = [];
+      joined.forEach(function (j) { parts.push("「", { name: j.name }, "」"); });
+      parts.push("だった 区域の 子どもは、この 数字に 入って いません。");
+      return [{ kind: "joined", pick: null, parts: parts }];
+    }
+    return [];
+  }
+  /** 移行先の学校を えらぶ ボタンの文 */
+  function pickParts(name) { return ["「", { name: name }, "」を えらぶ"]; }
+  /** parts を ふつうの文字列に（テストと、文の比べ合わせ用） */
+  function partsText(parts) {
+    return parts.map(function (p) { return typeof p === "string" ? p : p.name; }).join("");
+  }
+  /**
+   * 選んでいる市区町村の 新しい学校のうち、入力 q に合うもの（matchSchool と同じ決まり：名前と、平仮名なら読み）。
+   * from は その市区町村に ある学校だけを { id, name } にして返す（無ければ []）。
+   */
+  function newSchoolRows(newSchools, city, q) {
+    if (!city) return [];
+    var byId = {};
+    (city.schools || []).forEach(function (s) { byId[s.id] = s; });
+    return (newSchools || []).filter(function (n) {
+      return n && n.muni === city.code && matchSchool(n, q);
+    }).map(function (n) {
+      return { name: n.name, from: (n.from || []).filter(function (id) { return byId[id]; })
+        .map(function (id) { return { id: id, name: byId[id].name }; }) };
+    });
+  }
+
   /* ---------------- クラスモード：よそうのコード ----------------
    * 子どもの よそうを、先生に わたす 1つながりの文字列にする。
    *   WG50- ＋ 中身（base64url） ＋ 確かめ用（CRC-32 を base64url で 6文字）
@@ -814,7 +868,8 @@
     pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan,
     simValue: simValue, simPoints: simPoints, agesFor: agesFor, ageStep: ageStep,
     elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
-    schoolQuery: schoolQuery, matchSchool: matchSchool, foldText: foldText, isKanaQuery: isKanaQuery,
+    schoolQuery: schoolQuery, matchSchool: matchSchool,
+    closureNotes: closureNotes, pickParts: pickParts, partsText: partsText, newSchoolRows: newSchoolRows, foldText: foldText, isKanaQuery: isKanaQuery,
     CODE_HEAD: CODE_HEAD, encodeGuess: encodeGuess, decodeGuess: decodeGuess, extractGuesses: extractGuesses,
     makeMark: makeMark, commonCalib: commonCalib, SORT_IDS: SORT_IDS, mayorBase: mayorBase, mayorLabel: mayorLabel,
     sortTally: sortTally, ideaTally: ideaTally, ownIdeas: ownIdeas, wishTally: wishTally, ownWishes: ownWishes,

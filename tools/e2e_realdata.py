@@ -9,6 +9,7 @@
            福島県（07）では、浜通りの扱わない7町村が選べない（disabled）ことと、出す市町村の注意書きも確かめる。
   --kana ：ひらがなで学校をさがす（龍王小・竜王北小・西新小・三入小・横浜市）。引数なしのときも最後に回す。
            読み（kana）がまだ app/data に無ければ「飛ばした」と出す。
+  --closures：閉校の印と新しい学校（いわき市 桶売小、吹田市 山田第五小 → 山田第三小、福島市「しょうりょう」）。引数なしのときも回す。
 """
 import argparse
 import os
@@ -243,6 +244,101 @@ def run_kana() -> int:
     return 1 if errors else 0
 
 
+def _plain(page, sel):
+    """sel の 文字（ふりがなを 除く）"""
+    return page.evaluate("""s => { const e = document.querySelector(s); if (!e) return null; const c = e.cloneNode(true);
+      c.querySelectorAll('rt').forEach(r => r.remove()); return c.textContent; }""", sel)
+
+
+def run_closures() -> int:
+    """閉校の印（gone・now・joined）と 新しい学校（newSchools）を 実データで。いわき市 桶売小（now なし）、
+    吹田市 山田第五小（now あり・えらぶ ボタン → 山田第三小の joined）、福島市「しょうりょう」→ 松陵義務教育学校"""
+    icity, oke = _school_in_data("07", "いわき市", "桶売小学校")
+    suita, yama5 = _school_in_data("27", "吹田市", "山田第五小学校")
+    _, yama3 = _school_in_data("27", "吹田市", "山田第三小学校")
+    fcity, _ = _school_in_data("07", "福島市")
+    for s, want in ((oke, "gone"), (yama5, "gone"), (yama3, "joined")):
+        if not s.get(want):
+            print(f"  飛ばした（印がまだ app/data に無い）：{s['name']}")
+            return 0
+    errors = []
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        shutil.copytree(ROOT / "app", td / "app")
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(**LAUNCH)
+            page = browser.new_page(viewport={"width": 1180, "height": 820})
+            page.on("pageerror", lambda e: errors.append(str(e)))
+
+            def open_city(pref, code, width):
+                page.set_viewport_size({"width": width, "height": 820})
+                page.goto((td / "app" / "index.html").as_uri())
+                page.evaluate("UG.resetState()")
+                page.reload()
+                page.wait_for_selector("#sel-pref")
+                page.select_option("#sel-pref", pref)
+                page.wait_for_function(f"UG.state.prefCode === '{pref}'")
+                page.select_option("#sel-city", code)
+                page.wait_for_function(f"UG.state.cityCode === '{code}'")
+                page.wait_for_timeout(300)
+
+            def wide_ok(where):
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), f"{where}：横に はみ出す"
+
+            def shot_note(name):
+                page.locator("#school-note").scroll_into_view_if_needed()
+                page.screenshot(path=str(OUT / name), full_page=True)
+
+            for w in (820, 390):
+                # いわき市 桶売小：札と、now なしの文
+                open_city("07", icity["code"], w)
+                btn = f'[data-school="{oke["id"]}"]'
+                assert _plain(page, btn + " .gone-tg") == "いまは この 名前では ないよ", _plain(page, btn)
+                page.click(btn)
+                t = _plain(page, "#school-note .note.closure")
+                assert t == "「桶売小学校」という 名前の 学校は、いまは ありません（国の 学校の 一覧より）。ここに 出る 数字は、もとの「桶売小学校」の 区域の 人数です。", t
+                assert page.locator("#school-note .pick-now").count() == 0
+                wide_ok(f"{w}px いわき市")
+                shot_note(f"r-closure-okeuri-{w}.png")
+                print(f"  {w}px いわき市 桶売小：{t}")
+
+                # 吹田市 山田第五小：now ありの文と「「山田第三小学校」を えらぶ」→ 山田第三小が選ばれ、joined の文
+                open_city("27", suita["code"], w)
+                page.click(f'[data-school="{yama5["id"]}"]')
+                t = _plain(page, "#school-note .note.closure")
+                assert t == ("「山田第五小学校」という 名前の 学校は、いまは ありません。国の 学校の 一覧では、いまは「山田第三小学校」に なって います。"
+                             "ここに 出る 数字は、もとの「山田第五小学校」の 区域の 人数です。"), t
+                b = _plain(page, "#school-note .pick-now button")
+                assert b == "「山田第三小学校」を えらぶ", b
+                wide_ok(f"{w}px 吹田市")
+                shot_note(f"r-closure-yamada5-{w}.png")
+                page.click("#school-note .pick-now button")
+                assert page.evaluate("UG.state.schoolId") == yama3["id"]
+                assert _plain(page, "#school-list .school-btn.on .nm") == "山田第三小学校"
+                j = _plain(page, "#school-note .note.closure")
+                assert j == "「山田第五小学校」だった 区域の 子どもは、この 数字に 入って いません。", j
+                wide_ok(f"{w}px 吹田市 山田第三小")
+                shot_note(f"r-closure-yamada3-{w}.png")
+                print(f"  {w}px 吹田市 山田第五小：{t} ／ ボタン {b} → 山田第三小：{j}")
+
+                # 福島市「しょうりょう」→ 新しい学校 松陵義務教育学校 の行（選べない）。「見つからなかったよ」は出さない
+                open_city("07", fcity["code"], w)
+                page.fill("#q-school", "しょうりょう")
+                rows = [_plain(page, f"#school-list .new-school:nth-of-type({i + 1}) .nm") for i in range(page.locator("#school-list .new-school").count())]
+                assert "松陵義務教育学校" in rows, rows
+                assert _plain(page, "#school-list .new-school .tg") == "あたらしい 学校。人数は まだ 計算できないよ"
+                assert page.locator("#school-list .empty").count() == 0
+                assert page.locator("#school-list .new-school button").count() == 0  # from が 空
+                assert "しょうりょう" not in page.inner_text("#school-list"), "読みが画面に出ている"
+                wide_ok(f"{w}px 福島市")
+                page.locator("#school-list").scroll_into_view_if_needed()
+                page.screenshot(path=str(OUT / f"r-closure-shoryo-{w}.png"), full_page=True)
+                print(f"  {w}px 福島市「しょうりょう」→ 学校 {page.locator('#school-list .school-btn').count()}校、新しい学校 {rows}")
+            browser.close()
+    print("errors:", errors)
+    return 1 if errors else 0
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
@@ -323,6 +419,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("out", nargs="?", help="画面の保存先（省略すると tools/_shots）")
     ap.add_argument("--prefs", help="実データで確かめる県（「県コード」か「県コード:市区町村名」、カンマ区切り）")
+    ap.add_argument("--closures", action="store_true", help="閉校の印と新しい学校（実データ）だけを確かめる")
     ap.add_argument("--kana", action="store_true", help="ひらがなで学校をさがす（実データ）だけを確かめる。読みが無ければ飛ばす")
     a = ap.parse_args()
     if a.out:
@@ -330,10 +427,14 @@ if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     if a.kana:
         sys.exit(run_kana())
+    if a.closures:
+        sys.exit(run_closures())
     if a.prefs:
         sys.exit(run_real(a.prefs.split(",")))
     rc = main()
     print("ひらがなで さがす（app/data の実データ）")
     rc = rc or run_kana()
+    print("閉校の印と新しい学校（app/data の実データ）")
+    rc = rc or run_closures()
     print("クラスで 見る（app/data の実データ）")
     sys.exit(rc or run_class_real())
