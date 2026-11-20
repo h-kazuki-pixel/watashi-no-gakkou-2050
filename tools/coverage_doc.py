@@ -10,9 +10,12 @@ import collections
 import csv
 import json
 import pathlib
+import re
 import sys
 
 PREF_NAMES = None
+# 文科省の学校名の先頭の設置者名（「○○市立」など。pipeline/school2050/closures.py の OWNER_RE と同じ形）
+OWNER_RE = re.compile(r"^(?:北海道|東京都|大阪府|京都府|[^\s]{2,3}県)?(?:[^市区町村郡\s]{1,6}郡)?[^\s]{1,10}?[市区町村]立(?=.)")
 
 
 def load_pref(path: pathlib.Path) -> dict:
@@ -26,6 +29,8 @@ def main() -> int:
     ap.add_argument("--od", default="opendata")
     ap.add_argument("--out", default="docs/COVERAGE.md")
     ap.add_argument("--causes", default="tools/unassigned_causes.csv", help="どの学校にも入らなかった子どもの多い市区町村と、地図で見た原因")
+    ap.add_argument("--name-fix", help="tools/name_fix_review.py の name_fix.csv（無ければ OD/closures_review/name_fix.csv）。"
+                    "「決められない」のまま残った学校を一覧にする")
     a = ap.parse_args()
     app, od = pathlib.Path(a.app), pathlib.Path(a.od)
     prefs = sorted(p.stem.split("_")[1] for p in app.glob("pref_[0-9][0-9].js"))
@@ -233,6 +238,41 @@ def main() -> int:
     w("|---|---|---|---|---|---|")
     L.extend(fixes)
     w("")
+    # 学区データの名前と学校コードが食い違い、どちらの学校の区域か決められない学校（name_fix.csv の「決められない」の対象の行）
+    nf = pathlib.Path(a.name_fix) if a.name_fix else od / "closures_review" / "name_fix.csv"
+    if not nf.exists():
+        sys.exit(f"{nf} がありません（tools/name_fix_review.py の出力）")
+    by_id = {}
+    for p in prefs:
+        obj = load_pref(app / f"pref_{p}.js")
+        for c in obj["cities"]:
+            for s in c["schools"]:
+                by_id[(p, s["id"])] = (obj["name"], c["name"], s)
+    und = []
+    with open(nf, encoding="utf-8-sig", newline="") as fh:
+        for r in csv.DictReader(fh):
+            if r["役割"] != "対象" or r["判定"] != "決められない":
+                continue
+            hit = by_id.get((r["都道府県"], r["id"]))
+            if not hit or hit[2]["name"] != r["アプリの学校名"]:
+                sys.exit(f"{nf}: app/data に無い学校です（id・学校名が合わない）: {r['都道府県']} {r['id']} {r['アプリの学校名']}")
+            code_name = OWNER_RE.sub("", r["文科省のそのコードの名前"], count=1)
+            und.append((r["都道府県"], hit[0], hit[1], r["アプリの学校名"], code_name, r["決められない理由"], hit[2]["est"][0]))
+    if und:
+        w("## 学区データの名前と学校コードが食い違い、どちらの学校の区域か決められない学校")
+        w("")
+        w("学区データの1つの区域に、ある学校の名前と、別の学校の学校コード・所在地が入っています。どちらの学校の点もその区域の中にあり、"
+          "区域がどちらの学校のものか、2校分なのかを、手元のデータでは決められません。名前も数字も変えていません。")
+        w("")
+        w("決め方は DATA_METHOD.md「元データの行政区域コードや学校コードの誤り」の5（表は `tools/name_fix_review.py` の `name_fix.csv`）。"
+          "理由の (a) はアプリの学校名の学校、(b) は学校コードが指す学校（どちらも国土数値情報「学校」の点と所在地）。")
+        w("")
+        w("| 都道府県 | 市区町村 | アプリの学校名 | 学校コードが指す学校 | 決められない理由 | 人数（2025年） |")
+        w("|---|---|---|---|---|---|")
+        for x in sorted(und, key=lambda x: (x[0], x[2], x[3])):
+            w(f"| {x[1]} | {x[2]} | {x[3]} | {x[4]} | {x[5]} | {x[6]:,.1f} |")
+        w(f"\n計 {len(und)} 校。")
+        w("")
     pathlib.Path(a.out).write_text("\n".join(L), encoding="utf-8")
     print(f"{a.out}: {len(prefs)} 都道府県、{tot['cities']} 市区町村、{tot['schools']} 校（おおよその区域 {tot['approx_schools']}）")
     return 0
