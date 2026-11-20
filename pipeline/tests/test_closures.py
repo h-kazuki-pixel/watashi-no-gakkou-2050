@@ -637,3 +637,41 @@ def test_make_closures_checks_renamed_rows(tmp_path):
         cl.make_closures(data, [write_mext(tmp_path, base_rows())], tmp_path, name_fix_csv=nf, **kw)
     with pytest.raises(SystemExit, match="name_fix.csv"):  # 決められない学校の表が無ければ止める
         cl.make_closures(data, [write_mext(tmp_path, base_rows())], tmp_path, name_fix_csv=tmp_path / "none.csv", **kw)
+
+
+# ---- 移行先の id の学校のアプリの名前が、移行先の名前と違えば止める（ボタンの名前と選ばれる学校の名前の食い違い）
+
+def test_add_closures_stops_on_now_id_name_mismatch(tmp_path):
+    res = run(tmp_path)
+    cpath, npath = write_tables(tmp_path, res)
+    data = tmp_path / "data"
+    data.mkdir()
+    pref = base_pref()
+    for s in pref["cities"][0]["schools"]:
+        if s["id"] == TARGET:
+            s["name"] = "ふるい小学校"  # 国の一覧では TARGET は「なかよし小学校」
+    kana.write_pref(data / "pref_98.js", "/* test */\n", pref)
+    before = (data / "pref_98.js").read_text(encoding="utf-8")
+    with pytest.raises(SystemExit, match="移行先の id の学校の名前"):
+        cl.add_closures(data, cpath, npath)
+    assert (data / "pref_98.js").read_text(encoding="utf-8") == before  # 書く前に止まる
+
+
+def test_add_closures_renamed_target_drops_now_id(tmp_path):
+    # 移行先の学校に印（④）が付いていれば、移行先の id を付けない（名前の食い違いが無くなる）
+    res = run(tmp_path)
+    cpath, npath = write_tables(tmp_path, res)
+    data = tmp_path / "data"
+    data.mkdir()
+    pref = base_pref()
+    for s in pref["cities"][0]["schools"]:
+        if s["id"] == TARGET:
+            s["name"] = "ふるい小学校"
+    kana.write_pref(data / "pref_98.js", "/* test */\n", pref)
+    m = tmp_path / "m.csv"
+    m.write_text(MANUAL_HEAD + f"98201,{TARGET},ふるい小学校,なかよし小学校,,{SRC4},2026-11-20\n", encoding="utf-8")
+    st = cl.add_closures(data, cpath, npath, m)
+    _h, obj = kana.read_pref(data / "pref_98.js")
+    s = {x["id"]: x for c in obj["cities"] for x in c["schools"]}
+    assert s[GONE]["now"] == {"name": "なかよし小学校"} and "joined" not in s[TARGET] and s[TARGET]["gone"] is True
+    assert st["now_id_not_found"] == 1

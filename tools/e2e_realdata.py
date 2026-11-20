@@ -255,7 +255,8 @@ def run_closures() -> int:
     吹田市 山田第五小（now あり・えらぶ ボタン → 山田第三小の joined）、福島市「しょうりょう」→ 松陵義務教育学校、
     手で確かめた閉校の表の いわき市 三阪小（移行先 三和小学校。アプリに無いので ボタンなし）と 小清水町 北陽小（移行先なし）、
     南あわじ市「しち」→ 三原志知小・西淡志知小（どちらも 移行先 志知小学校、ボタンなし。西淡志知小は コードが志知小に引き継がれた学校）、
-    浜田市 今市小（④ 学校コードは続いているが 国の一覧で 学校名が 旭小学校。ボタンなし）"""
+    浜田市 今市小（④ 学校コードは続いているが 国の一覧で 学校名が 旭小学校。ボタンなし）、
+    いわき市 入遠野小（移行先 遠野小学校の id の学校は 上遠野小学校（④）なので、ボタンなし）"""
     icity, oke = _school_in_data("07", "いわき市", "桶売小学校")
     suita, yama5 = _school_in_data("27", "吹田市", "山田第五小学校")
     _, yama3 = _school_in_data("27", "吹田市", "山田第三小学校")
@@ -265,8 +266,9 @@ def run_closures() -> int:
     acity, mshichi = _school_in_data("28", "南あわじ市", "三原志知小学校")
     _, sshichi = _school_in_data("28", "南あわじ市", "西淡志知小学校")
     hcity, imaichi = _school_in_data("32", "浜田市", "今市小学校")
+    _, iritono = _school_in_data("07", "いわき市", "入遠野小学校")
     for s, want in ((oke, "gone"), (yama5, "gone"), (yama3, "joined"), (misaka, "gone"), (hokuyo, "gone"),
-                    (mshichi, "gone"), (sshichi, "gone"), (imaichi, "gone")):
+                    (mshichi, "gone"), (sshichi, "gone"), (imaichi, "gone"), (iritono, "gone")):
         if not s.get(want):
             print(f"  飛ばした（印がまだ app/data に無い）：{s['name']}")
             return 0
@@ -326,6 +328,15 @@ def run_closures() -> int:
                 assert page.locator("#school-note .pick-now").count() == 0
                 wide_ok(f"{w}px いわき市 三阪小")
                 print(f"  {w}px いわき市 三阪小：{t}")
+
+                # いわき市 入遠野小：移行先の 遠野小学校は アプリでは「上遠野小学校」（④の印）なので、ボタンは出さない
+                page.click(f'[data-school="{iritono["id"]}"]')
+                t = _plain(page, "#school-note .note.closure")
+                assert t == ("「入遠野小学校」という 名前の 学校は、いまの 国の 学校の 一覧に ありません。いまは「遠野小学校」に なって います。"
+                             "ここに 出る 数字は、もとの「入遠野小学校」の 区域の 人数です。"), t
+                assert page.locator("#school-note .pick-now").count() == 0
+                wide_ok(f"{w}px いわき市 入遠野小")
+                print(f"  {w}px いわき市 入遠野小：{t}")
 
                 # 小清水町 北陽小（手で確かめた表。移行先なし）
                 open_city("01", kcity["code"], w)

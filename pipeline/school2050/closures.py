@@ -741,6 +741,12 @@ def add_closures(data_dir, closures_csv=CLOSURES_CSV, new_csv=NEW_CSV, manual_cs
         for tid, lst in joined.items():
             index[tid][1]["joined"] = sorted(lst, key=lambda x: x["id"])
             st["joined"] += 1
+        # 移行先の id の学校のアプリの名前が、移行先の名前と違えば止める（ボタンの名前と、選ばれる学校の名前が食い違うため）
+        mism = [f"{c['code']} {s['name']} → now「{s['now']['name']}」の id {s['now']['id']} はアプリでは「{index[s['now']['id']][1]['name']}」"
+                for c in obj["cities"] for s in c["schools"]
+                if s.get("now", {}).get("id") and index[s["now"]["id"]][1]["name"] != s["now"]["name"]]
+        if mism:
+            raise SystemExit(f"{p.name}: 移行先の id の学校の名前が移行先の名前と違います（{len(mism)}件）: " + "；".join(mism))
         city_codes = {c["code"] for c in obj["cities"]}
         ns = []
         for r in sorted(new_by_pref.get(pref, []), key=lambda r: (r["市区町村コード"], r["学校コード"])):
