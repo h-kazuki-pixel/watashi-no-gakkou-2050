@@ -263,21 +263,35 @@ def main():
 
     all_feats = json.load(open(args.districts, encoding="utf-8"))["features"]
     pts = json.load(open(args.schools, encoding="utf-8"))["features"]
-    # 誤記の訂正の表（DATA_METHOD.md「元データの…誤り」の4）：学校コード（P29_002）が合う地物の項目が「元の値」なら「直した値」にする。
-    # 「直した値」なら何もしない。どちらでもなければ止める。表が無ければ止める
+    # 誤記の訂正の表（DATA_METHOD.md「元データの…誤り」の4）：地物の項目が「元の値」なら「直した値」にする。
+    # 「直した値」なら何もしない。どちらでもなければ止める。表が無ければ止める。
+    # 当てる地物は、どの行も当てる前の値で決める。学校名などの行は学校コードで、学校コードそのものを直す行は
+    # 「見分ける学校名」と、学校コードが元の値か直した値かで見分ける（入れかえの組）。1つの地物の同じ項目に2行当たれば止める
     if not FIX_TABLE.exists():
         sys.exit(f"誤記の訂正の表がありません: {FIX_TABLE}")
     with open(FIX_TABLE, encoding="utf-8-sig", newline="") as fh:
         fix_rows = list(csv.DictReader(fh))
     fixed = []
     # データ名 P29 は学校の位置（学校コード P29_002）、A27 は学区（学校コード A27_003。学校ごとにまとめる前）に当てる
-    for data, key, feats_ in (("P29", "P29_002", pts), ("A27", "A27_003", all_feats)):
+    for data, key, nkey, feats_ in (("P29", "P29_002", "P29_004", pts), ("A27", "A27_003", "A27_004", all_feats)):
         fixes = [r for r in fix_rows if r["データ名"] == data]
+        todo = []
         for f in feats_:
+            before = dict(f["properties"])
+            mine = []
             for r in fixes:
-                if f["properties"].get(key) != r["学校コード"]:
-                    continue
-                v = f["properties"].get(r["項目"])
+                if r["項目"] == key:
+                    ok = before.get(nkey) == (r.get("見分ける学校名") or "") and before.get(key) in (r["元の値"], r["直した値"])
+                else:
+                    ok = before.get(key) == r["学校コード"]
+                if ok:
+                    if any(m["項目"] == r["項目"] for m in mine):
+                        sys.exit(f"誤記の訂正の表で、1つの地物に {r['項目']} を直す行が2つ当たります: {data} {before.get(key)}")
+                    mine.append(r)
+            todo.append((f, before, mine))
+        for f, before, mine in todo:
+            for r in mine:
+                v = before.get(r["項目"])
                 if v == r["元の値"]:
                     f["properties"][r["項目"]] = r["直した値"]
                     fixed.append((data, r["学校コード"], r["項目"], r["直した値"]))

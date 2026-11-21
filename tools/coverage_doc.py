@@ -35,6 +35,7 @@ def main() -> int:
     app, od = pathlib.Path(a.app), pathlib.Path(a.od)
     prefs = sorted(p.stem.split("_")[1] for p in app.glob("pref_[0-9][0-9].js"))
     rows, approx_c, nothandled, excluded, filled, closed, nopts, geom, fixes, notes = [], [], [], [], [], [], [], [], [], []
+    a27_fixed = set()  # 誤記の表で直した A27 の学校コード（県, 元の学校コード）
     nonsch = []  # 学校ではない区域（report の non_school_areas）
     small = []  # 学区データに無く、補っても2025年の推計が1人未満で出ない学校
     tot = collections.Counter()
@@ -86,6 +87,8 @@ def main() -> int:
                     "overlapping_parts": f"重なりを1回だけ数えた（約{e.get('overlap_km2', '?')}km²）"}.get(kind, "")
                 geom.append((pname, names.get(e["city"], e["city"]), e["name"], kind, how))
         for e in rep.get("source_corrections", []):
+            if e["data"] == "A27":
+                a27_fixed.add((p, e["code"]))
             fixes.append(f"| {pname} | {e['data']} | {e['code']} | {e['field']} | {e['from']} | {e['to']} |")
         left.append((p, pname, rep.get("unassigned_2025", 0.0), rep.get("mesh_children_2025", 0.0)))
         for e in rep.get("non_school_areas") or []:
@@ -248,10 +251,13 @@ def main() -> int:
         for c in obj["cities"]:
             for s in c["schools"]:
                 by_id[(p, s["id"])] = (obj["name"], c["name"], s)
-    und = []
+    und, fixed_later = [], []
     with open(nf, encoding="utf-8-sig", newline="") as fh:
         for r in csv.DictReader(fh):
             if r["役割"] != "対象" or r["判定"] != "決められない":
+                continue
+            if (r["都道府県"], r["学校コード"]) in a27_fixed:  # あとで公式の資料で確かめ、誤記の表で直した学校
+                fixed_later.append(r)
                 continue
             hit = by_id.get((r["都道府県"], r["id"]))
             if not hit or hit[2]["name"] != r["アプリの学校名"]:
@@ -262,10 +268,15 @@ def main() -> int:
         w("## 学区データの名前と学校コードが食い違い、どちらの学校の区域か決められない学校")
         w("")
         w("学区データの1つの区域に、ある学校の名前と、別の学校の学校コードが入っています。学校の位置や所在地を照らしても、"
-          "区域がどちらの学校のものか、2校分なのかを、手元のデータでは決められません（理由は学校ごとに書いています）。名前も数字も変えていません。")
+          "区域がどちらの学校のものか、2校分なのかを、手元のデータでは決められません（理由は学校ごとに書いています）。名前も数字も変えていません。"
+          "区域が2校分の範囲を含むとみられるもの（江東区）や、分かれる前の区域の可能性があるものがあります。")
+        if fixed_later:
+            w("")
+            w(f"自動の判定で決められなかった学校のうち {len(fixed_later)} 校は、市町村や県の公式の資料で1校ずつ確かめて、"
+              "誤記の訂正の表で直しました（上の「訂正した元データの誤記」。ここには入れていません）。")
         w("")
         w("決め方は DATA_METHOD.md「元データの行政区域コードや学校コードの誤り」の5（表は `tools/name_fix_review.py` の `name_fix.csv`）。"
-          "理由の (a) はアプリの学校名の学校、(b) は学校コードが指す学校（どちらも国土数値情報「学校」の点と所在地）。")
+          "理由の (a) は学校コードが指す学校、(b) は学区データの名前と同じ名前の学校（どちらも国土数値情報「学校」の点と所在地）。")
         w("")
         w("| 都道府県 | 市区町村 | アプリの学校名 | 学校コードが指す学校 | 決められない理由 | 人数（2025年） |")
         w("|---|---|---|---|---|---|")

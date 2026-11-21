@@ -1371,6 +1371,75 @@ def test_source_correction_table_rules(tmp_path):
         corrections.load(_fix_table(tmp_path / "e.csv", [["P29", "B1X", "P29_004", "a", "b", ""]]))
 
 
+def _fix_table7(path, rows):
+    path.write_text("データ名,学校コード,項目,元の値,直した値,根拠,見分ける学校名\n" + "".join(",".join(r) + "\n" for r in rows),
+                    encoding="utf-8")
+    return path
+
+
+def _a27(code, name):
+    return readers.Feature({"A27_003": code, "A27_004": name}, [np.zeros((1, 2))])
+
+
+SWAP = [["A27", "B1A", "A27_003", "B1A", "B1B", "入れかえ", "おざき小学校"],
+        ["A27", "B1B", "A27_003", "B1B", "B1A", "入れかえ", "やました小学校"]]
+
+
+def test_source_correction_swap_codes(tmp_path):
+    """学校コードの入れかえの2行：どの行も当てる前の値で地物を決めるので、1行目で直した地物を2行目が直し戻さない"""
+    from school2050 import corrections
+    rows = corrections.load(_fix_table7(tmp_path / "t.csv", SWAP))
+    feats = [_a27("B1A", "おざき小学校"), _a27("B1B", "やました小学校"),
+             _a27("B1C", "やました小学校")]                            # 同じ名前の別の学校（コードがどちらでもない）は当てない
+    corrections.reset()
+    assert corrections.apply(feats, "A27", rows) == 2
+    assert [f.props["A27_003"] for f in feats] == ["B1B", "B1A", "B1C"]
+    assert [(e["code"], e["to"]) for e in corrections.applied()] == [("B1A", "B1B"), ("B1B", "B1A")]
+    # 直したあとの元データ（2つともすでに入れかわっている）では何もしない
+    done = [_a27("B1B", "おざき小学校"), _a27("B1A", "やました小学校")]
+    assert corrections.apply(done, "A27", rows) == 0
+    assert [f.props["A27_003"] for f in done] == ["B1B", "B1A"]
+    # 片方だけ直った元データでも、残りの1つだけを直す
+    half = [_a27("B1B", "おざき小学校"), _a27("B1B", "やました小学校")]
+    assert corrections.apply(half, "A27", rows) == 1
+    assert [f.props["A27_003"] for f in half] == ["B1B", "B1A"]
+
+
+def test_source_correction_code_and_name_rows_use_original_values(tmp_path):
+    """学校名の行は元の学校コードで、学校コードの行は元の学校名で当たる（同じ地物の2つの項目を直せる）"""
+    from school2050 import corrections
+    rows = corrections.load(_fix_table7(tmp_path / "t.csv", [
+        ["A27", "B1A", "A27_004", "まちがい小学校", "ただしい小学校", "名前", ""],
+        ["A27", "B1A", "A27_003", "B1A", "C2A", "コード", "まちがい小学校"]]))
+    feats = [_a27("B1A", "まちがい小学校")]
+    assert corrections.apply(feats, "A27", rows) == 2
+    assert feats[0].props == {"A27_003": "C2A", "A27_004": "ただしい小学校"}
+
+
+def test_source_correction_two_rows_same_field_stop(tmp_path):
+    from school2050 import corrections
+    rows = corrections.load(_fix_table7(tmp_path / "t.csv", [
+        ["A27", "B1A", "A27_003", "B1A", "B1B", "1つ目", "おざき小学校"],
+        ["A27", "B1B", "A27_003", "B1B", "B1C", "2つ目", "おざき小学校"]]))
+    with pytest.raises(SystemExit, match="2つ当たります"):
+        corrections.apply([_a27("B1B", "おざき小学校")], "A27", rows)   # 1行目は直した値、2行目は元の値で当たる
+    rows = corrections.load(_fix_table7(tmp_path / "u.csv", [
+        ["A27", "B1A", "A27_004", "a小学校", "b小学校", "1つ目", ""],
+        ["A27", "B1A", "A27_004", "a小学校", "c小学校", "2つ目", ""]]))
+    with pytest.raises(SystemExit, match="2つ当たります"):
+        corrections.apply([_a27("B1A", "a小学校")], "A27", rows)
+
+
+def test_source_correction_code_row_needs_name(tmp_path):
+    from school2050 import corrections
+    with pytest.raises(ValueError, match="見分ける学校名"):
+        corrections.load(_fix_table7(tmp_path / "t.csv", [["A27", "B1A", "A27_003", "B1A", "B1B", "根拠", ""]]))
+    with pytest.raises(ValueError, match="見分ける学校名"):
+        corrections.load(_fix_table7(tmp_path / "u.csv", [["A27", "B1A", "A27_004", "a", "b", "根拠", "a"]]))
+    with pytest.raises(ValueError, match="元の値が学校コード"):
+        corrections.load(_fix_table7(tmp_path / "v.csv", [["A27", "B1A", "A27_003", "B1X", "B1B", "根拠", "a"]]))
+
+
 def test_district_school_with_other_city_code_keeps_name_and_gets_local_id(tmp_path, capsys):
     # 古河市の形：学区データ（99101 にし小）の学校コードが、P29 では別の市区町村（99102）の学校のもの
     import zipfile
