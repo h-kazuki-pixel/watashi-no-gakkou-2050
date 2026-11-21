@@ -456,8 +456,9 @@ def iter_schools(data_dir):
 # make-kana
 
 def make_kana(data_dir, town_path, out_csv=AUTO_CSV, doc_path=None, dict_reader=None,
-              ward_table=None, combined_table=None, town_label=None) -> dict:
-    """読みを作り、school_kana_auto.csv（と KANA.md）を書く。集計を返す。"""
+              ward_table=None, combined_table=None, town_label=None, manual_csv=MANUAL_CSV) -> dict:
+    """読みを作り、school_kana_auto.csv（と KANA.md）を書く。集計を返す。
+    KANA.md には、手直しの表（school_kana.csv）で読みを決めた学校も書く（自動の読みはそのまま。add-kana が表の読みに置き換える）。"""
     ward_table = wards.load() if ward_table is None else ward_table
     combined_table = combined.load() if combined_table is None else combined_table
     idx = read_towns(town_path)
@@ -465,6 +466,14 @@ def make_kana(data_dir, town_path, out_csv=AUTO_CSV, doc_path=None, dict_reader=
         dict_reader = SudachiReader()
     rows, stats = [], Counter()
     differ, none = [], []
+    manual: dict = {}  # 学校コード → ([読み], 理由)
+    if manual_csv and pathlib.Path(manual_csv).exists():
+        for r in _read_table(manual_csv, MANUAL_HEADER):
+            if r["学校コード"]:
+                ks, why = manual.setdefault(r["学校コード"], ([], r.get("理由", "")))
+                if r["読み"] and r["読み"] not in ks:
+                    ks.append(r["読み"])
+    manual_rows = []
     cache: dict = {}
     for pref, city, s in iter_schools(data_dir):
         code = city["code"]
@@ -472,6 +481,9 @@ def make_kana(data_dir, town_path, out_csv=AUTO_CSV, doc_path=None, dict_reader=
             cache[code] = idx.lookup(town_codes(code, ward_table, combined_table))
         rs = school_readings(s["name"], cache[code], dict_reader)
         stats["schools"] += 1
+        if s["id"] in manual:
+            ks, why = manual[s["id"]]
+            manual_rows.append((pref, city["name"], s["id"], s["name"], "・".join(r for r, _ in rs), "・".join(ks), why))
         if not rs:
             stats["none"] += 1
             none.append((pref, city["name"], s["id"], s["name"]))
@@ -490,9 +502,10 @@ def make_kana(data_dir, town_path, out_csv=AUTO_CSV, doc_path=None, dict_reader=
         w.writerows(rows)
     res = {"schools": stats["schools"], "town": stats["town"], "dict": stats["dict"], "name": stats["name"],
            "none": stats["none"], "two_readings": stats["two"], "town_rows": idx.rows,
-           "town_files": idx.files, "differ": differ, "unreadable": none}
+           "town_files": idx.files, "differ": differ, "unreadable": none, "manual": manual_rows}
     if doc_path:
         write_kana_doc(doc_path, res, town_label or pathlib.Path(town_path).name)
+    res.pop("manual")
     return res
 
 
@@ -511,11 +524,18 @@ def write_kana_doc(path, res: dict, town_label: str) -> None:
          f"| 計 | {res['schools']:,} |", "",
          f"町字と辞書で読みが違い、2つ残した学校：{res['two_readings']:,}校", "",
          "## 町字と辞書で読みが違った学校", "",
-         "| 都道府県 | 市区町村 | 学校コード | 学校名 | 町字の読み | 辞書の読み |", "|---|---|---|---|---|---|"]
-    L += [f"| {PREF_NAMES.get(p, p)} | {c} | {i} | {n} | {a} | {b} |" for p, c, i, n, a, b in res["differ"]]
+         "手で決めた読みは、手直しの表（`pipeline/terms/school_kana.csv`）の読み。`add-kana` は自動の読みの代わりにこれを使う。", "",
+         "| 都道府県 | 市区町村 | 学校コード | 学校名 | 町字の読み | 辞書の読み | 手で決めた読み |", "|---|---|---|---|---|---|---|"]
+    man = {m[2]: m[5] for m in res.get("manual", [])}
+    L += [f"| {PREF_NAMES.get(p, p)} | {c} | {i} | {n} | {a} | {b} | {man.get(i, '')} |" for p, c, i, n, a, b in res["differ"]]
     L += ["", "## 読みが作れなかった学校", "",
-          "| 都道府県 | 市区町村 | 学校コード | 学校名 |", "|---|---|---|---|"]
-    L += [f"| {PREF_NAMES.get(p, p)} | {c} | {i} | {n} |" for p, c, i, n in res["unreadable"]]
+          "| 都道府県 | 市区町村 | 学校コード | 学校名 | 手で決めた読み |", "|---|---|---|---|---|"]
+    L += [f"| {PREF_NAMES.get(p, p)} | {c} | {i} | {n} | {man.get(i, '')} |" for p, c, i, n in res["unreadable"]]
+    L += ["", "## 手で決めた読み（school_kana.csv）", "",
+          f"手直しの表で読みを決めた学校：{len(res.get('manual', [])):,}校（アプリにある学校だけ）。自動の読みは make-kana が作ったもの。", "",
+          "| 都道府県 | 市区町村 | 学校コード | 学校名 | 自動の読み | 手で決めた読み | 理由 |", "|---|---|---|---|---|---|---|"]
+    L += [f"| {PREF_NAMES.get(p, p)} | {c} | {i} | {n} | {a or '（なし）'} | {k} | {w} |"
+          for p, c, i, n, a, k, w in sorted(res.get("manual", []))]
     pathlib.Path(path).write_text("\n".join(L) + "\n", encoding="utf-8")
 
 

@@ -385,3 +385,18 @@ def test_add_kana_accepts_old_small_ke_rows_and_counts_them(tmp_path):
     manual.write_text("学校コード,読み,理由\nA1,りゅうおうゖた,手直し\n", encoding="utf-8")
     with pytest.raises(SystemExit):
         kana.add_kana(data, auto, manual)  # 手直しの表では受け付けない
+
+
+def test_kana_doc_records_manual_readings(tmp_path):
+    """KANA.md に、手直しの表で読みを決めた学校（自動の読み・手で決めた読み・理由）を書く。自動の表は変えない"""
+    man = tmp_path / "manual.csv"
+    man.write_text("学校コード,読み,理由\nA1,りゅうおうきたしょうがっこう,テスト\nZZ,ないしょうがっこう,アプリに無い\n", encoding="utf-8")
+    data = write_data(tmp_path / "data")
+    out = tmp_path / "auto.csv"
+    kana.make_kana(data, write_town(tmp_path / "town.csv"), out, tmp_path / "KANA.md", dict_reader=fake_dict,
+                   ward_table=WARD_TABLE, combined_table={}, manual_csv=man)
+    doc = (tmp_path / "KANA.md").read_text(encoding="utf-8")
+    sec = doc.split("## 手で決めた読み（school_kana.csv）")[1]
+    assert "手直しの表で読みを決めた学校：1校" in sec
+    assert "| A1 |" in sec and "| りゅうおうきたしょうがっこう | テスト |" in sec and "ZZ" not in sec
+    assert [r["学校コード"] for r in csv.DictReader(out.open(encoding="utf-8"))].count("A1") == 1
