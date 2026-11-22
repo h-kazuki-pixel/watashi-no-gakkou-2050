@@ -38,7 +38,7 @@
     { id: "c5", t: "発表や リーダーの 出番が ふえる" },
     { id: "c6", t: "いろいろな 考えの 友だちに 出会いにくい" },
     { id: "c7", t: "使わない 教室が ふえる" },
-    { id: "c8", t: "学校が いっしょに なると、通う 道が 遠く なる 子が いる" }
+    { id: "c8", t: "学校が いっしょに なると、友だちが ふえるが、通う 道が 遠く なる 子も いる" }
   ];
 
   UG.IDEAS = [
@@ -118,8 +118,6 @@
     }).filter(function (o) { return o.pct != null; }).sort(function (a, b) { return b.pct - a.pct; });
     var barMax = 60;
     others.forEach(function (o) { barMax = Math.max(barMax, Math.abs(o.pct)); });
-    var rank = 0;
-    others.forEach(function (o, i) { if (o.s.id === c.school.id) rank = i + 1; });
 
     root.innerHTML = UG.ruby(
       head(4, "「なぜ？」を さぐろう", "数字の うらには しくみが ある。3つの 実験と クイズで たしかめよう。") +
@@ -151,8 +149,10 @@
 
       '<section class="card compare-card">' +
         '<h2><span class="no">C</span>同じ まちの 学校と くらべる</h2>' +
-        "<p>" + nr(c.city.name) + "の 小学校を、2025年から 2050年の 変化で ならべたよ。" +
-          (others.length > 1 ? nr(c.school.name) + "は " + others.length + "校の うち、へり方が 小さい ほうから <b>" + rank + "番目</b>。" : "") + "</p>" +
+        // 順位の 文は 出さない（いちばん 下の 学校を さがして「なくなる」と 言い出さない ように）。一覧と 地図は 最初は 閉じる
+        "<p>同じ まちでも、学校に よって へり方は ちがう。へり方は、学校の よしあしでは ないよ。</p>" +
+        '<details class="cases cmp-box" id="cmp-box"' + (UG._cmpOpen ? " open" : "") + "><summary><span>" + nr(c.city.name) + "の 小学校を ならべて 見る（" + others.length + "{校|こう}）</span></summary>" +
+        "<p>2025年から 2050年の 変化で ならべたよ。</p>" +
         '<div class="compare"><div class="mapbox" id="cmp-map"></div><ol class="cmp-list" id="cmp-list">' +
           others.map(function (o) {
             var w = (Math.abs(o.pct) / barMax) * 100;
@@ -164,6 +164,7 @@
           }).join("") +
         "</ol></div>" +
         '<ul class="map-legend" aria-label="色の 意味"><li><i class="lv0"></i>ふえる・同じ</li><li><i class="lv1"></i>20%まで へる</li><li><i class="lv2"></i>40%まで へる</li><li><i class="lv3"></i>60%まで へる</li><li><i class="lv4"></i>60%より へる</li></ul>' +
+        "</details>" +
         '<p class="think"><b>考えてみよう</b>　同じ まちでも、場所に よって ちがうのは なぜだろう。駅や お店は 近い？ 新しい 家は 多い？ 地図や まち歩きで たしかめよう。</p>' +
       "</section>" +
 
@@ -244,6 +245,7 @@
     }
 
     drawAges(); drawSim(); drawQuiz(); showMe();
+    UG.$("#cmp-box", root).addEventListener("toggle", function (ev) { UG._cmpOpen = ev.target.open; if (ev.target.open) showMe(); });
     UG.townMap(UG.$("#cmp-map", root), c.city, {
       selected: c.school.id, showNames: true,
       value: function (s) { return level(pctOf(s)); }
@@ -279,6 +281,7 @@
       '<section class="card sort-card">' +
         '<h2><span class="no">A</span>いいこと？ しんぱいな こと？</h2>' +
         "<p>" + sortLead + " 正解は ないよ。友だちと くらべて みよう。</p>" +
+        '<p class="fine">きみや 家族の 学校が、ほかの 学校と いっしょに なった 人も いるかも しれない。その とき 感じた ことも、大事な 考えだよ。</p>' +
         '<ul class="sort-list">' + UG.SORT_CARDS.map(function (k) {
           var v = st.sort[k.id];
           return "<li><span>" + k.t + '</span><span class="tri" role="group" aria-label="' + esc(UG.plain(k.t)) + '">' +
@@ -318,7 +321,7 @@
         }).join("") + "</div>" +
         '<p class="label">理由に なる データ（カードに 入るよ）</p>' +
         '<p class="evidence">' + evidence + "</p>" +
-        '<label for="proposal">きみの ていあん</label>' +
+        '<label for="proposal">きみの ていあん（書かなくても だいじょうぶ。アイデアを えらぶ だけでも いいよ）</label>' +
         '<textarea id="proposal" rows="3" maxlength="110" placeholder="れい：空いた 教室を 図書室に して、地域の 人も 入れる ように して ほしいです。">' + esc(st.proposal) + "</textarea>" +
         // もっと 知りたい データ（先生に わたす コードに 入る。カードには 入れない）
         '<p class="label" id="wishes-label">もっと 知りたい データは ある？（3つまで。えらばなくても だいじょうぶ）</p>' +
@@ -351,7 +354,7 @@
         '<span class="stamp big" aria-hidden="true"><span>たんけん<br>修了</span></span>' +
         "<div><h2>きみが 今日 使った「データの 力」</h2>" +
         '<ol class="skills"><li><b>問う</b><br>「2050年は 何人？」と 問いを 立てた</li><li><b>よそうする</b><br>じぶんの 考えを 線で あらわした</li>' +
-        "<li><b>集める・読む</b><br>国の データを 読み、むかしの 人数を しらべた</li><li><b>くらべる</b><br>しくみと 場所の ちがいから 理由を 考えた</li>" +
+        "<li><b>集める・読む</b><br>" + (st.extraHist && st.extraHist.length ? "国の データを 読み、むかしの 人数を しらべた" : "国の データを 読んで、じぶんの よそうと くらべた") + "</li><li><b>くらべる</b><br>しくみと 場所の ちがいから 理由を 考えた</li>" +
         "<li><b>伝える</b><br>データを 理由に して ていあん した</li></ol>" +
         "<p>この 5つの 進め方は、世界中で 使われている 調べ方（PPDAC）と 同じだよ。</p></div>" +
       "</section>" +

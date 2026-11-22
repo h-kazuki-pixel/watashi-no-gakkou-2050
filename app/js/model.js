@@ -250,6 +250,15 @@
     return { diff: mine - data, ratio: r, level: level };
   }
 
+  /** いまの 人数から 見た 向き（"up"・"same"・"down"）。ステップ3で、予想と データの 向きが 同じかを 言う。
+   *  差が いまの 5%以内（最低1人）なら "same"。いまの 人数が 無ければ null */
+  function trendOf(now, v) {
+    if (!(now > 0) || v == null || isNaN(v)) return null;
+    var d = v - now;
+    if (Math.abs(d) <= Math.max(1, now * 0.05)) return "same";
+    return d > 0 ? "up" : "down";
+  }
+
   /**
    * 学校をさがす欄の入力から、比べる文字を作る。先頭の設置者（「福岡市立」「〜町立」「〜村立」「〜区立」「〜組合立」）を外す。
    * 学校名のデータは設置者を外してあるので、「福岡市立西新小学校」と入れても「西新小学校」と比べられる。
@@ -868,7 +877,7 @@
     clamp: clamp, interp: interp, estPoints: estPoints, calibFactor: calibFactor, histPoints: histPoints,
     pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan,
     simValue: simValue, simPoints: simPoints, agesFor: agesFor, ageStep: ageStep,
-    elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess,
+    elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess, trendOf: trendOf,
     schoolQuery: schoolQuery, matchSchool: matchSchool,
     closureNotes: closureNotes, pickParts: pickParts, partsText: partsText, newSchoolRows: newSchoolRows, foldText: foldText, isKanaQuery: isKanaQuery,
     CODE_HEAD: CODE_HEAD, encodeGuess: encodeGuess, decodeGuess: decodeGuess, extractGuesses: extractGuesses,

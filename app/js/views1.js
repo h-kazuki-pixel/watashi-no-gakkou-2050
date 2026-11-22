@@ -195,7 +195,7 @@
       var items = city.schools.filter(function (s) { return M.matchSchool(s, filter); }); // ひらがなは 読み（kana）でも さがす。読みは 画面に 出さない
       // 統合などで できた 新しい 学校（pref.newSchools）。人数も 区域も 無いので 選べない 行にして、一覧の 最後に 出す
       var fresh = M.newSchoolRows(pref.newSchools, city, filter);
-      if (!items.length && !fresh.length) return '<p class="empty">見つからなかったよ。もう 少し みじかく 入れるか、けして 一覧から えらんでね。</p>';
+      if (!items.length && !fresh.length) return '<p class="empty">見つからなかったよ。この 一覧は 公立の 小学校だけです。もう 少し みじかく 入れるか、けして 一覧から えらんでね。</p>';
       return items.map(function (s) {
         return '<button type="button" class="school-btn' + (s.id === st.schoolId ? " on" : "") + (s.tag && s.gone ? " two-tg" : "") + '" data-school="' + esc(s.id) + '" aria-pressed="' + (s.id === st.schoolId) + '">' +
           '<span class="nm">' + nr(s.name) + "</span>" +
@@ -216,7 +216,8 @@
     function ageHtml() {
       if (!st.grade) return "学年を えらぶと、2050年の きみの 年れいが わかるよ。";
       if (st.grade === "adult") return "2050年は、いまから 24年後。いまの 小学生が 親の 世代に なる ころです。";
-      return "2050年、きみは <b>" + M.ageIn(st.grade, 2050) + "さい</b>くらい。その とき、学校は どう なっているだろう？";
+      return "2050年、きみは <b>" + M.ageIn(st.grade, 2050) + "さい</b>くらい。その とき、学校は どう なっているだろう？" +
+        (/^j/.test(st.grade) ? "<br>中学生は、かよって いた 小学校を えらんでね（この 一覧は 公立の 小学校だけです）。" : "");
     }
 
     root.innerHTML = UG.ruby(
@@ -434,9 +435,16 @@
     var j = M.judgeGuess(mine50, c.v50);
     var first = !st.revealed;
     var wide = false;
-    var verdict = j.level === "close" ? ["ぴったり<br>賞", "すごい！ ほぼ ぴったりの よそうだね。"]
-      : j.level === "near" ? ["おしい<br>賞", "おしい！ データに 近い よそうだったね。"]
-      : ["はっけん<br>賞", "データと 大きく ちがったね。「なぜ ちがったか」を 考える のが、たんけんの いちばん おもしろい ところだよ。"];
+    // 近さで 賞を 出さない（当てっこに しない）。まず 向き（ふえる・へる）が 同じだったかを 言い、差を 言い、問いで しめる
+    var WAY = { up: "ふえる", same: "ほぼ 同じ", down: "へる" };
+    var tMine = M.trendOf(c.now, mine50), tData = M.trendOf(c.now, c.v50);
+    var wayLine = tMine && tData
+      ? "きみは「" + WAY[tMine] + "」と よそうした。データの よそうは「" + WAY[tData] + "」。<b>" +
+        (tMine === tData ? "{向|む}きは 同じだったね。" : "{向|む}きが ちがったね。") + "</b>"
+      : "";
+    var askLine = j.level === "close"
+      ? "どうして 近く なったと 思う？ つぎの「なぜ？」で しくみを たしかめよう。"
+      : "どうして ちがったと 思う？ 下の「どこから 来たの？」と、つぎの「なぜ？」で たしかめよう。";
     var diff = Math.round(mine50) - Math.round(c.v50);
 
     root.innerHTML = UG.ruby(
@@ -447,11 +455,13 @@
         '<div class="row end"><button type="button" class="btn small ghost" id="wide" aria-pressed="false">2070年まで 見る</button></div>' +
         '<div class="table-wrap" id="data-table"></div>' +
         '<div class="verdict' + (first ? " pop" : "") + '">' +
-          '<span class="stamp" aria-hidden="true"><span>' + verdict[0] + "</span></span>" +
-          "<div><p><b>" + verdict[1] + "</b></p>" +
+          "<div>" + (wayLine ? '<p class="way">' + wayLine + "</p>" : "") +
           "<p>データの よそうは <b class=\"est\">" + num(c.v50) + "人</b>、きみの よそうは <b class=\"mine\">" + num(mine50) + "人</b>。" +
-          (diff === 0 ? "ぴったり 同じ！" : "差は " + num(Math.abs(diff)) + "人（きみの ほうが " + (diff > 0 ? "多い" : "少ない") + "）。") + "</p>" +
-          "<p>2025年の " + num(c.now) + "人から、2050年には " + num(c.v50) + "人。<mark>" + UG.pctText(c.pct) + "</mark> 計算に なる。</p></div>" +
+          (diff === 0 ? "同じ 人数だったね。" : "差は " + num(Math.abs(diff)) + "人（きみの ほうが " + (diff > 0 ? "多い" : "少ない") + "）。") + "</p>" +
+          "<p>2025年の " + num(c.now) + "人から、2050年には " + num(c.v50) + "人。<mark>" + UG.pctText(c.pct) + "</mark> 計算に なる。</p>" +
+          '<p class="ask"><b>' + askLine + "</b></p>" +
+          (c.pct != null && c.pct < 0 ? '<p class="calm">人数が へっても、学校が なくなると {決|き}まった わけでは ないよ。これは「いまの ながれが つづいたら」の 計算だよ。</p>' : "") +
+          "</div>" +
         "</div>" +
       "</section>" +
 

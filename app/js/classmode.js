@@ -12,7 +12,7 @@
   // 画面を 作り直しても 消えないように、ここに 置く（ページを 読みこみ直すと 消える）
   // calib：先生が 決めた 実際の 人数（undefined＝コードの いちばん 多い 値、null＝合わせない、数＝その 値）
   // propsOpen：提案の 一覧を ひらいて いるか。noPrint：「印刷に 入れない」に した コード。sheetTo・sheetShown・className：印刷の 1枚
-  var S = { res: null, groups: [], pick: -1, revealed: false, hideReasons: false, order: [], text: "", calib: undefined,
+  var S = { res: null, groups: [], pick: -1, revealed: false, hideReasons: true, order: [], text: "", calib: undefined,
     propsOpen: false, noPrint: {}, sheetTo: null, sheetShown: false, className: "" };
 
   function shuffle(n) {
@@ -281,7 +281,7 @@
           '<div class="row-head"><h2>どうして そう 思った？</h2>' +
           '<button type="button" class="btn sub" id="class-hide" aria-pressed="' + S.hideReasons + '">' +
             (S.hideReasons ? "理由を 見せる" : "理由を かくす") + "</button></div>" +
-          (S.hideReasons ? '<p class="fine">理由は かくして います。</p>' :
+          (S.hideReasons ? '<p class="fine">理由は かくして います。先生が 読んで たしかめてから「理由を 見せる」で 出せます。</p>' :
             (function () {
               var list = S.order.map(function (i) { return g.items[i]; }).filter(function (d) { return d.reason; });
               return list.length
@@ -303,7 +303,7 @@
     }
     UG.$("#class-load", root).addEventListener("click", function () { reload(ta.value); });
     UG.$("#class-clear", root).addEventListener("click", function () {
-      S.res = null; S.groups = []; S.pick = -1; S.text = ""; S.revealed = false; resetProps(); UG.render();
+      S.res = null; S.groups = []; S.pick = -1; S.text = ""; S.revealed = false; S.hideReasons = true; resetProps(); UG.render();
     });
     var sb = UG.$("#class-sample", root);
     if (sb) sb.addEventListener("click", function () {

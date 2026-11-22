@@ -152,7 +152,7 @@
       grade: null, guess: null, reason: "", calib: null,
       draw: {}, revealed: false, extraHist: [],
       viewYear: 2050, ageStep: 0, sim: { move: 0, birth: 0 },
-      quiz: {}, sort: {}, ideas: [], ownIdea: "", proposal: "", to: "mayor", nick: "",
+      quiz: {}, sort: {}, ideas: [], ownIdea: "", proposal: "", to: "principal", nick: "",
       wishes: [], ownWish: "", // ステップ5「もっと 知りたい データ」（UG.WISHES の id と、自由に 書いた 文）
       furigana: true, step: "home", maxStep: 0,
       // クラスモード：この端末の でたらめな 印（初めて コードを 作るときに 作る）と、作った 順の 番号。

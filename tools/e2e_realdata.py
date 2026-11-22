@@ -48,6 +48,7 @@ def walk(page, shot_prefix):
     page.click("#next-btn")
     page.wait_for_selector(".verdict"); page.wait_for_timeout(2600)
     page.click("#next-btn")
+    page.click("#cmp-box > summary")
     page.wait_for_selector("#cmp-map svg")
     n = page.locator("#cmp-list li").count()
     assert n >= 1, n
@@ -173,6 +174,8 @@ def run_class_real() -> int:
             page.wait_for_selector("#card svg")
             chip = page.evaluate(NO_RT, '[data-to="mayor"]')[0]
             assert chip == "福岡市長さん", chip
+            assert page.evaluate("UG.cardData().to") == "校長先生"  # 宛先の 初期値
+            page.click('[data-to="mayor"]')
             card_to = page.evaluate("UG.cardData().to")
             assert card_to == "福岡市長さん", card_to
             print(f"  子どもの ステップ5の 宛先：「{chip}」、カード：「{card_to}」")
@@ -456,11 +459,13 @@ def main() -> int:
             page.wait_for_selector(".verdict"); page.wait_for_timeout(2600)
             page.screenshot(path=str(OUT / "r-3.png"), full_page=True)
             page.click("#next-btn")
+            page.click("#cmp-box > summary")
             page.wait_for_selector("#cmp-map svg")
             assert page.locator("#cmp-list li").count() == 2
             page.screenshot(path=str(OUT / "r-4.png"), full_page=True)
             # 再読み込みしても、選んだ県のデータを読み直して続きから開ける
             page.reload()
+            page.click("#cmp-box > summary")
             page.wait_for_selector("#cmp-map svg")
 
             # 学区データの無い市：学校の位置で補った県と、補わなかった県

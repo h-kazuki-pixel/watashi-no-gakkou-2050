@@ -341,6 +341,9 @@ svg.chart { display: block; width: 100%; height: auto; font-family: var(--font-b
 /* ---------- 3 しらべる ---------- */
 .verdict { display: flex; gap: 18px; align-items: center; border-top: 2px dashed var(--grid-strong); padding-top: 14px; }
 .verdict p + p { margin-top: 2px; }
+.verdict .way { font-size: 1.08em; }
+.verdict .ask { margin-top: 8px; color: var(--blue); }
+.verdict .calm { margin-top: 6px; font-size: 0.95em; }
 .verdict b.est { text-decoration: underline; text-decoration-color: var(--red); text-decoration-thickness: 4px; text-underline-offset: 5px; }
 .verdict b.mine { text-decoration: underline dotted; text-decoration-color: var(--blue); text-decoration-thickness: 4px; text-underline-offset: 5px; }
 .readout b.alt { text-decoration: underline dashed; text-decoration-color: var(--green); text-decoration-thickness: 4px; text-underline-offset: 6px; }
@@ -449,6 +452,9 @@ svg.mini { display: block; width: 100%; height: auto; }
 .hint-box { border: 2px dashed var(--ink); border-radius: 12px; padding: 12px 16px; background: var(--paper); display: flex; flex-direction: column; gap: 6px; }
 .hint-box h3 { font-size: 16px; }
 .cases summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; }
+.cmp-box > summary { width: fit-content; border: 2px solid var(--ink); border-radius: 12px; padding: 2px 16px; margin: 4px 0 8px; background: var(--card); box-shadow: 2px 2px 0 var(--ink); }
+.cmp-box > summary::before { content: "▶"; font-size: 0.75em; margin-right: 8px; }
+.cmp-box[open] > summary::before { content: "▼"; }
 .case-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .case-list li { background: var(--card); border: 2px solid var(--grid-strong); border-radius: 10px; padding: 10px 12px; }
 .case-list li.near { border-color: var(--ink); }
@@ -484,6 +490,8 @@ svg.mini { display: block; width: 100%; height: auto; }
 .teachers ul { list-style: disc; padding-left: 1.4em; }
 .teachers ol { list-style: decimal; padding-left: 1.6em; }
 .teachers table { border-collapse: collapse; width: 100%; font-size: 15px; line-height: 1.7; }
+.teachers pre.worksheet { white-space: pre-wrap; font-family: var(--font-body); font-size: 15px; line-height: 1.9; border: 2px solid var(--grid-strong); border-radius: 12px; padding: 14px 18px; background: #fff; }
+.teachers h3 { margin-top: 16px; }
 .teachers th, .teachers td { border: 1.5px solid var(--grid-strong); padding: 6px 10px; text-align: left; vertical-align: top; }
 .teachers th { background: #f1f7fa; white-space: nowrap; }
 .teachers .table-wrap { overflow-x: auto; }

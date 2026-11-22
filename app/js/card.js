@@ -118,6 +118,7 @@
     s.push('<line x1="740" y1="406" x2="1126" y2="406" stroke="#1d2b4f" stroke-width="1.5" stroke-dasharray="4 6"/>');
     s.push('<text x="740" y="448" font-size="26" font-weight="800" fill="#1d2b4f">' + esc(pct) + " 計算</text>");
     if (d.mine50 != null) s.push('<circle cx="748" cy="492" r="8" fill="#1c7ed6"/><text x="764" y="500" font-size="22" fill="#1d2b4f">わたしの よそうは ' + num(d.mine50) + "人</text>");
+    if (!d.sample) s.push('<text x="740" y="530" font-size="17" fill="#51607d">※ 実際の 人数とは ちがう ことが あります</text>');
     // アイデア
     s.push('<text x="50" y="592" font-size="22" font-weight="800" fill="#1d2b4f">やってみたい アイデア</text>');
     var iy = 628, lines = 0;
@@ -136,7 +137,7 @@
     s.push('<text font-size="23" fill="' + (d.proposal ? "#1d2b4f" : "#8a96ad") + '">' + tspans(pl, 636, 644, 31) + "</text>");
     // 出典
     var src = d.sample
-      ? ["これは れんしゅう用の 架空の まちの データです。"]
+      ? ["これは れんしゅう用の つくりものの まちの データです。"]
       : ["データ：国土数値情報（500mメッシュ別将来推計人口・小学校区）を もとに 計算。「いまの ながれが つづいたら」の 推計です。",
          "出典：国土数値情報（国土交通省）を加工して作成。加工：" + UG.PROCESSOR];
     src.forEach(function (t, i) {
@@ -151,7 +152,7 @@
     var out = [];
     out.push(d.to + " へ");
     out.push("");
-    out.push(d.school + "（" + d.city + "）の子どもは、2025年の" + num(d.now) + "人から、2050年には" + num(d.v50) + "人（" + pct + "）になる計算です。");
+    out.push(d.school + "（" + d.city + "）の子どもは、2025年の" + num(d.now) + "人から、2050年には" + num(d.v50) + "人（" + pct + "）になる計算です。" + (d.sample ? "" : "実際の人数とはちがうことがあります。"));
     if (d.mine50 != null) out.push("わたしのよそうは" + num(d.mine50) + "人でした。");
     if (d.ideas.length) { out.push(""); out.push("やってみたいアイデア"); d.ideas.forEach(function (t) { out.push("・" + t); }); }
     if (d.proposal) { out.push(""); out.push("わたしのていあん"); out.push(d.proposal); }

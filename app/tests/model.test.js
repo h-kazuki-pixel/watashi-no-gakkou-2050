@@ -92,6 +92,15 @@ test("2050年の年齢・予想の判定・目もり", () => {
   assert.equal(M.judgeGuess(200, 168).level, "near");
   assert.equal(M.judgeGuess(559, 168).level, "far");
   assert.equal(M.judgeGuess(9, 8).level, "close"); // 小さな学校は人数の幅で判定
+  // 向き：いまの 5%以内（最低1人）は「ほぼ 同じ」
+  assert.equal(M.trendOf(306, 230), "down");
+  assert.equal(M.trendOf(306, 741), "up");
+  assert.equal(M.trendOf(306, 300), "same");
+  assert.equal(M.trendOf(306, 290), "down");
+  assert.equal(M.trendOf(23, 22), "same");
+  assert.equal(M.trendOf(23, 21), "down");
+  assert.equal(M.trendOf(0, 5), null);
+  assert.equal(M.trendOf(100, null), null);
   assert.equal(M.niceMax(1054), 1200);
   assert.deepEqual(M.niceTicks(1500, 4), [0, 500, 1000, 1500]);
 });

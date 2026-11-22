@@ -373,7 +373,7 @@ def main() -> int:
         bare("home-search")
         assert found("ぞぞぞ") == []
         msg = page.evaluate(f"({NO_RT})('#school-list .empty')")
-        assert msg == "見つからなかったよ。もう 少し みじかく 入れるか、けして 一覧から えらんでね。", msg
+        assert msg == "見つからなかったよ。この 一覧は 公立の 小学校だけです。もう 少し みじかく 入れるか、けして 一覧から えらんでね。", msg
         shot("0-home-search-none")
         bare("home-search-none")
         found("")
@@ -561,18 +561,26 @@ def main() -> int:
         page.wait_for_selector(".verdict")
         page.wait_for_timeout(2600)
         shot("3-shiraberu"); bare("step3")
-        # スタンプの文字は丸の中に収まる（「はっけん賞」が1行で丸からはみ出していた）。3種類、広い画面とスマホ幅
-        STAMP_FITS = """() => { const s = document.querySelector('.verdict .stamp'), t = s.firstElementChild;
-          return {ratio: t.offsetWidth / s.clientWidth, lines: s.querySelectorAll('br').length, text: t.textContent}; }"""
+        # 近さの 賞は 出さない。まず 向き（ふえる・へる）が 同じかを 言い、差を 言い、問いで しめる。広い画面とスマホ幅
+        VERDICT_TEXT = """() => { const c = document.querySelector('.verdict').cloneNode(true); c.querySelectorAll('rt').forEach(r => r.remove());
+          return c.textContent.replace(/\\s+/g, ' '); }"""
         draw_s3 = page.evaluate("UG.state.draw")
         est50_s3 = page.evaluate("UG.ctx().v50")
+        now_s3 = page.evaluate("UG.ctx().now")
+        assert est50_s3 < now_s3 * 0.95, (now_s3, est50_s3)  # みらい市 さくら台小は へる 学校
         for w in (1180, 390):
             page.set_viewport_size({"width": w, "height": 820}); page.wait_for_timeout(300)
-            for v in (est50_s3, est50_s3 * 1.2, est50_s3 * 2):
+            for v, way, same in ((est50_s3, "へる", True), (est50_s3 * 1.2, "へる", True), (now_s3, "ほぼ 同じ", False), (now_s3 * 1.6, "ふえる", False)):
                 page.evaluate("v => { UG.model.DRAW_YEARS.forEach(y => { UG.state.draw[y] = v; }); UG.render(); }", v)
-                page.wait_for_selector(".verdict .stamp")
-                r = page.evaluate(STAMP_FITS)
-                assert r["lines"] == 1 and r["ratio"] <= 0.86, f"[step3 {w}px] スタンプの文字が丸からはみ出す: {r}"
+                page.wait_for_selector(".verdict .way")
+                t = page.evaluate(VERDICT_TEXT)
+                assert page.locator(".verdict .stamp").count() == 0, f"[step3 {w}px] 賞の スタンプが 残っている"
+                assert not any(k in t for k in ("ぴったり", "おしい", "はっけん", "賞")), f"[step3 {w}px] 賞の ことば: {t}"
+                assert f"きみは「{way}」と よそうした。" in t and "データの よそうは「へる」。" in t, f"[step3 {w}px] {t}"
+                assert ("向きは 同じだったね。" if same else "向きが ちがったね。") in t, f"[step3 {w}px] {t}"
+                assert "どうして" in t and "学校が なくなると 決まった わけでは ないよ" in t, f"[step3 {w}px] {t}"
+                if not page.evaluate("() => document.documentElement.scrollWidth <= innerWidth"):
+                    problems.append(f"{w}px 幅で ステップ3の 結果が 横に はみ出す")
         page.set_viewport_size({"width": 1180, "height": 820}); page.wait_for_timeout(300)
         page.evaluate("d => { UG.state.draw = d; UG.save(); UG.render(); }", draw_s3)
         page.wait_for_selector(".verdict")
@@ -611,6 +619,10 @@ def main() -> int:
         page.click("#next-btn")
 
         page.wait_for_selector("#ages .bars")
+        c_text = page.evaluate("(() => { const c = document.querySelector('.compare-card').cloneNode(true); c.querySelectorAll('rt').forEach(r => r.remove()); return c.textContent; })()")
+        assert "番目" not in c_text, "ステップ4-C に 順位の 文が ある"
+        assert not page.evaluate("document.getElementById('cmp-box').open"), "ステップ4-C の 一覧が 最初から 開いている"
+        page.click("#cmp-box > summary"); page.wait_for_selector("#cmp-list li")
         for _ in range(7):
             page.click("#age-next")
         page.locator("#sim-move").fill("8"); page.locator("#sim-move").dispatch_event("input")
@@ -717,7 +729,7 @@ def main() -> int:
         code5 = page.input_value("#handoff-code")
         d5 = page.evaluate("c => UG.model.decodeGuess(c)", code5)
         assert d5["ok"] and d5["prop"], d5
-        assert d5["prop"]["ideas"] == ["room_town", "online"] and d5["prop"]["to"] == "mayor", d5["prop"]
+        assert d5["prop"]["ideas"] == ["room_town", "online"] and d5["prop"]["to"] == "principal", d5["prop"]  # 宛先の 初期値は 校長先生
         assert d5["prop"]["sort"] == {"c1": "good", "c2": "bad"} and d5["prop"]["ownIdea"] == "校庭で月に1回、朝市をひらく", d5["prop"]
         assert d5["mark"] == mark and d5["seq"] > dec["seq"], (d5["mark"], d5["seq"], dec["seq"])
         assert "そら" not in json.dumps(d5, ensure_ascii=False) and "e5" not in json.dumps(d5)
@@ -814,6 +826,8 @@ def main() -> int:
         est50 = page.evaluate("Math.round(UG.model.interp(UG.model.estPoints(UG.findSchool('00', null, 'S2'), 280), 2050))")
         est50_raw = page.evaluate("Math.round(UG.model.interp(UG.model.estPoints(UG.findSchool('00', null, 'S2'), null), 2050))")
         assert f"{est50}人" not in page.inner_text("#view"), "見せる前に推計の数が出ている"
+        assert page.locator("#class-reasons").count() == 0, "理由の 一覧が 最初から 開いている"
+        page.click("#class-hide")
         assert page.locator("#class-reasons li").count() == 2  # 理由のある2人。名前は出ない
         # 提案の 入った コードが 無ければ、「みんなの 提案」は 案内だけ
         assert page.is_visible("#class-props-none") and page.locator("#class-props .sort-bars").count() == 0
