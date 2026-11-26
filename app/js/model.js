@@ -224,6 +224,34 @@
     return out;
   }
 
+  /**
+   * 年齢の階段の下に出す「なぜ へるのか」の文の出し分け。ages は画面の棒（cohortInts の整数）。
+   *  くらべる：これから入学する 0〜5歳の平均 と、6年生（11歳）。
+   *   （5歳だけだと、国の推計の 5〜9歳の 区分に入り 6〜9歳と同じ値になるので、入学する子の数を表さない）
+   *  ほぼ同じ：差が 11歳の 10% より小さいか、1人 より小さい（小さい学校で数人の差に意味を持たせない）。
+   *  kind："fewer"（小さい子が少ない）・"same"・"more"・"mixed"。
+   *   "mixed"：11歳とくらべた向きと、小学生（6〜11歳）全体とくらべた向きが反対。棒を見たときの印象と
+   *   文が食い違うので、どちらとも言わない。
+   *  because：「だから 学校の 人数は へっていく／しばらくは ふえる」を付けてよいか。
+   *   画面の ほかの数字（6年後の小学生 ＝ 0〜5歳の合計、2050年の変化 pct）と向きが合うときだけ true。
+   */
+  var AGE_SAME_REL = 0.1, AGE_SAME_ABS = 1;
+  function ageTalk(ages, pct) {
+    function cmp(lo, hi) {
+      var d = lo - hi;
+      if (Math.abs(d) < Math.max(AGE_SAME_ABS, AGE_SAME_REL * hi)) return "same";
+      return d < 0 ? "fewer" : "more";
+    }
+    var sum = function (a, b) { var s = 0; for (var j = a; j <= b; j++) s += ages[j] || 0; return s; };
+    var small = sum(0, 5) / 6, big = ages[11] || 0;
+    var kind = cmp(small, big), whole = cmp(small, sum(6, 11) / 6);
+    if ((kind === "fewer" && whole === "more") || (kind === "more" && whole === "fewer")) kind = "mixed";
+    var later = sum(0, 5) - sum(6, 11); // 6年後の小学生 − いまの小学生（引っこしが ないとき）
+    var because = kind === "fewer" ? later < 0 && pct != null && pct < 0
+      : kind === "more" ? later > 0 : false;
+    return { kind: kind, because: because, small: small, big: big };
+  }
+
   /** 画面に出す2つの人数（丸めたもの）から変化率を出す。子どもが画面の数で計算しても同じになる。 */
   function shownPct(from, to) {
     return pctChange(Math.round(from), Math.round(to));
@@ -893,7 +921,7 @@
     clamp: clamp, interp: interp, estPoints: estPoints, calibFactor: calibFactor, histPoints: histPoints,
     pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan, roomMode: roomMode, ROOM_BOX_FROM: ROOM_BOX_FROM,
     simValue: simValue, simPoints: simPoints, agesFor: agesFor, ageStep: ageStep,
-    elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess, trendOf: trendOf,
+    elementaryAfter: elementaryAfter, cohortInts: cohortInts, ageTalk: ageTalk, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess, trendOf: trendOf,
     schoolQuery: schoolQuery, matchSchool: matchSchool,
     closureNotes: closureNotes, pickParts: pickParts, partsText: partsText, newSchoolRows: newSchoolRows, foldText: foldText, isKanaQuery: isKanaQuery,
     CODE_HEAD: CODE_HEAD, encodeGuess: encodeGuess, decodeGuess: decodeGuess, extractGuesses: extractGuesses,

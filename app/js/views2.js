@@ -105,11 +105,28 @@
   }
   UG.changeLevel = level;
 
+  /* 年齢の 階段の 文（M.ageTalk の kind ごと）。言うのは「入学する 子と 卒業する 子の 数が ちがう」まで */
+  var AGE_WHY = {
+    fewer: "小さい 子（0〜5さい）の ぼうは、大きい 子（11さい）の ぼうより ひくいね。入学する 子が、卒業する 子より 少ない。",
+    same: "小さい 子（0〜5さい）の ぼうと、大きい 子（11さい）の ぼうは、だいたい 同じ 高さだね。入学する 子と 卒業する 子が、同じくらい。",
+    more: "小さい 子（0〜5さい）の ぼうは、大きい 子（11さい）の ぼうより 高いね。入学する 子が、卒業する 子より 多い。",
+    mixed: "小さい 子（0〜5さい）の ぼうと、小学生（6〜11さい）の ぼうを くらべて みよう。年れいに よって、高い ぼうと ひくい ぼうが あるね。"
+  };
+  var AGE_BECAUSE = { fewer: "だから、学校の 人数は へっていく。", more: "だから、しばらくは 学校の 人数が ふえる。" };
+  var AGE_ASK = {
+    fewer: "どうして 小さい 子が 少ないのかな？ まちの ようすを 思いうかべて みよう。",
+    same: "小さい 子と 大きい 子が 同じくらいなのは どうしてかな？ まちの ようすを 思いうかべて みよう。",
+    more: "どうして 小さい 子が 多いのかな？ まちの ようすを 思いうかべて みよう。",
+    mixed: "どうして 年れいに よって ちがうのかな？ まちの ようすを 思いうかべて みよう。"
+  };
+  UG.AGE_WHY = AGE_WHY; UG.AGE_BECAUSE = AGE_BECAUSE; UG.AGE_ASK = AGE_ASK;
+
   /* ====================== 4 なぜ？ ====================== */
   V.step4 = function (root) {
     var st = UG.state, c = UG.ctx();
     var ages = M.cohortInts(M.agesFor(c.school, st.calib), c.now);
     var agesMax = Math.max.apply(null, ages) || 1;
+    var talk = M.ageTalk(ages, c.pct);
 
     /** 変化率。選んだ学校は、ほかの画面と同じ値（補正を入れたときも同じ）にする */
     function pctOf(s) { return s.id === c.school.id ? c.pct : M.shownPct(s.est[0], s.est[5]); }
@@ -130,6 +147,9 @@
         '<p class="fine ages-where">' + (c.sample ? "れんしゅう用の まちの、つくりものの 人数だよ。"
           : UG.approxNote(c.city, c.school) ? "この 学校の「おおよその 区域」に 住む 子どもの 人数（国の データから 計算した めやす）だよ。"
           : "この 学校に 通う 地域に 住む 子どもの 人数（国の データから 計算した めやす）だよ。") + "</p>" +
+        // 「なぜ へるのか」を 階段で 一言（「1年 進める」を 押す 前に 読める ところ）。理由は 1つに 決めつけない
+        '<div class="age-why"><p class="age-why-head"><b>2025年の ぼうを 見よう</b></p><p>' + AGE_WHY[talk.kind] +
+          (talk.because ? AGE_BECAUSE[talk.kind] : "") + '</p><p class="ask"><b>' + AGE_ASK[talk.kind] + "</b></p></div>" +
         '<div class="row"><button type="button" class="btn small" id="age-next">1年 進める</button>' +
           '<button type="button" class="btn small ghost" id="age-prev">1年 もどす</button>' +
           '<button type="button" class="btn small ghost" id="age-reset">2025年に もどす</button></div>' +

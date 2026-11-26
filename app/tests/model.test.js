@@ -714,3 +714,30 @@ test("教室の図の形：どこかの 学年が 3クラスに なる 年が �
   assert.equal(M.roomMode([16, 8]), "seat");         // 複式学級だけの 学校
   assert.equal(M.roomMode([]), "seat");
 });
+
+test("年齢の階段の文：小さい子（0〜5歳の平均）と 6年生（11歳）の 3つの場合", () => {
+  // 小さい子が少ない（中城南小の形）。6年後の小学生も 2050年も へる → 「だから」を付ける
+  let t = M.ageTalk([159, 159, 159, 159, 159, 178, 178, 178, 178, 178, 183, 183], -6);
+  assert.equal(t.kind, "fewer"); assert.equal(t.because, true);
+  // 同じくらい（差が 11歳の 10% より小さい）
+  t = M.ageTalk([50, 50, 50, 50, 50, 50, 52, 52, 52, 52, 53, 53], -2);
+  assert.equal(t.kind, "same"); assert.equal(t.because, false);
+  // 小さい子が多い。6年後の小学生は ふえる → 「しばらくは ふえる」（2050年に へっていても 付ける）
+  t = M.ageTalk([60, 60, 60, 60, 60, 60, 45, 45, 45, 45, 45, 45], -10);
+  assert.equal(t.kind, "more"); assert.equal(t.because, true);
+});
+
+test("年齢の階段の文：小さい学校の数人の差・ほかの数字とぶつかるとき", () => {
+  // 小さい学校：差が 1人 より小さい（2.3人 と 3人）は 同じくらい
+  assert.equal(M.ageTalk([2, 2, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3], -10).kind, "same");
+  // 2人 と 3人（差 1人）は 少ない
+  assert.equal(M.ageTalk([2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3], -10).kind, "fewer");
+  // 小さい子が少ないが、2050年は ふえる（引っこし）→ 「だから へっていく」は付けない
+  assert.equal(M.ageTalk([40, 40, 40, 40, 40, 40, 50, 50, 50, 50, 50, 50], 6).because, false);
+  // 11歳より多いが、6年後の小学生は へる（南流山小の形）→ 「しばらくは ふえる」は付けない
+  let t = M.ageTalk([262, 262, 262, 262, 262, 307, 307, 307, 307, 307, 263, 229], -21);
+  assert.equal(t.kind, "more"); assert.equal(t.because, false);
+  // 11歳より多いが、小学生全体より少ない（八潮市 大瀬小の形）→ どちらとも言わない
+  t = M.ageTalk([143, 144, 144, 143, 144, 206, 205, 205, 206, 205, 132, 131], -31);
+  assert.equal(t.kind, "mixed"); assert.equal(t.because, false);
+});
