@@ -127,6 +127,22 @@
   }
 
   /**
+   * ステップ3「数字を 教室で 見てみよう」の図の形。
+   *  "seat"：1クラスを 35席の絵で かく（1つ＝1人）。
+   *  "box" ：1クラスを 1つの 箱に して、中に 人数を 書く。
+   * 1つの 学年が 3クラス 以上に なる 年が あれば "box"（席の絵が 1行に 入らず 折り返し、学年の 区切りが 見えなくなる）。
+   * つまみで 年を 動かしても 形が かわらない ように、つまみの 全部の 年（totals）の いちばん 多い 年で 決める。
+   */
+  var ROOM_BOX_FROM = 3;
+  function roomMode(totals) {
+    var most = 0;
+    (totals || []).forEach(function (t) {
+      classPlan(t).rows.forEach(function (r) { if (!r.multi) most = Math.max(most, r.classes.length); });
+    });
+    return most >= ROOM_BOX_FROM ? "box" : "seat";
+  }
+
+  /**
    * 「もしも」シミュレーター（説明用のかんたんなモデル）。
    *  move  : 毎年 学区に加わる小学生の数（人/年）。2026年から始まり、6年間在籍すると考える
    *          → 上乗せは move × min(6, 年−2026)。
@@ -875,7 +891,7 @@
     EST_YEARS: EST_YEARS, BASE_YEAR: BASE_YEAR, TARGET_YEAR: TARGET_YEAR, DRAW_YEARS: DRAW_YEARS,
     CLASS_MAX: CLASS_MAX, MULTI_MAX: MULTI_MAX, MULTI_MAX_WITH_G1: MULTI_MAX_WITH_G1,
     clamp: clamp, interp: interp, estPoints: estPoints, calibFactor: calibFactor, histPoints: histPoints,
-    pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan,
+    pctChange: pctChange, splitGrades: splitGrades, splitClass: splitClass, classPlan: classPlan, roomMode: roomMode, ROOM_BOX_FROM: ROOM_BOX_FROM,
     simValue: simValue, simPoints: simPoints, agesFor: agesFor, ageStep: ageStep,
     elementaryAfter: elementaryAfter, cohortInts: cohortInts, shownPct: shownPct, niceMax: niceMax, niceTicks: niceTicks, ageIn: ageIn, judgeGuess: judgeGuess, trendOf: trendOf,
     schoolQuery: schoolQuery, matchSchool: matchSchool,

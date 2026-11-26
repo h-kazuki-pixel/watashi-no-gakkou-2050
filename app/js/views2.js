@@ -126,6 +126,10 @@
         '<h2><span class="no">A</span>みらいが 計算できる わけ</h2>' +
         "<p>いま 0さいの 赤ちゃんは、6年後に 1年生に なる。だから 6年後までの 1年生の 数は、もう だいたい わかっている。ボタンで 年を 進めてみよう。</p>" +
         '<div class="ages" id="ages" role="img" aria-label="年れいごとの 子どもの 数"></div>' +
+        // どこの 人数かを 1行で（ステップ1の 注意書きと 言い方を そろえる）
+        '<p class="fine ages-where">' + (c.sample ? "れんしゅう用の まちの、つくりものの 人数だよ。"
+          : UG.approxNote(c.city, c.school) ? "この 学校の「おおよその 区域」に 住む 子どもの 人数（国の データから 計算した めやす）だよ。"
+          : "この 学校に 通う 地域に 住む 子どもの 人数（国の データから 計算した めやす）だよ。") + "</p>" +
         '<div class="row"><button type="button" class="btn small" id="age-next">1年 進める</button>' +
           '<button type="button" class="btn small ghost" id="age-prev">1年 もどす</button>' +
           '<button type="button" class="btn small ghost" id="age-reset">2025年に もどす</button></div>' +

@@ -381,6 +381,17 @@ svg.chart { display: block; width: 100%; height: auto; font-family: var(--font-b
 .seats i { width: 8px; height: 8px; border-radius: 2px; background: #e6eef3; }
 .seats i.on { background: var(--ink); }
 .room .cnt { font-size: 12px; font-weight: 700; line-height: 1.5; font-variant-numeric: tabular-nums; }
+/* 人数の 多い 学校（M.roomMode が "box"）：1クラス＝1つの 箱。学年ごとに 1行 */
+.rooms.box-mode { display: block; }
+.rooms.box-mode .room-key { margin: 0 0 6px; font-size: 13.5px; font-weight: 700; color: var(--ink-soft); }
+.rooms.box-mode .key-box { display: inline-block; width: 14px; height: 12px; border: 2px solid var(--ink); border-radius: 3px; vertical-align: -1px; }
+.rooms.box-mode .room-row { flex-wrap: nowrap; align-items: flex-start; padding: 5px 0; border-top: 1px solid var(--grid); }
+.rooms.box-mode .room-row .g { flex: none; line-height: 40px; }
+.rooms.box-mode .cboxes { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.rooms.box-mode .gn { flex: none; line-height: 40px; font-size: 13.5px; font-weight: 700; color: var(--ink-soft); }
+.cbox { width: 48px; height: 40px; border: 2px solid var(--ink); border-radius: 7px; background: #fff; display: flex; align-items: baseline; justify-content: center; padding-top: 8px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cbox b { font-size: 17px; line-height: 1; margin-right: 1px; }
+.cbox.multi { background: var(--marker-soft); }
 .multi-note, .room-row .none { font-size: 13.5px; font-weight: 700; color: var(--ink-soft); }
 .source-steps { counter-reset: s; display: flex; flex-direction: column; gap: 4px; }
 .source-steps li { counter-increment: s; padding-left: 2.2em; position: relative; }
@@ -733,3 +744,4 @@ body[data-grade="adult"] ruby[data-g="6"] rt { display: none; }
   .top-tools .link, .foot .link, .switch { min-height: 44px; display: inline-flex; align-items: center; }
   .tri { gap: 8px; }
 }
+@media (max-width: 480px) { .cbox { width: 42px; height: 36px; padding-top: 7px; } .cbox b { font-size: 15px; } .rooms.box-mode .room-row .g, .rooms.box-mode .gn { line-height: 36px; } }

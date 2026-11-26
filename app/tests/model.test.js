@@ -704,3 +704,13 @@ test("新しい学校：さがす欄は matchSchool と同じ決まり（名前�
   assert.deepEqual(M.newSchoolRows(news, city, "にし").map((r) => r.name), []); // 読みの無い学校は 名前だけ
   assert.deepEqual(M.newSchoolRows(news, city, "ぞぞ"), []);
 });
+
+test("教室の図の形：どこかの 学年が 3クラスに なる 年が あれば 箱（年で 切り替えない）", () => {
+  assert.equal(M.roomMode([72, 44]), "seat");        // 小さい 学校は 今の まま（1つ＝1人の 席）
+  assert.equal(M.roomMode([420]), "seat");           // 70人×6 → 各学年 2クラス
+  assert.equal(M.roomMode([421]), "box");            // 71人の 学年 → 3クラス
+  assert.equal(M.roomMode([1078, 1013]), "box");
+  assert.equal(M.roomMode([500, 300, 200]), "box");  // いちばん 多い 年で 決める（2050年が 2クラスでも 箱）
+  assert.equal(M.roomMode([16, 8]), "seat");         // 複式学級だけの 学校
+  assert.equal(M.roomMode([]), "seat");
+});

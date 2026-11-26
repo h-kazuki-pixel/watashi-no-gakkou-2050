@@ -549,6 +549,8 @@
     }
     // 文字（Web フォント）が読みこまれると幅が変わるので、読みこみのあとにもう一度合わせる
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (root.isConnected) fitTiles(); });
+    // 図の形（席の絵か、クラスの箱か）は、つまみの どの 年でも 同じ（年で 切り替わると くらべられない）
+    var roomMode = M.roomMode(M.EST_YEARS.map(function (y) { return M.interp(c.est, y); }));
     function drawRooms() {
       var y = st.viewYear, total = M.interp(UG.ctx().est, y), plan = M.classPlan(total);
       UG.$("#year-out", root).textContent = y + "年";
@@ -562,7 +564,24 @@
         '<div class="tile wide ' + plan.shuffle + '"><span class="lab">クラスがえ</span><b class="txt">' + shuffle + "</b></div>"
       );
       fitTiles();
-      UG.$("#rooms", root).innerHTML = UG.ruby(plan.rows.map(function (r) {
+      var rooms = UG.$("#rooms", root);
+      rooms.classList.toggle("box-mode", roomMode === "box");
+      if (roomMode === "box") {
+        // 人数の 多い 学校：1クラス＝1つの 箱。学年ごとに 1行（折り返しても 学年名の 列には はみ出さない）
+        rooms.innerHTML = UG.ruby(
+          '<p class="room-key"><span class="key-box" aria-hidden="true"></span> 1つ ＝ 1クラス（中の 数字は その クラスの 人数）</p>' +
+          plan.rows.map(function (r) {
+            var boxes = r.classes.map(function (n) {
+              return '<span class="cbox' + (r.multi ? " multi" : "") + '"><b>' + n + "</b>人</span>";
+            }).join("");
+            return '<div class="room-row"><span class="g">' + r.grades.join("・") + "年</span>" +
+              '<span class="cboxes">' + (boxes || '<span class="none">0人</span>') +
+              (r.multi ? '<span class="multi-note">2つの 学年が いっしょに 学ぶ クラス（複式学級）</span>' : "") + "</span>" +
+              '<span class="gn">' + r.classes.length + "クラス</span></div>";
+          }).join(""));
+        return;
+      }
+      rooms.innerHTML = UG.ruby(plan.rows.map(function (r) {
         var label = r.grades.join("・") + "年";
         var boxes = r.classes.map(function (n) {
           var seats = "";
