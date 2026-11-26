@@ -741,3 +741,27 @@ test("年齢の階段の文：小さい学校の数人の差・ほかの数字�
   t = M.ageTalk([143, 144, 144, 143, 144, 206, 205, 205, 206, 205, 132, 131], -31);
   assert.equal(t.kind, "mixed"); assert.equal(t.because, false);
 });
+
+test("年齢の階段の文：0〜5歳の平均と 11歳の 差が 2人 より小さいときは「だから」を付けない", () => {
+  // 1人と 2人（差 1人）：「少ない」とは言う（同じ 高さとは 言わない）が、だからは 付けない
+  let t = M.ageTalk([1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2], -30);
+  assert.equal(t.kind, "fewer"); assert.equal(t.because, false);
+  // 差が ちょうど 2人なら 付ける
+  t = M.ageTalk([2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4], -30);
+  assert.equal(t.kind, "fewer"); assert.equal(t.because, true);
+  // more でも 同じ（3人と 4.5人：差 1.5人）
+  t = M.ageTalk([4, 5, 4, 5, 4, 5, 3, 3, 3, 3, 3, 3], 10);
+  assert.equal(t.kind, "more"); assert.equal(t.because, false);
+});
+
+test("年齢の階段の文：平均では 少ないが、0〜5歳の どれかの 棒が 11歳より はっきり 高いときは mixed", () => {
+  // 江別市 野幌若葉小の形（0〜4歳 57、5歳 94、11歳 83）
+  let t = M.ageTalk([57, 57, 57, 57, 57, 94, 94, 94, 94, 94, 83, 83], -20);
+  assert.equal(t.kind, "mixed"); assert.equal(t.because, false);
+  // 5歳が 11歳より 高くても「同じくらい」の 幅（8.3人）に 入るなら fewer の まま
+  t = M.ageTalk([57, 57, 57, 57, 57, 90, 94, 94, 94, 94, 83, 83], -20);
+  assert.equal(t.kind, "fewer");
+  // more の 逆：平均では 多いが、ひくい 棒が ある
+  t = M.ageTalk([70, 70, 70, 70, 70, 40, 50, 50, 50, 50, 50, 50], 5);
+  assert.equal(t.kind, "mixed");
+});

@@ -232,22 +232,31 @@
    *  kind："fewer"（小さい子が少ない）・"same"・"more"・"mixed"。
    *   "mixed"：11歳とくらべた向きと、小学生（6〜11歳）全体とくらべた向きが反対。棒を見たときの印象と
    *   文が食い違うので、どちらとも言わない。
+   *   0〜5歳の どれかの 棒が 11歳の 棒より「同じくらい」の 幅を こえて 高いのに fewer（more は その逆）も mixed。
    *  because：「だから 学校の 人数は へっていく／しばらくは ふえる」を付けてよいか。
-   *   画面の ほかの数字（6年後の小学生 ＝ 0〜5歳の合計、2050年の変化 pct）と向きが合うときだけ true。
+   *   0〜5歳の平均と 11歳の 差が 2人 より小さいときは false。そのうえで、画面の ほかの数字（6年後の小学生 ＝ 0〜5歳の合計、2050年の変化 pct）と向きが合うときだけ true。
    */
-  var AGE_SAME_REL = 0.1, AGE_SAME_ABS = 1;
+  var AGE_SAME_REL = 0.1, AGE_SAME_ABS = 1, AGE_BECAUSE_MIN = 2;
   function ageTalk(ages, pct) {
+    function width(hi) { return Math.max(AGE_SAME_ABS, AGE_SAME_REL * hi); } // 「同じくらい」の 幅
     function cmp(lo, hi) {
       var d = lo - hi;
-      if (Math.abs(d) < Math.max(AGE_SAME_ABS, AGE_SAME_REL * hi)) return "same";
+      if (Math.abs(d) < width(hi)) return "same";
       return d < 0 ? "fewer" : "more";
     }
     var sum = function (a, b) { var s = 0; for (var j = a; j <= b; j++) s += ages[j] || 0; return s; };
     var small = sum(0, 5) / 6, big = ages[11] || 0;
     var kind = cmp(small, big), whole = cmp(small, sum(6, 11) / 6);
     if ((kind === "fewer" && whole === "more") || (kind === "more" && whole === "fewer")) kind = "mixed";
+    // 平均では 少ない（多い）が、0〜5歳の どれかの 棒が 11歳の 棒より はっきり 高い（ひくい）
+    // （例：江別市 野幌若葉小 0〜4歳 57・5歳 94・11歳 83）。棒を 見た 印象と 文が 食い違うので mixed
+    var smalls = ages.slice(0, 6).map(function (v) { return v || 0; });
+    if (kind === "fewer" && smalls.some(function (v) { return v - big >= width(big); })) kind = "mixed";
+    if (kind === "more" && smalls.some(function (v) { return big - v >= width(big); })) kind = "mixed";
     var later = sum(0, 5) - sum(6, 11); // 6年後の小学生 − いまの小学生（引っこしが ないとき）
-    var because = kind === "fewer" ? later < 0 && pct != null && pct < 0
+    // 「だから」は、0〜5歳の平均と 11歳の 差が 2人 以上 あるときだけ（1〜2人の 差で 学校の 人数の 向きを 言わない）
+    var because = Math.abs(small - big) < AGE_BECAUSE_MIN ? false
+      : kind === "fewer" ? later < 0 && pct != null && pct < 0
       : kind === "more" ? later > 0 : false;
     return { kind: kind, because: because, small: small, big: big };
   }
